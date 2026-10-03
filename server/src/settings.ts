@@ -31,7 +31,8 @@ export async function getSettings(): Promise<Settings> {
   if (cache) return cache;
   const rows = await many<{ key: string; value: unknown }>('SELECT key, value FROM settings');
   const merged: Record<string, unknown> = { ...defaultSettings() };
-  for (const row of rows) merged[row.key] = row.value;
+  // Only the known public keys: other rows (billing credentials) have readers of their own.
+  for (const row of rows) if (row.key in merged) merged[row.key] = row.value;
   cache = merged as unknown as Settings;
   return cache;
 }

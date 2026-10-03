@@ -53,6 +53,7 @@ const env = {
   JWT_SECRET: 'dev-only-not-a-secret',
   COOKIE_SECURE: 'false',
   PUBLIC_HOST: 'localhost',
+  PUBLIC_URL: 'http://localhost:5173',
   SIP_DOMAIN: 'localhost',
   ENVO_ADMIN_EMAIL: 'admin@envo.local',
   ENVO_ADMIN_PASSWORD: 'admin12345',

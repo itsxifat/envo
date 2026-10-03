@@ -4,6 +4,7 @@ import m002 from '../migrations/002_cdr_dialed.sql';
 import m003 from '../migrations/003_blocklist_conferences.sql';
 import m004 from '../migrations/004_api_integrations.sql';
 import m005 from '../migrations/005_accounts_packages.sql';
+import m006 from '../migrations/006_billing.sql';
 
 // Ordered list; append new migrations, never edit applied ones.
 const migrations: Array<[string, string]> = [
@@ -12,6 +13,7 @@ const migrations: Array<[string, string]> = [
   ['003_blocklist_conferences', m003],
   ['004_api_integrations', m004],
   ['005_accounts_packages', m005],
+  ['006_billing', m006],
 ];
 
 /** Applies pending migrations; returns the versions applied in this run. */

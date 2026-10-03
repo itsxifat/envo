@@ -39,6 +39,8 @@ import { startWebhooks } from './webhooks.js';
 import { accountRouter } from './routes/account.js';
 import { adminRouter, publicRouter } from './routes/admin.js';
 import { startRetention } from './billing/retention.js';
+import { startBillingClock } from './billing/jobs.js';
+import { adminBillingRouter, billingRouter, gatewayRouter } from './routes/billing.js';
 
 /** Keeps Postgres in sync when a phone changes DND / call forwarding with a feature code. */
 async function onFeatureEvent(e: AmiMessage): Promise<void> {
@@ -92,10 +94,13 @@ async function main(): Promise<void> {
   // Machine-to-machine API (API key) and the embedded phone's token exchange: no dashboard session.
   app.use('/api/v1', v1Router);
   app.use('/api/embed', embedRouter);
+  app.use('/api/public/sslcommerz', gatewayRouter);
   app.use('/api/public', publicRouter);
   app.use('/api', authenticate);
   // Plan, usage and billing stay reachable while an account is pending or suspended.
+  app.use('/api/account/billing', billingRouter);
   app.use('/api/account', accountRouter);
+  app.use('/api/admin/billing', requireRole('superadmin'), adminBillingRouter);
   app.use('/api/admin', requireRole('superadmin'), adminRouter);
   app.use('/api', requireActiveAccount);
   app.use('/api/tenants', tenantRouter);
@@ -149,6 +154,7 @@ async function main(): Promise<void> {
   live.start();
   startWebhooks();
   startRetention();
+  startBillingClock();
   ami.start();
   // Write the Asterisk config right away, even if Asterisk is not reachable yet.
   await applyNow();

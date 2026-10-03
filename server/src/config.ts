@@ -18,6 +18,8 @@ export const config = {
   /** Hostname phones and the browser phone use for SIP (may differ from the dashboard host). */
   sipDomain: env('SIP_DOMAIN', env('PUBLIC_HOST', 'localhost')),
   publicIp: env('PUBLIC_IP', '127.0.0.1'),
+  /** Base URL browsers and payment gateways use to reach the dashboard (payment callbacks). */
+  publicUrl: env('PUBLIC_URL', `https://${env('PUBLIC_HOST', 'localhost')}`).replace(/\/$/, ''),
   admin: {
     email: env('ENVO_ADMIN_EMAIL', 'admin@envo.local'),
     password: process.env.ENVO_ADMIN_PASSWORD ?? '',

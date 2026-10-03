@@ -1,0 +1,22 @@
+/var/log/asterisk/messages.log /var/log/asterisk/full.log /var/log/asterisk/security.log /var/log/asterisk/queue_log {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    create 0640 asterisk asterisk
+    sharedscripts
+    postrotate
+        /usr/sbin/asterisk -rx 'logger reload' > /dev/null 2>&1 || true
+    endscript
+}
+
+/var/log/asterisk/cdr-csv/*.csv {
+    monthly
+    rotate 12
+    missingok
+    notifempty
+    compress
+    create 0640 asterisk asterisk
+}

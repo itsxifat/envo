@@ -1,0 +1,27 @@
+[Unit]
+Description=Asterisk PBX (Envo)
+Documentation=https://docs.asterisk.org
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=asterisk
+Group=asterisk
+# Group-writable spool files so the Envo service (member of the asterisk group) can manage voicemail/recordings.
+UMask=0002
+Environment=HOME=/var/lib/asterisk
+WorkingDirectory=/var/lib/asterisk
+RuntimeDirectory=asterisk
+RuntimeDirectoryMode=0775
+ExecStart=/usr/sbin/asterisk -f -C /etc/asterisk/asterisk.conf
+ExecReload=/usr/sbin/asterisk -rx 'core reload'
+# SIGTERM makes Asterisk shut down cleanly.
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

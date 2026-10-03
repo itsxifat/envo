@@ -1,0 +1,18 @@
+# Envo: ban SIP scanners / password guessers reported by Asterisk's security log.
+# SSH is left exactly as it was before Envo was installed.
+[sshd]
+enabled = false
+
+[asterisk]
+enabled  = true
+filter   = asterisk
+# Ubuntu defaults jails to the systemd journal; Asterisk writes security events to a file.
+backend  = auto
+port     = 5060,5061
+action   = %(banaction)s[name=%(__name__)s-tcp, port="%(port)s", protocol="tcp"]
+           %(banaction)s[name=%(__name__)s-udp, port="%(port)s", protocol="udp"]
+logpath  = /var/log/asterisk/security.log
+maxretry = 8
+findtime = 600
+bantime  = 3600
+ignoreip = 127.0.0.1/8 ::1 100.64.0.0/10 __PUBLIC_IP__

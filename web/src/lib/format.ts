@@ -1,0 +1,53 @@
+export function formatDuration(totalSec: number): string {
+  const s = Math.max(0, Math.floor(totalSec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const mm = String(m).padStart(h ? 2 : 1, '0');
+  const ss = String(sec).padStart(2, '0');
+  return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+export function formatDateTime(value: string | number | Date | null | undefined): string {
+  if (!value) return '—';
+  const d = new Date(value);
+  const today = new Date();
+  const sameDay = d.toDateString() === today.toDateString();
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  if (sameDay) return `Today ${time}`;
+  const yesterday = new Date(today.getTime() - 86400_000);
+  if (d.toDateString() === yesterday.toDateString()) return `Yesterday ${time}`;
+  return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' })} ${time}`;
+}
+
+export function timeAgo(value: string | number | null | undefined): string {
+  if (!value) return 'never';
+  const diff = (Date.now() - new Date(value).getTime()) / 1000;
+  if (diff < 45) return 'just now';
+  if (diff < 3600) return `${Math.round(diff / 60)} min ago`;
+  if (diff < 86400) return `${Math.round(diff / 3600)} h ago`;
+  return `${Math.round(diff / 86400)} d ago`;
+}
+
+/** '"Alice" <1001>' -> { name: 'Alice', number: '1001' } */
+export function parseCallerId(clid: string): { name: string; number: string } {
+  const m = /^\s*"?([^"<]*)"?\s*<([^>]*)>\s*$/.exec(clid);
+  if (m) return { name: m[1]!.trim(), number: m[2]!.trim() };
+  return { name: '', number: clid.trim() };
+}
+
+export function plural(n: number, word: string, pluralWord = `${word}s`): string {
+  return `${n} ${n === 1 ? word : pluralWord}`;
+}
+
+export const DEST_LABELS: Record<string, string> = {
+  extension: 'Extension',
+  voicemail: 'Voicemail',
+  ring_group: 'Ring group',
+  queue: 'Queue',
+  ivr: 'IVR menu',
+  time_condition: 'Time condition',
+  conference: 'Conference room',
+  external: 'External number',
+  hangup: 'Hang up',
+};

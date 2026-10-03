@@ -7,7 +7,7 @@ import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../state/auth';
 import { ACCOUNT_STATUS, formatBdt, formatDate } from '../lib/format';
 import type { CheckoutResult, Invoice, Package } from '../lib/types';
-import { Badge, Button, Card, CardHeader, EmptyState, Modal, Notice, PageHeader, useConfirm } from '../components/ui';
+import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, Notice, PageHeader, Textarea, useConfirm } from '../components/ui';
 import { PaymentResult, PayDialog, PlanPicker } from '../components/billing';
 
 const KIND: Record<string, string> = { subscription: 'Package', renewal: 'Renewal', upgrade: 'Upgrade', manual: 'Other' };
@@ -214,6 +214,8 @@ export function BillingPage() {
         )}
       </Card>
 
+      <BillingDetails />
+
       {picking && (
         <Modal open onClose={() => setPicking(false)} size="xl" title="Change package" description="Upgrades start now; smaller packages start at your next renewal.">
           <PlanPicker
@@ -227,5 +229,48 @@ export function BillingPage() {
       )}
       {paying && <PayDialog invoice={paying} onClose={() => setPaying(null)} />}
     </>
+  );
+}
+
+/** Company details printed on invoices; the email also receives billing messages. */
+function BillingDetails() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ['account'], queryFn: () => api.get<{ account: { name: string; email: string; phone: string; address: string } }>('/api/account') });
+  const [form, setForm] = useState<{ name: string; email: string; phone: string; address: string } | null>(null);
+  useEffect(() => {
+    if (q.data && !form) setForm({ name: q.data.account.name, email: q.data.account.email, phone: q.data.account.phone, address: q.data.account.address });
+  }, [q.data, form]);
+  const save = useMutation({
+    mutationFn: () => api.put('/api/account', form),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['account'] });
+      toast.success('Billing details saved');
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  if (!form) return null;
+  return (
+    <Card className="mt-5 overflow-hidden">
+      <CardHeader title="Billing details" description="Printed on your invoices. Billing emails go to this address." />
+      <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-5">
+        <Field label="Company name">
+          <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        </Field>
+        <Field label="Billing email">
+          <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+        </Field>
+        <Field label="Phone">
+          <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+        </Field>
+        <Field label="Address">
+          <Textarea rows={2} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+        </Field>
+        <div className="sm:col-span-2 sm:flex sm:justify-end">
+          <Button className="w-full sm:w-auto" loading={save.isPending} onClick={() => save.mutate()}>
+            Save details
+          </Button>
+        </div>
+      </div>
+    </Card>
   );
 }

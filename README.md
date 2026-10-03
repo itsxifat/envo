@@ -62,6 +62,39 @@ PostgreSQL with an append-only database role.
 | `*8` | Pick up a ringing colleague's call |
 | `##` / `*2` | Blind / attended transfer during a call |
 
+## Selling Envo (accounts, packages, billing)
+
+Envo is sold as monthly packages. The public website at `/` shows the pricing (generated from the
+packages), and customers sign up, confirm their email, choose a package and pay — then a SIP server
+with three extensions is created for them and the owner's web phone works right away.
+
+| Who | Where | What |
+|---|---|---|
+| Visitors | `/`, `/signup` | Landing page with live pricing, sign-up, email confirmation, password reset |
+| Customers (owner) | Billing, Plan & usage | Choose / renew / upgrade (prorated) / switch at renewal, pay online or report a bKash/bank transfer, invoices, billing details |
+| Customers (admins) | Everything PBX | Their account's SIP servers, extensions, numbers, trunks, team — within the package |
+| Enfinito (platform admins) | Business → Customers, Sales, Packages, Email | Customers (suspend, close, package, custom limits, open their PBX), revenue and invoices, payments to confirm, package editor, payment and email settings |
+
+- **Packages** limit SIP servers, IP numbers, extensions, concurrent calls (account-wide), IVR menus,
+  recording days and storage, and switch call monitoring / developer API on or off. Enfinito's own
+  account is internal and unlimited.
+- **Billing** runs by itself every hour: renewal invoices 7 days before a period ends, past due at
+  the end, suspension after a 3-day grace (both adjustable), and a "payment received" email on
+  every payment. A suspended account keeps its data; its phones stop until it pays.
+- **Payments**: SSLCommerz (bKash, Nagad, Rocket, cards, internet banking), each confirmed with
+  SSLCommerz's validation API; manual bKash/bank transfers are confirmed by an admin in Sales.
+
+### Before selling for real
+
+1. **Payment settings** (Sales → Payment settings): your live SSLCommerz store ID and password,
+   sandbox off. Test with the sandbox store `testbox` first (card 4111 1111 1111 1111, 12/26, 111).
+2. **Email** (Business → Email): an SMTP mailbox (e.g. mailcow on the old VPS, or Brevo). Without
+   it new customers cannot confirm their email (you can confirm them by hand on the customer page).
+3. **Packages**: check prices and limits in Business → Packages.
+4. **Router**: customers bring trunks from many providers and phones from anywhere, so UDP 5060 must
+   be forwarded from everywhere (not only 123.0.31.250), plus TCP 5061 for TLS phones — and the SIP
+   fail2ban jail from `deploy/scripts/office-fixups.sh` must be on first.
+
 ## Connecting things
 
 **An IP phone or softphone** — Extensions → key icon on the extension → enter the server, username

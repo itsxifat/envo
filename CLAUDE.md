@@ -66,6 +66,19 @@ labels copied from the header by `lib/tableCards.ts`) — keep tables plain with
   endpoint ACL for their provider IPs and may not point at private networks. Config-sync status
   (warnings name other customers' trunks) goes to platform admins only.
 - `billing/retention.ts` trims each account's recordings to its package (days, then MB) every 6 h.
+- Billing: `billing/invoices.ts` (checkout, `markInvoicePaid` applies an invoice exactly once inside a
+  transaction, SSLCommerz settle/reconcile, manual review), `billing/jobs.ts` (hourly clock),
+  `billing/provision.ts` (first SIP server on first package). Gateway callbacks are public
+  (`/api/public/sslcommerz/*`) and trust only the Validation API, never the posted fields. The
+  browser returns by cross-site POST without the SameSite=Strict cookie, so the callback answers with
+  a page that hops back same-site. Billing and SMTP settings live in their own `settings` rows and
+  are never returned with passwords; `getSettings()` only returns known public keys.
+- Sign-up (`routes/signup.ts`): pending account + unverified owner; login requires
+  `users.email_verified_at`; one-time links are stored as sha256 hashes. Anything an admin creates
+  is verified. Emails go through `lib/mailer.ts` (logged in `email_log`; console only when SMTP is
+  off). In development the confirmation link is printed in the server log.
+- SSLCommerz sandbox for testing: store `testbox` / `qwerty`, card 4111111111111111 12/26 CVV 111,
+  OTP page has a "Success" button.
 
 ## Gotchas found the hard way
 

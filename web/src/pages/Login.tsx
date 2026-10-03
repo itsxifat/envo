@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import { Link } from 'react-router';
+import { toast } from 'sonner';
 import { LockKeyhole, Mail, PhoneCall, PhoneIncoming, Server, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../state/auth';
-import { errorMessage } from '../lib/api';
+import { ApiError, api, errorMessage } from '../lib/api';
 import { Button, Field, Input } from '../components/ui';
 import { LogoMark } from '../components/Layout';
 
@@ -46,6 +48,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [unverified, setUnverified] = useState(false);
 
   return (
     <div className="grid min-h-full bg-white lg:grid-cols-[1.05fr_1fr]">
@@ -95,19 +98,21 @@ export function LoginPage() {
             e.preventDefault();
             setBusy(true);
             setError('');
+            setUnverified(false);
             try {
               await login(email, password);
             } catch (err) {
               setError(errorMessage(err));
+              setUnverified(err instanceof ApiError && err.status === 403);
             } finally {
               setBusy(false);
             }
           }}
         >
-          <div className="mb-10 flex items-center gap-3 lg:hidden">
+          <Link to="/" className="mb-10 flex items-center gap-3 lg:hidden">
             <LogoMark />
             <span className="text-lg font-semibold tracking-tight text-slate-900">Envo</span>
-          </div>
+          </Link>
           <h2 className="text-[28px] leading-tight font-semibold tracking-tight text-slate-900">Welcome back</h2>
           <p className="mt-2 text-[15px] text-slate-500">Sign in to manage your phone system.</p>
           <div className="mt-8 space-y-5">
@@ -117,17 +122,48 @@ export function LoginPage() {
                 <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="h-11 pl-10 sm:h-11" autoComplete="username" autoFocus required placeholder="you@company.com" />
               </div>
             </Field>
-            <Field label="Password">
+            <Field
+              label={
+                <span className="flex items-center justify-between">
+                  Password
+                  <Link to="/forgot-password" className="text-[13px] font-medium text-brand-700 hover:text-brand-800">
+                    Forgot password?
+                  </Link>
+                </span>
+              }
+            >
               <div className="relative">
                 <LockKeyhole className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-slate-400" />
                 <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="h-11 pl-10 sm:h-11" autoComplete="current-password" required placeholder="••••••••" />
               </div>
             </Field>
-            {error && <p className="rounded-xl bg-rose-50 px-3.5 py-2.5 text-sm text-rose-700 ring-1 ring-rose-600/10">{error}</p>}
+            {error && (
+              <div className="rounded-xl bg-rose-50 px-3.5 py-2.5 text-sm text-rose-700 ring-1 ring-rose-600/10">
+                {error}
+                {unverified && (
+                  <button
+                    type="button"
+                    className="mt-1 block font-medium text-rose-800 underline underline-offset-2"
+                    onClick={async () => {
+                      await api.post('/api/public/resend-verification', { email }).catch(() => undefined);
+                      toast.success('A new confirmation link is on its way');
+                    }}
+                  >
+                    Send the link again
+                  </button>
+                )}
+              </div>
+            )}
             <Button type="submit" variant="primary" size="lg" className="w-full" loading={busy}>
               Sign in
             </Button>
           </div>
+          <p className="mt-8 text-center text-sm text-slate-500">
+            New to Envo?{' '}
+            <Link to="/signup" className="font-medium text-brand-700 hover:text-brand-800">
+              Create an account
+            </Link>
+          </p>
         </form>
       </div>
     </div>

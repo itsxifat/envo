@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -6,7 +6,7 @@ import { ArrowRight, CreditCard, FileText, Receipt } from 'lucide-react';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../state/auth';
 import { ACCOUNT_STATUS, formatBdt, formatDate } from '../lib/format';
-import type { Invoice, Package } from '../lib/types';
+import type { CheckoutResult, Invoice, Package } from '../lib/types';
 import { Badge, Button, Card, CardHeader, EmptyState, Modal, Notice, PageHeader, useConfirm } from '../components/ui';
 import { PaymentResult, PayDialog, PlanPicker } from '../components/billing';
 
@@ -22,6 +22,22 @@ export function BillingPage() {
   const [picking, setPicking] = useState(false);
   const invoices = useQuery({ queryKey: ['account', 'invoices'], queryFn: () => api.get<Invoice[]>('/api/account/billing/invoices') });
   const packages = useQuery({ queryKey: ['account', 'packages'], queryFn: () => api.get<Package[]>('/api/account/packages') });
+
+  // Straight from sign-up: start paying for the package picked on the website.
+  const chose = useRef(false);
+  const choose = params.get('choose');
+  useEffect(() => {
+    if (!choose || chose.current || !user?.isOwner || plan?.subscription) return;
+    chose.current = true;
+    setParams({}, { replace: true });
+    void api
+      .post<CheckoutResult>('/api/account/billing/checkout', { package_id: Number(choose), months: 1 })
+      .then((r) => {
+        void qc.invalidateQueries({ queryKey: ['account'] });
+        if (r.action === 'invoice') setPaying(r.invoice);
+      })
+      .catch((err) => toast.error(errorMessage(err)));
+  }, [choose, user, plan, qc, setParams]);
 
   // Back from the payment page: the package may have changed.
   useEffect(() => {

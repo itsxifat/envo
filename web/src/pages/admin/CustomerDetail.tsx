@@ -14,7 +14,7 @@ interface Detail {
   plan: Plan;
   usage: Usage;
   servers: { id: number; name: string; slug: string; enabled: boolean; extensions: number; numbers: number }[];
-  users: { id: number; email: string; name: string; role: string; is_owner: boolean; enabled: boolean; last_login_at: string | null }[];
+  users: { id: number; email: string; name: string; role: string; is_owner: boolean; enabled: boolean; last_login_at: string | null; email_verified_at: string | null }[];
   subscriptions: { id: number; package_name: string; status: string; price: string; current_period_start: string; current_period_end: string; overrides: Partial<PlanLimits> }[];
 }
 
@@ -342,6 +342,24 @@ export function CustomerDetailPage() {
                       {u.name}
                       {u.is_owner && <Crown className="size-3.5 text-amber-500" aria-label="Owner" />}
                       {!u.enabled && <Badge>Disabled</Badge>}
+                      {!u.email_verified_at && (
+                        <button
+                          type="button"
+                          className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-amber-600/20 hover:bg-amber-100"
+                          title="Their confirmation email never arrived? Confirm it for them."
+                          onClick={async () => {
+                            try {
+                              await api.post(`/api/admin/users/${u.id}/verify-email`);
+                              void qc.invalidateQueries({ queryKey: ['admin'] });
+                              toast.success('Email confirmed; they can sign in now');
+                            } catch (err) {
+                              toast.error(errorMessage(err));
+                            }
+                          }}
+                        >
+                          Email not confirmed · confirm
+                        </button>
+                      )}
                     </div>
                     <div className="truncate text-xs text-slate-500">{u.email}</div>
                   </div>

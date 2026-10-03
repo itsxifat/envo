@@ -4,6 +4,7 @@ import {
   BadgeDollarSign,
   Briefcase,
   CreditCard,
+  Mail,
   Receipt,
   Building2,
   Gem,
@@ -95,6 +96,7 @@ export const NAV: NavGroup[] = [
       { to: '/admin/customers', label: 'Customers', icon: Briefcase, roles: ['superadmin'], keywords: 'accounts clients subscribers tenants companies suspend' },
       { to: '/admin/sales', label: 'Sales', icon: Receipt, roles: ['superadmin'], keywords: 'revenue invoices payments mrr approve bkash sslcommerz' },
       { to: '/admin/packages', label: 'Packages', icon: BadgeDollarSign, roles: ['superadmin'], keywords: 'plans pricing limits price tiers' },
+      { to: '/admin/email', label: 'Email', icon: Mail, roles: ['superadmin'], keywords: 'smtp mail notifications verification sender' },
     ],
   },
 ];

@@ -8,6 +8,8 @@ import { Layout } from './components/Layout';
 import { LoadingBlock } from './components/ui';
 import type { Role } from './lib/types';
 import { LoginPage } from './pages/Login';
+import { LandingPage } from './pages/public/Landing';
+import { CheckEmailPage, ForgotPasswordPage, ResetPasswordPage, SignupPage, VerifyPage } from './pages/public/Signup';
 import { DashboardPage } from './pages/Dashboard';
 import { LiveCallsPage } from './pages/LiveCalls';
 import { CallLogsPage } from './pages/CallLogs';
@@ -36,6 +38,7 @@ import { BillingPage } from './pages/Billing';
 import { InvoiceViewPage } from './pages/InvoiceView';
 import { SalesPage } from './pages/admin/Sales';
 import { BillingSettingsPage } from './pages/admin/BillingSettings';
+import { EmailSettingsPage } from './pages/admin/EmailSettings';
 
 function RequireRole({ roles, children }: { roles: Role[]; children: ReactNode }) {
   const { user } = useAuth();
@@ -51,6 +54,14 @@ export function App() {
   if (!user) {
     return (
       <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
+        <Route path="/check-email" element={<CheckEmailPage />} />
+        <Route path="/verify" element={<VerifyPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset" element={<ResetPasswordPage />} />
+        {/* Any other address: sign in, then the app continues there. */}
         <Route path="*" element={<LoginPage />} />
       </Routes>
     );
@@ -87,6 +98,7 @@ export function App() {
               <Route path="billing/invoices/:id" element={<RequireRole roles={['admin']}><InvoiceViewPage /></RequireRole>} />
               <Route path="admin/sales" element={<RequireRole roles={['superadmin']}><SalesPage /></RequireRole>} />
               <Route path="admin/billing-settings" element={<RequireRole roles={['superadmin']}><BillingSettingsPage /></RequireRole>} />
+              <Route path="admin/email" element={<RequireRole roles={['superadmin']}><EmailSettingsPage /></RequireRole>} />
               <Route path="admin/customers" element={<RequireRole roles={['superadmin']}><CustomersPage /></RequireRole>} />
               <Route path="admin/customers/:id" element={<RequireRole roles={['superadmin']}><CustomerDetailPage /></RequireRole>} />
               <Route path="admin/packages" element={<RequireRole roles={['superadmin']}><PackagesPage /></RequireRole>} />

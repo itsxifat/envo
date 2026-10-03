@@ -148,7 +148,11 @@ export function DashboardPage() {
   const issues = useMemo<Issue[]>(() => {
     const out: Issue[] = [];
     if (live.connected && live.asterisk && !live.asterisk.connected) {
-      out.push({ key: 'pbx', tone: 'danger', title: 'The PBX is not responding', detail: 'Calls cannot be placed or received until Asterisk is back.', to: '/system', action: 'Open system health' });
+      out.push(
+        user?.role === 'superadmin'
+          ? { key: 'pbx', tone: 'danger', title: 'The PBX is not responding', detail: 'Calls cannot be placed or received until Asterisk is back.', to: '/system', action: 'Open system health' }
+          : { key: 'pbx', tone: 'danger', title: 'The phone service is briefly unavailable', detail: 'Calls cannot be placed or received right now. We are on it; there is nothing you need to do.' },
+      );
     }
     if (!live.connected) {
       out.push({ key: 'ws', tone: 'warn', title: 'Live updates disconnected', detail: 'Reconnecting to the server. Numbers on this page may be stale.' });
@@ -190,7 +194,7 @@ export function DashboardPage() {
       }
     }
     return out;
-  }, [live.connected, live.asterisk, live.apply, trunks.data, webhooks.data, s, isAdmin]);
+  }, [live.connected, live.asterisk, live.apply, trunks.data, webhooks.data, s, isAdmin, user?.role]);
 
   return (
     <div>

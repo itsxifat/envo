@@ -8,6 +8,7 @@ import { randomPassword } from '../lib/secrets.js';
 import { scheduleApply } from '../asterisk/apply.js';
 import { getAccountPlan, getUsage, invalidatePlans, IVR_TIERS } from '../billing/plan.js';
 import { getEmailSettings, testEmail, updateEmailSettings, type EmailSettings } from '../lib/mailer.js';
+import { getBillingSettings } from '../billing/settings.js';
 
 /** Platform administration (Enfinito): packages, customers and their subscriptions. */
 export const adminRouter = Router();
@@ -291,6 +292,12 @@ adminRouter.delete('/accounts/:id/subscription', async (req, res) => {
 // ------------------------------------------------------------------------------------- public
 /** Packages for the public pricing page (no sign-in). */
 export const publicRouter = Router();
+
+/** Who sells Envo (for "Contact us" on the website). */
+publicRouter.get('/info', async (_req, res) => {
+  const b = (await getBillingSettings()).business;
+  res.json({ business: { name: b.name, email: b.email, phone: b.phone } });
+});
 
 publicRouter.get('/packages', async (_req, res) => {
   res.json(

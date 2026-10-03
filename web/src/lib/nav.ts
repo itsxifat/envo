@@ -1,7 +1,10 @@
 import type { ComponentType } from 'react';
 import {
   Activity,
+  BadgeDollarSign,
+  Briefcase,
   Building2,
+  Gem,
   Clock,
   Code2,
   FileAudio,
@@ -20,13 +23,17 @@ import {
   Users,
   Voicemail,
 } from 'lucide-react';
-import type { Role } from './types';
+import type { Plan, Role, User } from './types';
 
 export interface NavItem {
   to: string;
   label: string;
   icon: ComponentType<{ className?: string }>;
   roles?: Role[];
+  /** Shown only when the customer's package includes it. */
+  feature?: 'call_monitoring' | 'api_access';
+  /** Customers only (platform admins have no account of their own). */
+  customer?: boolean;
   /** Extra words the command palette should match on. */
   keywords?: string;
 }
@@ -41,7 +48,7 @@ export const NAV: NavGroup[] = [
     title: 'Overview',
     items: [
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, keywords: 'home overview stats' },
-      { to: '/live', label: 'Live calls', icon: Activity, roles: ['superadmin', 'admin'], keywords: 'active channels monitor spy whisper barge' },
+      { to: '/live', label: 'Live calls', icon: Activity, roles: ['superadmin', 'admin'], feature: 'call_monitoring', keywords: 'active channels monitor spy whisper barge' },
       { to: '/calls', label: 'Call logs', icon: History, keywords: 'cdr history recordings' },
       { to: '/voicemail', label: 'Voicemail', icon: Voicemail, keywords: 'messages inbox' },
     ],
@@ -70,15 +77,35 @@ export const NAV: NavGroup[] = [
   {
     title: 'Administration',
     items: [
-      { to: '/servers', label: 'SIP servers', icon: Building2, roles: ['superadmin'], keywords: 'tenants multi tenant pbx instance' },
+      { to: '/servers', label: 'SIP servers', icon: Building2, roles: ['superadmin', 'admin'], keywords: 'tenants multi tenant pbx instance' },
       { to: '/users', label: 'Users', icon: UserRound, roles: ['superadmin', 'admin'], keywords: 'logins roles admin agent password' },
-      { to: '/developers', label: 'Developers', icon: Code2, roles: ['superadmin', 'admin'], keywords: 'api keys webhooks embed widget integration commerce' },
+      { to: '/developers', label: 'Developers', icon: Code2, roles: ['superadmin', 'admin'], feature: 'api_access', keywords: 'api keys webhooks embed widget integration commerce' },
+      { to: '/account', label: 'Plan & usage', icon: Gem, roles: ['admin'], customer: true, keywords: 'package subscription limits upgrade billing invoice' },
       { to: '/system', label: 'System', icon: Settings, roles: ['superadmin'], keywords: 'health asterisk modules audit backup settings' },
+    ],
+  },
+  {
+    title: 'Business',
+    items: [
+      { to: '/admin/customers', label: 'Customers', icon: Briefcase, roles: ['superadmin'], keywords: 'accounts clients subscribers tenants companies suspend' },
+      { to: '/admin/packages', label: 'Packages', icon: BadgeDollarSign, roles: ['superadmin'], keywords: 'plans pricing limits price tiers' },
     ],
   },
 ];
 
-/** Flat, role-filtered list of navigable pages. */
-export function navFor(role: Role): NavItem[] {
-  return NAV.flatMap((g) => g.items).filter((i) => !i.roles || i.roles.includes(role));
+function allowed(item: NavItem, user: User, plan: Plan | null): boolean {
+  if (item.roles && !item.roles.includes(user.role)) return false;
+  if (item.customer && user.accountId === null) return false;
+  if (item.feature && plan && !plan.limits[item.feature]) return false;
+  return true;
+}
+
+/** Navigation groups this user may see: role, package features and customer-only pages applied. */
+export function visibleNav(user: User, plan: Plan | null): NavGroup[] {
+  return NAV.map((g) => ({ ...g, items: g.items.filter((i) => allowed(i, user, plan)) })).filter((g) => g.items.length > 0);
+}
+
+/** Flat list of the pages this user may open. */
+export function navFor(user: User, plan: Plan | null): NavItem[] {
+  return visibleNav(user, plan).flatMap((g) => g.items);
 }

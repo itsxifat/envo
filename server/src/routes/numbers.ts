@@ -2,6 +2,7 @@ import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { many, one, exec, insertParts, updateSet } from '../db.js';
 import { requireRole, tenantOf, assertTenantAccess } from '../auth.js';
+import { accountOfTenant, assertLimit } from '../billing/plan.js';
 import { badRequest, intParam, notFound } from '../lib/http.js';
 import { assertDestination, audit, destTarget, destType, phoneNumber } from '../lib/validate.js';
 import { scheduleApply } from '../asterisk/apply.js';
@@ -29,8 +30,12 @@ async function load(req: Request): Promise<PhoneNumber> {
   return row;
 }
 
-async function assertTrunk(tenantId: number, trunkId: number | null): Promise<void> {
-  if (!trunkId) return;
+async function assertTrunk(req: Request, tenantId: number, trunkId: number | null): Promise<void> {
+  if (!trunkId) {
+    // A number without a trunk answers calls from every trunk, including other customers' ones.
+    if (req.user!.role !== 'superadmin') throw badRequest('Choose the trunk (provider line) this number arrives on');
+    return;
+  }
   const t = await one('SELECT 1 FROM trunks WHERE id = $1 AND (tenant_id IS NULL OR tenant_id = $2)', [trunkId, tenantId]);
   if (!t) throw badRequest('The selected trunk is not available to this SIP server');
 }
@@ -48,10 +53,11 @@ numberRouter.get('/', async (req, res) => {
   );
 });
 
-numberRouter.post('/', requireRole('superadmin'), async (req, res) => {
+numberRouter.post('/', requireRole('superadmin', 'admin'), async (req, res) => {
   const tenantId = tenantOf(req)!;
   const data = numberSchema.parse(req.body);
-  await assertTrunk(tenantId, data.trunk_id);
+  await assertLimit(await accountOfTenant(tenantId), 'max_dids');
+  await assertTrunk(req, tenantId, data.trunk_id);
   await assertDestination(tenantId, data.dest_type, data.dest_target);
   const { cols, placeholders, values } = insertParts({ ...data, tenant_id: tenantId });
   const row = await one<PhoneNumber>(`INSERT INTO numbers (${cols}) VALUES (${placeholders}) RETURNING *`, values);
@@ -62,9 +68,8 @@ numberRouter.post('/', requireRole('superadmin'), async (req, res) => {
 
 numberRouter.put('/:id', requireRole('superadmin', 'admin'), async (req, res) => {
   const existing = await load(req);
-  // SIP server admins may change routing; numbers, trunks and channels belong to the platform admin.
-  const data = req.user!.role === 'superadmin' ? numberSchema.parse(req.body) : routingSchema.parse(req.body);
-  if ('trunk_id' in data) await assertTrunk(existing.tenant_id, (data as { trunk_id: number | null }).trunk_id);
+  const data = numberSchema.parse(req.body);
+  await assertTrunk(req, existing.tenant_id, data.trunk_id);
   await assertDestination(existing.tenant_id, data.dest_type, data.dest_target);
   const { clause, values } = updateSet({ ...data, updated_at: new Date() });
   const row = await one(`UPDATE numbers SET ${clause} WHERE id = $${values.length + 1} RETURNING *`, [...values, existing.id]);
@@ -73,7 +78,7 @@ numberRouter.put('/:id', requireRole('superadmin', 'admin'), async (req, res) =>
   res.json(row);
 });
 
-numberRouter.delete('/:id', requireRole('superadmin'), async (req, res) => {
+numberRouter.delete('/:id', requireRole('superadmin', 'admin'), async (req, res) => {
   const existing = await load(req);
   await exec('DELETE FROM numbers WHERE id = $1', [existing.id]);
   await audit(req, 'delete', 'number', existing.id, existing.number, existing.tenant_id);

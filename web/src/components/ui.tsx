@@ -939,6 +939,35 @@ export function Stat({
   );
 }
 
+/** Usage against a package limit. `limit` null = unlimited, 0 = not included. */
+export function Meter({ label, used, limit, unit, icon, hint }: { label: string; used: number | null; limit: number | null; unit?: string; icon?: ReactNode; hint?: ReactNode }) {
+  const pct = limit && used !== null ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+  const full = limit !== null && limit > 0 && used !== null && used >= limit;
+  const tone = limit === 0 ? 'bg-slate-200' : full ? 'bg-amber-500' : pct >= 80 ? 'bg-amber-400' : 'bg-brand-600';
+  return (
+    <div className="rounded-xl border border-slate-200/70 bg-white p-4">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-2 text-[13px] font-medium text-slate-600">
+          {icon && <span className="text-slate-400 [&>svg]:size-4">{icon}</span>}
+          <span className="truncate">{label}</span>
+        </span>
+        {full && <Badge tone="amber">Limit reached</Badge>}
+      </div>
+      <div className="mt-2 flex items-baseline gap-1.5">
+        <span className="text-2xl font-semibold tracking-tight text-slate-900 tabular-nums">{used === null ? '—' : used.toLocaleString()}</span>
+        <span className="text-sm text-slate-500">
+          {limit === null ? 'of unlimited' : limit === 0 ? 'not included' : `of ${limit.toLocaleString()}`}
+          {unit && limit !== 0 ? ` ${unit}` : ''}
+        </span>
+      </div>
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
+        <div className={clsx('h-full rounded-full transition-all duration-700', tone)} style={{ width: limit === null ? '6%' : `${Math.max(pct, used ? 3 : 0)}%` }} />
+      </div>
+      {hint && <p className="mt-2 text-xs text-slate-500">{hint}</p>}
+    </div>
+  );
+}
+
 export function SectionTitle({ children, className }: { children: ReactNode; className?: string }) {
   return <h4 className={clsx('mb-3 text-[11px] font-semibold tracking-wider text-slate-500 uppercase', className)}>{children}</h4>;
 }

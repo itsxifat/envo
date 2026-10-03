@@ -8,13 +8,23 @@ import { HttpError, forbidden } from './lib/http.js';
 
 export type Role = 'superadmin' | 'admin' | 'agent';
 
+export type AccountStatus = 'pending' | 'active' | 'suspended' | 'closed';
+
 export interface SessionUser {
   id: number;
   email: string;
   name: string;
   role: Role;
+  /** Home SIP server: an agent's only one, an admin's default. */
   tenantId: number | null;
   extensionId: number | null;
+  /** Customer account; null for platform admins. */
+  accountId: number | null;
+  accountStatus: AccountStatus | null;
+  /** The account owner manages billing and the team. */
+  isOwner: boolean;
+  /** SIP servers this login may work in; null = every one (platform admins). */
+  tenantIds: number[] | null;
 }
 
 declare module 'express-serve-static-core' {
@@ -68,21 +78,39 @@ export async function userFromCookieHeader(cookieHeader: string | undefined): Pr
     tenant_id: number | null;
     extension_id: number | null;
     enabled: boolean;
+    account_id: number | null;
+    is_owner: boolean;
+    account_status: AccountStatus | null;
     tenant_enabled: boolean | null;
+    account_tenants: number[];
   }>(
-    `SELECT u.id, u.email, u.name, u.role, u.tenant_id, u.extension_id, u.enabled, t.enabled AS tenant_enabled
-       FROM users u LEFT JOIN tenants t ON t.id = u.tenant_id WHERE u.id = $1`,
+    `SELECT u.id, u.email, u.name, u.role, u.tenant_id, u.extension_id, u.enabled, u.account_id, u.is_owner,
+            a.status AS account_status, t.enabled AS tenant_enabled,
+            COALESCE((SELECT array_agg(x.id ORDER BY x.id) FROM tenants x WHERE x.account_id = u.account_id), '{}') AS account_tenants
+       FROM users u
+       LEFT JOIN accounts a ON a.id = u.account_id
+       LEFT JOIN tenants t ON t.id = u.tenant_id
+      WHERE u.id = $1`,
     [Number(payload.sub)],
   );
   if (!row || !row.enabled) return null;
-  if (row.role !== 'superadmin' && row.tenant_enabled === false) return null;
+  if (row.role !== 'superadmin') {
+    if (row.account_status === 'closed') return null;
+    if (row.role === 'agent' && row.tenant_enabled === false) return null;
+  }
+  const tenantIds = row.role === 'superadmin' ? null : row.role === 'agent' ? (row.tenant_id ? [row.tenant_id] : []) : row.account_tenants;
+  const home = row.tenant_id !== null && (tenantIds === null || tenantIds.includes(row.tenant_id)) ? row.tenant_id : (tenantIds?.[0] ?? row.tenant_id);
   return {
     id: row.id,
     email: row.email,
     name: row.name,
     role: row.role,
-    tenantId: row.tenant_id,
+    tenantId: home,
     extensionId: row.extension_id,
+    accountId: row.account_id,
+    accountStatus: row.account_status,
+    isOwner: row.role === 'superadmin' || row.is_owner,
+    tenantIds,
   };
 }
 
@@ -101,26 +129,57 @@ export function requireRole(...roles: Role[]) {
 }
 
 /**
- * Tenant a request operates on. Superadmins pick one with ?tenant_id= (or body.tenant_id);
- * everyone else is pinned to their own tenant.
+ * The PBX works only for active accounts. Pending (nothing bought yet) and suspended accounts can
+ * still sign in, see their plan and pay (/api/account), but not use the phone system.
+ */
+export function requireActiveAccount(req: Request, _res: Response, next: NextFunction): void {
+  const user = req.user!;
+  if (user.role === 'superadmin' || user.accountStatus === 'active') return next();
+  next(
+    new HttpError(
+      402,
+      user.accountStatus === 'pending' ? 'Choose a package to start using your phone system' : 'Your account is suspended. Renew your package to continue.',
+      { code: 'account_inactive', status: user.accountStatus },
+    ),
+  );
+}
+
+/** Owners (and platform admins) only: billing, team and account settings. */
+export function requireOwner(req: Request, _res: Response, next: NextFunction): void {
+  if (!req.user || !req.user.isOwner) return next(forbidden('Only the account owner can do this'));
+  next();
+}
+
+export function canAccessTenant(user: SessionUser, tenantId: number | null): boolean {
+  if (user.tenantIds === null) return true;
+  return tenantId !== null && user.tenantIds.includes(tenantId);
+}
+
+/**
+ * Tenant a request operates on, from ?tenant_id= (or body.tenant_id). Agents are pinned to their own
+ * SIP server, admins may pick any server of their account (default: their home server), platform
+ * admins any server at all.
  */
 export function tenantOf(req: Request, opts: { required?: boolean } = { required: true }): number | null {
   const user = req.user!;
-  if (user.role !== 'superadmin') return user.tenantId;
+  if (user.role === 'agent') return user.tenantId;
   const raw = (req.query.tenant_id as string | undefined) ?? (req.body && (req.body as Record<string, unknown>).tenant_id);
   if (raw === undefined || raw === null || raw === '') {
-    if (opts.required) throw new HttpError(400, 'Select a SIP server first (tenant_id is required)');
-    return null;
+    if (user.role === 'superadmin') {
+      if (opts.required) throw new HttpError(400, 'Select a SIP server first (tenant_id is required)');
+      return null;
+    }
+    if (user.tenantId === null && opts.required) throw new HttpError(400, 'Create a SIP server first');
+    return user.tenantId;
   }
   const id = Number(raw);
   if (!Number.isInteger(id) || id <= 0) throw new HttpError(400, 'Invalid tenant_id');
+  if (!canAccessTenant(user, id)) throw forbidden();
   return id;
 }
 
 export function assertTenantAccess(req: Request, tenantId: number | null): void {
-  const user = req.user!;
-  if (user.role === 'superadmin') return;
-  if (tenantId === null || tenantId !== user.tenantId) throw forbidden();
+  if (!canAccessTenant(req.user!, tenantId)) throw forbidden();
 }
 
 // Simple in-memory limiter for login attempts: 10 per 5 minutes per IP + email.

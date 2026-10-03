@@ -267,6 +267,11 @@ export function generate(model: Model): GeneratedConfig {
   }
 
   pj.push('\n; ===== Trunks =====\n');
+  // Customers of the same IPTSP share its provider IP, which then cannot tell their trunks apart:
+  // such trunks are identified by their own numbers in the request URI instead (identify below).
+  const trunkIps = (tr: Trunk) => [...new Set([tr.host, ...tr.match_ips.split(/[\s,]+/)].filter((v) => v && isIpOrCidr(v)))];
+  const ipUsers = new Map<string, number>();
+  for (const tr of trunks) for (const ip of trunkIps(tr)) ipUsers.set(ip, (ipUsers.get(ip) ?? 0) + 1);
   for (const tr of trunks) {
     const ep = trunkEndpoint(tr);
     const transport = `transport-${tr.transport}`;
@@ -301,6 +306,12 @@ export function generate(model: Model): GeneratedConfig {
       .set('outbound_proxy', proxy)
       .set('set_var', `ENVO_TRUNK_ID=${tr.id}`)
       .set('set_var', `ENVO_TRUNK_MAX=${tr.max_channels}`);
+    // A trunk identified by its numbers could be spoofed from anywhere: only its provider may use it.
+    const providerIps = trunkIps(tr);
+    if (isIpOrCidr(tr.host) && providerIps.length) {
+      endpoint.set('deny', '0.0.0.0/0.0.0.0');
+      for (const ip of providerIps) endpoint.set('permit', ip.includes('/') ? ip : `${ip}/255.255.255.255`);
+    }
     pj.push(endpoint.toString());
 
     if (hasAuth) {
@@ -347,11 +358,24 @@ export function generate(model: Model): GeneratedConfig {
       registrations.set(ep, { trunkId: tr.id, tenantId: tr.tenant_id });
     }
 
-    // The provider host is often repeated in "extra provider IPs"; list each address once.
-    const matches = [...new Set([tr.host, ...tr.match_ips.split(/[\s,]+/).filter((v) => v && isIpOrCidr(v))])];
+    // The provider host is often repeated in "extra provider IPs"; list each address once, and leave
+    // out addresses another trunk uses too.
+    const matches = [...new Set([tr.host, ...tr.match_ips.split(/[\s,]+/).filter((v) => v && isIpOrCidr(v))])].filter(
+      (m) => !isIpOrCidr(m) || (ipUsers.get(m) ?? 0) < 2,
+    );
+    const dids = [
+      ...new Set(
+        model.numbers
+          .filter((n) => n.trunk_id === tr.id && n.enabled && isPhoneNumber(n.number))
+          .flatMap((n) => didVariants(n.number, settings.country_code, settings.national_prefix)),
+      ),
+    ];
     const identify = new Section(ep).set('type', 'identify').set('endpoint', ep);
     for (const m of matches) identify.set('match', m);
-    pj.push(identify.toString());
+    // Numbers are unique platform-wide, so "sip:<one of my numbers>@" names exactly one trunk.
+    if (dids.length) identify.set('match_request_uri', `/^sips?:(${dids.map((d) => d.replace('+', '[+]')).join('|')})@/`);
+    if (matches.length || dids.length) pj.push(identify.toString());
+    else warnings.push(`Trunk ${tr.name}: shares its provider IP with another trunk and has no numbers yet, so incoming calls cannot be matched to it`);
 
     endpoints.set(ep, { kind: 'trunk', tenantId: tr.tenant_id, trunkId: tr.id, label: tr.name });
   }
@@ -381,9 +405,12 @@ export function generate(model: Model): GeneratedConfig {
     if (!n.enabled || !t || !t.enabled || !isPhoneNumber(n.number)) continue;
     const record = n.recording === 'on' || (n.recording === 'inherit' && (t.recording === 'inbound' || t.recording === 'all'));
     const prefix = cidName(n.cid_prefix);
+    // Keyed by the trunk the number belongs to, so a call only reaches a number through its own
+    // trunk (t0 = a platform number without a trunk, reachable from any trunk).
+    const trunkKey = `t${n.trunk_id ?? 0}n`;
     for (const variant of didVariants(n.number, cc, np)) {
-      if (seenDid.has(variant)) continue;
-      seenDid.add(variant);
+      if (seenDid.has(trunkKey + variant)) continue;
+      seenDid.add(trunkKey + variant);
       // The arriving trunk's own channel limit was already applied in envo-inbound.
       const apps = [
         `NoOp(Envo DID ${n.number} for SIP server ${t.slug})`,
@@ -396,11 +423,13 @@ export function generate(model: Model): GeneratedConfig {
         `GotoIf($[\${ENVO_LIMIT_OK} = 0]?envo-busy,s,1)`,
         `Gosub(envo-limit,s,1(envo_tenant,t${t.id},${t.max_channels}))`,
         `GotoIf($[\${ENVO_LIMIT_OK} = 0]?envo-busy,s,1)`,
+        `Gosub(envo-limit,s,1(envo_account,a${t.account_id},${t.account_max_channels}))`,
+        `GotoIf($[\${ENVO_LIMIT_OK} = 0]?envo-busy,s,1)`,
       ];
       if (prefix) apps.push(`Set(CALLERID(name)=${prefix} \${CALLERID(name)})`);
       if (record) apps.push('Set(__ENVO_REC=1)');
       apps.push(dest(t, n.dest_type, n.dest_target));
-      didCtx.exten(variant, apps);
+      didCtx.exten(trunkKey + variant, apps);
     }
   }
   dp.push(didCtx.toString());
@@ -416,6 +445,8 @@ export function generate(model: Model): GeneratedConfig {
       `Set(CHANNEL(accountcode)=t${t.id})`,
       ...blockChecks(t.id),
       `Gosub(envo-limit,s,1(envo_tenant,t${t.id},${t.max_channels}))`,
+      `GotoIf($[\${ENVO_LIMIT_OK} = 0]?envo-busy,s,1)`,
+      `Gosub(envo-limit,s,1(envo_account,a${t.account_id},${t.account_max_channels}))`,
       `GotoIf($[\${ENVO_LIMIT_OK} = 0]?envo-busy,s,1)`,
       dest(t, tr.default_dest_type, tr.default_dest_target),
     ]);
@@ -489,7 +520,7 @@ export function generate(model: Model): GeneratedConfig {
         }
         const apps = [
           `NoOp(Envo route ${cfgText(r.name)})`,
-          `Gosub(envo-out-pre,s,1(${tid},${t.max_channels},${cid}))`,
+          `Gosub(envo-out-pre,s,1(${tid},${t.max_channels},${cid},${t.account_id},${t.account_max_channels}))`,
           `GotoIf($[\${ENVO_OUT_OK} = 0]?envo-unavailable,s,1)`,
           `Set(ENVO_NUM=${prepend}\${EXTEN:${r.strip}})`,
         ];

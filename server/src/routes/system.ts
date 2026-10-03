@@ -12,7 +12,7 @@ import { getSettings, updateSettings } from '../settings.js';
 
 export const systemRouter = Router();
 
-systemRouter.get('/status', requireRole('superadmin', 'admin'), async (_req, res) => {
+systemRouter.get('/status', requireRole('superadmin'), async (_req, res) => {
   const counts = await one(
     `SELECT (SELECT count(*) FROM tenants) AS tenants, (SELECT count(*) FROM extensions) AS extensions,
             (SELECT count(*) FROM trunks) AS trunks, (SELECT count(*) FROM numbers) AS numbers,
@@ -27,7 +27,7 @@ systemRouter.get('/status', requireRole('superadmin', 'admin'), async (_req, res
   });
 });
 
-systemRouter.post('/apply', requireRole('superadmin', 'admin'), async (req, res) => {
+systemRouter.post('/apply', requireRole('superadmin'), async (req, res) => {
   await audit(req, 'apply', 'system', '', 'manual apply');
   res.json(await applyNow(true));
 });

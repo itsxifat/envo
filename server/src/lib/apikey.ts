@@ -1,3 +1,4 @@
+import { planForTenant } from '../billing/plan.js';
 import crypto from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { one, exec } from '../db.js';
@@ -90,6 +91,14 @@ export async function apiKeyAuth(req: Request, res: Response, next: NextFunction
     return;
   }
   if (!allow(key.id)) return next(new HttpError(429, 'Rate limit exceeded (120 requests/minute)'));
+  // The key works only while its customer's package includes the API and the account is active.
+  try {
+    const plan = await planForTenant(key.tenant_id);
+    if (!plan.usable) return next(new HttpError(402, 'This account is not active'));
+    if (!plan.limits.api_access) return next(forbidden('API access is not part of this package'));
+  } catch (err) {
+    return next(err);
+  }
   req.apiKey = key;
   void exec('UPDATE api_keys SET last_used_at = now(), requests = requests + 1 WHERE id = $1', [key.id]).catch(() => undefined);
   next();

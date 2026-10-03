@@ -3,7 +3,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import { many, one, exec, tx, insertParts, updateSet } from '../db.js';
-import { requireRole } from '../auth.js';
+import { canAccessTenant, requireOwner, requireRole } from '../auth.js';
+import { assertLimit, getAccountPlan, invalidatePlans } from '../billing/plan.js';
 import { badRequest, conflict, intParam, notFound, forbidden } from '../lib/http.js';
 import { audit, optionalPhone } from '../lib/validate.js';
 import { randomPassword, randomPin } from '../lib/secrets.js';
@@ -47,28 +48,46 @@ export const tenantRouter = Router();
 
 tenantRouter.get('/', async (req, res) => {
   const user = req.user!;
-  const where = user.role === 'superadmin' ? '' : 'WHERE t.id = $1';
-  const rows = await many(
-    `SELECT t.*,
+  const all = user.role === 'superadmin';
+  const accountFilter = !all ? 'WHERE t.account_id = $1' : req.query.account_id ? 'WHERE t.account_id = $1' : '';
+  const params = !all ? [user.accountId] : req.query.account_id ? [Number(req.query.account_id)] : [];
+  const rows = await many<{ id: number }>(
+    `SELECT t.*, a.name AS account_name,
        (SELECT count(*) FROM extensions e WHERE e.tenant_id = t.id) AS extension_count,
        (SELECT count(*) FROM numbers n WHERE n.tenant_id = t.id) AS number_count,
        (SELECT count(*) FROM trunks k WHERE k.tenant_id = t.id) AS trunk_count
-     FROM tenants t ${where} ORDER BY t.id`,
-    user.role === 'superadmin' ? [] : [user.tenantId],
+     FROM tenants t JOIN accounts a ON a.id = t.account_id ${accountFilter} ORDER BY t.id`,
+    params,
   );
-  res.json(rows);
+  // Agents only see their own SIP server.
+  res.json(user.role === 'agent' ? rows.filter((r) => canAccessTenant(user, r.id)) : rows);
 });
 
 tenantRouter.get('/:id', async (req, res) => {
   const id = intParam(req.params.id);
-  if (req.user!.role !== 'superadmin' && req.user!.tenantId !== id) throw forbidden();
+  if (!canAccessTenant(req.user!, id)) throw forbidden();
   const row = await one('SELECT * FROM tenants WHERE id = $1', [id]);
   if (!row) throw notFound('SIP server');
   res.json(row);
 });
 
-tenantRouter.post('/', requireRole('superadmin'), async (req, res) => {
-  const { quick_extensions, ...data } = createSchema.parse(req.body);
+tenantRouter.post('/', requireRole('superadmin', 'admin'), async (req, res) => {
+  const user = req.user!;
+  const parsed = createSchema.extend({ account_id: z.number().int().positive().optional() }).parse(req.body);
+  const { quick_extensions, account_id: requestedAccount, ...rest } = parsed;
+  let accountId: number;
+  let data = rest;
+  if (user.role === 'superadmin') {
+    const fallback = await one<{ id: number }>('SELECT id FROM accounts WHERE internal ORDER BY id LIMIT 1');
+    accountId = requestedAccount ?? fallback?.id ?? 0;
+    if (!(await one('SELECT 1 FROM accounts WHERE id = $1', [accountId]))) throw badRequest('Choose the customer account for this SIP server');
+  } else {
+    accountId = user.accountId!;
+    await assertLimit(accountId, 'max_servers');
+    if (quick_extensions) await assertLimit(accountId, 'max_extensions', quick_extensions.count);
+    // Channel and extension caps of a customer's servers come from the package, not from them.
+    data = { ...rest, max_channels: 0, max_extensions: 0, enabled: true };
+  }
   let slug = data.slug ?? slugify(data.name);
   if (!data.slug) {
     for (let i = 2; await one('SELECT 1 FROM tenants WHERE slug = $1', [slug]); i++) slug = `${slugify(data.name).slice(0, 14)}${i}`;
@@ -77,7 +96,7 @@ tenantRouter.post('/', requireRole('superadmin'), async (req, res) => {
   }
 
   const tenant = await tx(async (db) => {
-    const { cols, placeholders, values } = insertParts({ ...data, slug });
+    const { cols, placeholders, values } = insertParts({ ...data, slug, account_id: accountId });
     const t = (await db.query(`INSERT INTO tenants (${cols}) VALUES (${placeholders}) RETURNING *`, values)).rows[0];
     if (quick_extensions) {
       const start = Number(quick_extensions.start);
@@ -95,17 +114,31 @@ tenantRouter.post('/', requireRole('superadmin'), async (req, res) => {
     return t;
   });
   await audit(req, 'create', 'tenant', tenant.id, tenant.name, tenant.id);
+  invalidatePlans(accountId);
   scheduleApply();
   res.status(201).json(tenant);
 });
 
-tenantRouter.put('/:id', requireRole('superadmin'), async (req, res) => {
+tenantRouter.put('/:id', requireRole('superadmin', 'admin'), async (req, res) => {
   const id = intParam(req.params.id);
-  const existing = await one<{ slug: string }>('SELECT slug FROM tenants WHERE id = $1', [id]);
+  if (!canAccessTenant(req.user!, id)) throw forbidden();
+  const existing = await one<{ slug: string; max_channels: number; max_extensions: number; enabled: boolean; account_id: number }>(
+    'SELECT slug, max_channels, max_extensions, enabled, account_id FROM tenants WHERE id = $1',
+    [id],
+  );
   if (!existing) throw notFound('SIP server');
   const data = tenantSchema.parse(req.body);
   if (data.slug && data.slug !== existing.slug) throw badRequest('The short name cannot be changed after creation');
   const { slug: _ignored, ...rest } = data;
+  if (req.user!.role !== 'superadmin') {
+    // Caps and the on/off switch stay with the platform.
+    rest.max_channels = existing.max_channels;
+    rest.max_extensions = existing.max_extensions;
+    rest.enabled = existing.enabled;
+    if (rest.recording !== 'off' && (await getAccountPlan(existing.account_id)).limits.recording_days === 0) {
+      throw badRequest('Call recording is not part of your package');
+    }
+  }
   const { clause, values } = updateSet({ ...rest, updated_at: new Date() });
   const row = await one(`UPDATE tenants SET ${clause} WHERE id = $${values.length + 1} RETURNING *`, [...values, id]);
   await audit(req, 'update', 'tenant', id, data.name, id);
@@ -113,9 +146,10 @@ tenantRouter.put('/:id', requireRole('superadmin'), async (req, res) => {
   res.json(row);
 });
 
-tenantRouter.delete('/:id', requireRole('superadmin'), async (req, res) => {
+tenantRouter.delete('/:id', requireRole('superadmin', 'admin'), requireOwner, async (req, res) => {
   const id = intParam(req.params.id);
-  const t = await one<{ name: string }>('SELECT name FROM tenants WHERE id = $1', [id]);
+  if (!canAccessTenant(req.user!, id)) throw forbidden();
+  const t = await one<{ name: string; account_id: number }>('SELECT name, account_id FROM tenants WHERE id = $1', [id]);
   if (!t) throw notFound('SIP server');
   const own = await one<{ tenant_id: number }>(
     'SELECT e.tenant_id FROM users u JOIN extensions e ON e.id = u.extension_id WHERE u.id = $1',
@@ -126,6 +160,7 @@ tenantRouter.delete('/:id', requireRole('superadmin'), async (req, res) => {
   await fs.rm(path.join(config.paths.soundsDir, `t${id}`), { recursive: true, force: true }).catch(() => undefined);
   if (ami.connected) await ami.action({ Action: 'DBDelTree', Family: `envo/t${id}` }).catch(() => undefined);
   await audit(req, 'delete', 'tenant', id, t.name, null);
+  invalidatePlans(t.account_id);
   scheduleApply();
   res.json({ ok: true });
 });

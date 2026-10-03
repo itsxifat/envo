@@ -1,12 +1,98 @@
 export type Role = 'superadmin' | 'admin' | 'agent';
 
+export type AccountStatus = 'pending' | 'active' | 'suspended' | 'closed';
+
 export interface User {
   id: number;
   email: string;
   name: string;
   role: Role;
+  /** Home SIP server (an agent's only one). */
   tenantId: number | null;
   extensionId: number | null;
+  /** Customer account; null for platform admins. */
+  accountId: number | null;
+  accountStatus: AccountStatus | null;
+  isOwner: boolean;
+  /** SIP servers this login may work in; null = all (platform admins). */
+  tenantIds: number[] | null;
+}
+
+export type IvrTier = 'basic' | 'basic_ai' | 'multi_ai' | 'advanced_ai' | 'unlimited';
+
+/** Package limits: null = unlimited, 0 = not included. */
+export interface PlanLimits {
+  max_servers: number | null;
+  max_dids: number | null;
+  max_extensions: number | null;
+  max_channels: number | null;
+  max_ivrs: number | null;
+  recording_mb: number | null;
+  recording_days: number;
+  ivr_tier: IvrTier;
+  call_monitoring: boolean;
+  api_access: boolean;
+}
+
+export interface Plan {
+  accountId: number;
+  accountName: string;
+  internal: boolean;
+  status: AccountStatus;
+  usable: boolean;
+  package: { id: number; name: string; slug: string } | null;
+  subscription: {
+    id: number;
+    status: 'active' | 'past_due' | 'cancelled';
+    price: number;
+    currentPeriodEnd: string;
+    cancelAtPeriodEnd: boolean;
+    nextPackageId: number | null;
+  } | null;
+  limits: PlanLimits;
+}
+
+export interface Usage {
+  servers: number;
+  dids: number;
+  extensions: number;
+  ivrs: number;
+  users: number;
+  recordingMb: number | null;
+}
+
+export interface Package extends Omit<PlanLimits, never> {
+  id: number;
+  name: string;
+  slug: string;
+  tagline: string;
+  /** BDT per month as a decimal string; null = custom price. */
+  price_monthly: string | null;
+  public: boolean;
+  highlight: boolean;
+  sort_order: number;
+  active: boolean;
+  display_rows: { label: string; value: string }[];
+  subscribers?: number;
+}
+
+export interface AccountRow {
+  id: number;
+  name: string;
+  email: string;
+  phone: string;
+  status: AccountStatus;
+  internal: boolean;
+  created_at: string;
+  package_id: number | null;
+  package_name: string | null;
+  subscription_status: 'active' | 'past_due' | 'cancelled' | null;
+  price: string | null;
+  current_period_end: string | null;
+  servers: number;
+  extensions: number;
+  dids: number;
+  owner_email: string | null;
 }
 
 export type Recording = 'off' | 'inbound' | 'outbound' | 'all';

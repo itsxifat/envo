@@ -3,16 +3,25 @@ import { config } from './config.js';
 import { hashPassword } from './auth.js';
 import { randomPassword, randomPin } from './lib/secrets.js';
 
-/** First start: one SIP server, a web-phone extension for the admin and two extensions for IP phones. */
+/**
+ * First start: Enfinito's internal account with one SIP server, a web-phone extension for the
+ * platform admin and two extensions for IP phones.
+ */
 export async function seed(): Promise<void> {
   const existing = await one<{ count: number }>('SELECT count(*) AS count FROM users');
   if ((existing?.count ?? 0) > 0) return;
 
   const password = config.admin.password || randomPassword(16);
   await tx(async (db) => {
+    const account = (
+      await db.query(`INSERT INTO accounts (name, email, status, internal) VALUES ('Enfinito', $1, 'active', true) RETURNING id`, [
+        config.admin.email.toLowerCase(),
+      ])
+    ).rows[0] as { id: number };
     const tenant = (
       await db.query(
-        `INSERT INTO tenants (name, slug, description, recording) VALUES ('Main', 'main', 'Default SIP server', 'off') RETURNING id`,
+        `INSERT INTO tenants (name, slug, description, recording, account_id) VALUES ('Main', 'main', 'Default SIP server', 'off', $1) RETURNING id`,
+        [account.id],
       )
     ).rows[0] as { id: number };
 

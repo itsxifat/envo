@@ -1,18 +1,16 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { one } from '../db.js';
-import { requireRole, type SessionUser } from '../auth.js';
+import { canAccessTenant, requireRole, type SessionUser } from '../auth.js';
 import { badRequest, forbidden, notFound } from '../lib/http.js';
 import { live, type LiveKind } from '../asterisk/live.js';
 import { endpointDirectory, numberDirectory, registrationDirectory } from '../asterisk/apply.js';
 import { ami } from '../asterisk/pbx.js';
 import type { Extension } from '../asterisk/model.js';
 import { hangupCall, originateCall } from '../services/calls.js';
+import { assertFeature } from '../billing/plan.js';
 
-function visible(user: SessionUser, tenantId: number | null): boolean {
-  if (user.role === 'superadmin') return true;
-  return tenantId !== null && tenantId === user.tenantId;
-}
+const visible = canAccessTenant;
 
 /** Live state filtered to what `user` may see. Shared by REST and the WebSocket feed. */
 export function livePayload(kind: LiveKind, user: SessionUser): unknown {
@@ -33,6 +31,10 @@ export function livePayload(kind: LiveKind, user: SessionUser): unknown {
       for (const [key, count] of Object.entries(live.groups)) {
         const [category, group = ''] = key.split('/');
         let tenantId: number | null = null;
+        if (category === 'envo_account') {
+          if (user.accountId !== null && group === `a${user.accountId}`) out[key] = count;
+          continue;
+        }
         if (category === 'envo_tenant') tenantId = Number(group.slice(1));
         else if (category === 'envo_trunk') tenantId = endpointDirectory.get(`trunk_${group.slice(5)}`)?.tenantId ?? null;
         else if (category === 'envo_did') tenantId = numberDirectory.get(Number(group.slice(3))) ?? null;
@@ -62,6 +64,7 @@ liveRouter.post('/hangup', requireRole('superadmin', 'admin'), async (req, res) 
   const ch = live.channels.find((c) => c.name === channel);
   if (!ch) throw notFound('Channel');
   if (!visible(req.user!, ch.tenantId) || ch.tenantId === null) throw forbidden();
+  if (req.user!.accountId !== null) await assertFeature(req.user!.accountId, 'call_monitoring');
   await hangupCall(ch.tenantId, channel);
   res.json({ ok: true });
 });

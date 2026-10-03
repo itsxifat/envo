@@ -29,7 +29,7 @@ import { useTenant } from '../state/tenant';
 import { useLive } from '../state/live';
 import { api, errorMessage } from '../lib/api';
 import { timeAgo } from '../lib/format';
-import { NAV } from '../lib/nav';
+import { visibleNav } from '../lib/nav';
 import { Softphone } from '../phone/Softphone';
 import { usePhone } from '../phone/PhoneProvider';
 import { Button, Field, Input, LiveBars, Menu, Modal, Tooltip } from './ui';
@@ -73,15 +73,13 @@ function PbxStatus() {
 }
 
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const { user, company } = useAuth();
-  const role = user?.role ?? 'agent';
+  const { user, plan, company } = useAuth();
   return (
     <div className="flex h-full flex-col border-r border-slate-200/80 bg-white">
       <Logo company={company} />
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 pt-1 pb-4" aria-label="Main">
-        {NAV.map((group) => {
-          const items = group.items.filter((i) => !i.roles || i.roles.includes(role));
-          if (!items.length) return null;
+        {(user ? visibleNav(user, plan) : []).map((group) => {
+          const items = group.items;
           return (
             <div key={group.title}>
               <div className="mb-1 px-3 text-[11px] font-medium text-slate-400">{group.title}</div>
@@ -328,7 +326,7 @@ function UserMenu() {
   const { user, logout } = useAuth();
   const [pwOpen, setPwOpen] = useState(false);
   if (!user) return null;
-  const roleLabel = user.role === 'superadmin' ? 'Platform admin' : user.role === 'admin' ? 'Admin' : 'Agent';
+  const roleLabel = user.role === 'superadmin' ? 'Platform admin' : user.isOwner ? 'Owner' : user.role === 'admin' ? 'Admin' : 'Agent';
   return (
     <>
       <Menu

@@ -27,6 +27,11 @@ import { ServersPage } from './pages/Servers';
 import { UsersPage } from './pages/Users';
 import { DevelopersPage } from './pages/Developers';
 import { SystemPage } from './pages/System';
+import { AccountPage } from './pages/Account';
+import { CustomersPage } from './pages/admin/Customers';
+import { CustomerDetailPage } from './pages/admin/CustomerDetail';
+import { PackagesPage } from './pages/admin/Packages';
+import { AccountInactive } from './pages/AccountInactive';
 
 function RequireRole({ roles, children }: { roles: Role[]; children: ReactNode }) {
   const { user } = useAuth();
@@ -46,6 +51,8 @@ export function App() {
       </Routes>
     );
   }
+  // Awaiting payment or suspended: only the plan (and soon payment) until the account is active again.
+  if (user.role !== 'superadmin' && user.accountStatus !== 'active') return <AccountInactive />;
   return (
     <TenantProvider>
       <LiveProvider>
@@ -67,10 +74,14 @@ export function App() {
               <Route path="sounds" element={<RequireRole roles={ADMIN}><SoundsPage /></RequireRole>} />
               <Route path="trunks" element={<RequireRole roles={ADMIN}><TrunksPage /></RequireRole>} />
               <Route path="routes" element={<RequireRole roles={ADMIN}><RoutesPage /></RequireRole>} />
-              <Route path="servers" element={<RequireRole roles={['superadmin']}><ServersPage /></RequireRole>} />
+              <Route path="servers" element={<RequireRole roles={ADMIN}><ServersPage /></RequireRole>} />
               <Route path="users" element={<RequireRole roles={ADMIN}><UsersPage /></RequireRole>} />
               <Route path="developers" element={<RequireRole roles={ADMIN}><DevelopersPage /></RequireRole>} />
               <Route path="system" element={<RequireRole roles={['superadmin']}><SystemPage /></RequireRole>} />
+              <Route path="account" element={<RequireRole roles={['admin']}><AccountPage /></RequireRole>} />
+              <Route path="admin/customers" element={<RequireRole roles={['superadmin']}><CustomersPage /></RequireRole>} />
+              <Route path="admin/customers/:id" element={<RequireRole roles={['superadmin']}><CustomerDetailPage /></RequireRole>} />
+              <Route path="admin/packages" element={<RequireRole roles={['superadmin']}><PackagesPage /></RequireRole>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

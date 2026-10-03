@@ -1,6 +1,6 @@
 import type { Server } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { userFromCookieHeader, type SessionUser } from './auth.js';
+import { canAccessTenant, userFromCookieHeader, type SessionUser } from './auth.js';
 import { config } from './config.js';
 import { live, type LiveKind } from './asterisk/live.js';
 import { applyEvents, getApplyStatus, type ApplyStatus } from './asterisk/apply.js';
@@ -26,7 +26,7 @@ function sendKind(client: Client, kind: LiveKind): void {
 /** Tells every client allowed to see `tenantId` that some data changed (they refetch). */
 export function notifyChanged(entity: string, tenantId: number | null): void {
   for (const c of clients) {
-    if (c.user.role === 'superadmin' || c.user.tenantId === tenantId) send(c, { type: 'changed', entity, tenantId });
+    if (canAccessTenant(c.user, tenantId)) send(c, { type: 'changed', entity, tenantId });
   }
 }
 
@@ -61,7 +61,8 @@ export function attachWebSocket(server: Server): void {
         if (raw.toString() === 'ping') send(client, { type: 'pong' });
       });
       for (const kind of KINDS) sendKind(client, kind);
-      if (user.role !== 'agent') send(client, { type: 'apply', data: getApplyStatus() });
+      // Config sync covers every customer's SIP servers: platform admins only.
+      if (user.role === 'superadmin') send(client, { type: 'apply', data: getApplyStatus() });
     });
   });
 
@@ -70,7 +71,7 @@ export function attachWebSocket(server: Server): void {
   });
 
   applyEvents.on('status', (status: ApplyStatus) => {
-    for (const c of clients) if (c.user.role !== 'agent') send(c, { type: 'apply', data: status });
+    for (const c of clients) if (c.user.role === 'superadmin') send(c, { type: 'apply', data: status });
   });
 
   setInterval(() => {

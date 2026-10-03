@@ -4,7 +4,7 @@ import { config } from './config.js';
 import { pool, exec, one } from './db.js';
 import { migrate } from './migrate.js';
 import { seed } from './seed.js';
-import { authenticate } from './auth.js';
+import { authenticate, requireActiveAccount, requireRole } from './auth.js';
 import { errorHandler } from './lib/http.js';
 import { ami } from './asterisk/pbx.js';
 import { live } from './asterisk/live.js';
@@ -36,6 +36,8 @@ import { v1Router } from './routes/v1.js';
 import { embedRouter } from './routes/embed.js';
 import { integrationRouter } from './routes/integrations.js';
 import { startWebhooks } from './webhooks.js';
+import { accountRouter } from './routes/account.js';
+import { adminRouter, publicRouter } from './routes/admin.js';
 
 /** Keeps Postgres in sync when a phone changes DND / call forwarding with a feature code. */
 async function onFeatureEvent(e: AmiMessage): Promise<void> {
@@ -89,7 +91,12 @@ async function main(): Promise<void> {
   // Machine-to-machine API (API key) and the embedded phone's token exchange: no dashboard session.
   app.use('/api/v1', v1Router);
   app.use('/api/embed', embedRouter);
+  app.use('/api/public', publicRouter);
   app.use('/api', authenticate);
+  // Plan, usage and billing stay reachable while an account is pending or suspended.
+  app.use('/api/account', accountRouter);
+  app.use('/api/admin', requireRole('superadmin'), adminRouter);
+  app.use('/api', requireActiveAccount);
   app.use('/api/tenants', tenantRouter);
   app.use('/api/extensions', extensionRouter);
   app.use('/api/trunks', trunkRouter);

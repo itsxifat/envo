@@ -35,8 +35,10 @@ export function TenantProvider({ children }: { children: ReactNode }) {
 
   const tenantId = useMemo(() => {
     if (!user) return null;
-    if (user.role !== 'superadmin') return user.tenantId;
+    if (user.role === 'agent') return user.tenantId;
+    // Admins may work in every SIP server of their account, platform admins in any.
     if (selected && tenants.some((t) => t.id === selected)) return selected;
+    if (user.tenantId && tenants.some((t) => t.id === user.tenantId)) return user.tenantId;
     return tenants[0]?.id ?? null;
   }, [user, selected, tenants]);
 
@@ -55,7 +57,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     tenant: tenants.find((t) => t.id === tenantId) ?? null,
     tenants,
     setTenantId: setSelected,
-    canSwitch: user?.role === 'superadmin',
+    canSwitch: user?.role === 'superadmin' || (user?.role === 'admin' && tenants.length > 1),
   };
   return <TenantContext.Provider value={value}>{children}</TenantContext.Provider>;
 }

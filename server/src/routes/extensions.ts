@@ -1,3 +1,4 @@
+import { accountOfTenant, assertLimit } from '../billing/plan.js';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { many, one, exec, tx, insertParts, updateSet } from '../db.js';
@@ -50,6 +51,7 @@ async function loadExtension(req: Request): Promise<Extension> {
 }
 
 async function assertCapacity(tenantId: number, adding: number): Promise<{ slug: string }> {
+  await assertLimit(await accountOfTenant(tenantId), 'max_extensions', adding);
   const t = await one<{ slug: string; max_extensions: number; count: number }>(
     `SELECT slug, max_extensions, (SELECT count(*) FROM extensions WHERE tenant_id = $1) AS count FROM tenants WHERE id = $1`,
     [tenantId],

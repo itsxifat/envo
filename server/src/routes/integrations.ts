@@ -9,9 +9,18 @@ import { API_SCOPES, generateApiKey } from '../lib/apikey.js';
 import { CALL_EVENTS, deliver, sampleCallPayload } from '../webhooks.js';
 import { config } from '../config.js';
 import { resolvePublicUrl } from '../lib/net.js';
+import { assertFeature } from '../billing/plan.js';
 
 export const integrationRouter = Router();
 integrationRouter.use(requireRole('superadmin', 'admin'));
+integrationRouter.use(async (req, _res, next) => {
+  try {
+    if (req.user!.accountId !== null) await assertFeature(req.user!.accountId, 'api_access');
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 const KEY_COLUMNS = 'id, tenant_id, name, prefix, scopes, allowed_origins, last_used_at, requests, enabled, created_at';
 

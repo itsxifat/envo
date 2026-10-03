@@ -13,6 +13,7 @@ import {
 } from '../auth.js';
 import { HttpError, badRequest } from '../lib/http.js';
 import { getSettings } from '../settings.js';
+import { getAccountPlan } from '../billing/plan.js';
 
 export const authRouter = Router();
 
@@ -47,7 +48,8 @@ authRouter.post('/logout', (_req, res) => {
 
 authRouter.get('/me', authenticate, async (req, res) => {
   const settings = await getSettings();
-  res.json({ user: req.user, company: settings.company_name, sipDomain: settings.sip_domain });
+  const plan = req.user!.accountId !== null ? await getAccountPlan(req.user!.accountId) : null;
+  res.json({ user: req.user, plan, company: settings.company_name, sipDomain: settings.sip_domain });
 });
 
 authRouter.post('/password', authenticate, async (req, res) => {

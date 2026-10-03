@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, errorMessage, scoped } from '../lib/api';
-import { NAV } from '../lib/nav';
+import { visibleNav } from '../lib/nav';
 import { useAuth } from '../state/auth';
 import { useTenant } from '../state/tenant';
 import { useExtStates } from '../state/live';
@@ -85,7 +85,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const listRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { user, logout } = useAuth();
+  const { user, plan, logout } = useAuth();
   const { tenantId, tenants, canSwitch, setTenantId } = useTenant();
   const phone = usePhone();
   const states = useExtStates(tenantId);
@@ -120,9 +120,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const commands = useMemo<Command[]>(() => {
     const list: Command[] = [];
 
-    for (const group of NAV) {
+    for (const group of user ? visibleNav(user, plan) : []) {
       for (const item of group.items) {
-        if (item.roles && !item.roles.includes(role)) continue;
         list.push({
           id: `nav:${item.to}`,
           label: item.label,
@@ -200,7 +199,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       });
     }
 
-    if (role === 'superadmin' || role === 'admin') {
+    if (role === 'superadmin') {
       list.push({
         id: 'action:apply',
         label: 'Re-apply Asterisk configuration',
@@ -247,7 +246,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     });
 
     return list;
-  }, [role, extensions, states, phone, tenants, tenantId, canSwitch, setTenantId, navigate, qc, logout]);
+  }, [role, user, plan, extensions, states, phone, tenants, tenantId, canSwitch, setTenantId, navigate, qc, logout]);
 
   const results = useMemo(() => {
     const dialable = /^[\d+*#][\d*#]*$/.test(query.trim()) ? query.trim() : '';

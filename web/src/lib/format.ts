@@ -51,3 +51,38 @@ export const DEST_LABELS: Record<string, string> = {
   external: 'External number',
   hangup: 'Hang up',
 };
+
+/** "BDT 1,999" (whole taka) or "BDT 0.40" (fractions kept); null = custom price. */
+export function formatBdt(value: string | number | null | undefined, opts: { custom?: string } = {}): string {
+  if (value === null || value === undefined || value === '') return opts.custom ?? 'Custom';
+  const n = Number(value);
+  const fraction = Math.round(n * 100) % 100 !== 0;
+  return `BDT ${n.toLocaleString('en-US', { minimumFractionDigits: fraction ? 2 : 0, maximumFractionDigits: 2 })}`;
+}
+
+export function formatDate(value: string | number | Date | null | undefined): string {
+  if (!value) return '—';
+  return new Date(value).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** Package limit as shown to people: null = unlimited, 0 = not included. */
+export function limitLabel(value: number | null, unit = ''): string {
+  if (value === null) return 'Unlimited';
+  if (value === 0) return 'Not included';
+  return unit ? `${value.toLocaleString()} ${unit}` : value.toLocaleString();
+}
+
+export const IVR_TIER_LABELS: Record<string, string> = {
+  basic: 'Basic',
+  basic_ai: 'Basic AI',
+  multi_ai: 'Multi AI',
+  advanced_ai: 'Advanced AI',
+  unlimited: 'Unlimited',
+};
+
+export const ACCOUNT_STATUS: Record<string, { label: string; tone: 'green' | 'amber' | 'red' | 'gray' }> = {
+  active: { label: 'Active', tone: 'green' },
+  pending: { label: 'Awaiting payment', tone: 'amber' },
+  suspended: { label: 'Suspended', tone: 'red' },
+  closed: { label: 'Closed', tone: 'gray' },
+};

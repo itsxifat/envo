@@ -1,3 +1,4 @@
+import { accountOfTenant, assertLimit } from '../billing/plan.js';
 import { z } from 'zod';
 import { many, one } from '../db.js';
 import { badRequest } from '../lib/http.js';
@@ -60,7 +61,8 @@ export const ivrRouter = crudRouter({
   schema: ivrSchema,
   jsonColumns: ['options'],
   hasNumber: true,
-  validate: async (data, tenantId) => {
+  validate: async (data, tenantId, _req, existingId) => {
+    if (existingId === undefined) await assertLimit(await accountOfTenant(tenantId), 'max_ivrs');
     const digits = data.options.map((o) => o.digit);
     if (new Set(digits).size !== digits.length) throw badRequest('Each key can only be used once');
     await assertSound(tenantId, data.greeting_sound_id);

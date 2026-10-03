@@ -1,7 +1,9 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { many, one, exec, insertParts, updateSet } from '../db.js';
-import { requireRole, tenantOf } from '../auth.js';
+import { canAccessTenant, requireRole, tenantOf } from '../auth.js';
+import { isPrivateAddress } from '../lib/net.js';
+import dns from 'node:dns/promises';
 import { badRequest, forbidden, intParam, notFound } from '../lib/http.js';
 import { assertDestination, audit, destTarget, destType, name } from '../lib/validate.js';
 import { isHost, isIpOrCidr, isSipUser } from '../asterisk/sanitize.js';
@@ -88,7 +90,7 @@ async function loadTrunk(req: Request, write: boolean): Promise<Trunk> {
   const user = req.user!;
   if (user.role !== 'superadmin') {
     if (trunk.tenant_id === null && write) throw forbidden('Shared trunks are managed by the platform administrator');
-    if (trunk.tenant_id !== null && trunk.tenant_id !== user.tenantId) throw forbidden();
+    if (trunk.tenant_id !== null && !canAccessTenant(user, trunk.tenant_id)) throw forbidden();
   }
   return trunk;
 }
@@ -108,6 +110,23 @@ trunkRouter.get('/:id', async (req, res) => {
   res.json(present(await loadTrunk(req, false)));
 });
 
+/** Customers' trunks must point at a real provider, never at this machine or a private network. */
+async function assertPublicProvider(data: z.infer<typeof trunkSchema>): Promise<void> {
+  const ips = [data.host, ...data.match_ips.split(/[\s,]+/).filter(Boolean)];
+  for (const v of ips) {
+    const ip = v.split('/')[0]!;
+    if (isIpOrCidr(v)) {
+      if (isPrivateAddress(ip) || (v.includes('/') && Number(v.split('/')[1]) < 16)) {
+        throw badRequest(`${v} is a private, local or too wide address; use your provider's public IP`);
+      }
+      continue;
+    }
+    const found = await dns.lookup(v, { all: true }).catch(() => []);
+    if (!found.length) throw badRequest(`${v} does not resolve to an address`);
+    if (found.some((r) => isPrivateAddress(r.address))) throw badRequest(`${v} resolves to a private or local address`);
+  }
+}
+
 async function validate(data: z.infer<typeof trunkSchema>, tenantId: number | null, hasStoredPassword: boolean) {
   if (data.auth_mode === 'register' && !data.password && !hasStoredPassword) {
     throw badRequest('password: is required to register');
@@ -121,7 +140,8 @@ async function validate(data: z.infer<typeof trunkSchema>, tenantId: number | nu
 trunkRouter.post('/', requireRole('superadmin', 'admin'), async (req, res) => {
   const data = trunkSchema.parse(req.body);
   const user = req.user!;
-  const tenantId = user.role === 'superadmin' ? (data.shared ? null : tenantOf(req)) : user.tenantId;
+  const tenantId = user.role === 'superadmin' ? (data.shared ? null : tenantOf(req)) : tenantOf(req);
+  if (user.role !== 'superadmin') await assertPublicProvider(data);
   await validate(data, tenantId, false);
   const { shared: _shared, ...fields } = data;
   const { cols, placeholders, values } = insertParts({ ...fields, tenant_id: tenantId });
@@ -134,6 +154,7 @@ trunkRouter.post('/', requireRole('superadmin', 'admin'), async (req, res) => {
 trunkRouter.put('/:id', requireRole('superadmin', 'admin'), async (req, res) => {
   const existing = await loadTrunk(req, true);
   const data = trunkSchema.parse(req.body);
+  if (req.user!.role !== 'superadmin') await assertPublicProvider(data);
   await validate(data, existing.tenant_id, existing.password !== '');
   const { shared: _shared, password, ...fields } = data;
   const patch: Record<string, unknown> = { ...fields, updated_at: new Date() };

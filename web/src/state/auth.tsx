@@ -1,10 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import type { User } from '../lib/types';
+import type { Plan, User } from '../lib/types';
 
 interface AuthState {
   user: User | null;
+  /** The customer's package and limits; null for platform admins. */
+  plan: Plan | null;
   company: string;
   sipDomain: string;
   loading: boolean;
@@ -17,6 +19,7 @@ const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [plan, setPlan] = useState<Plan | null>(null);
   const [company, setCompany] = useState('Envo');
   const [sipDomain, setSipDomain] = useState('');
   const [loading, setLoading] = useState(true);
@@ -24,8 +27,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const me = await api.get<{ user: User; company: string; sipDomain: string }>('/api/auth/me');
+      const me = await api.get<{ user: User; plan: Plan | null; company: string; sipDomain: string }>('/api/auth/me');
       setUser(me.user);
+      setPlan(me.plan);
       setCompany(me.company);
       setSipDomain(me.sipDomain);
     } catch {
@@ -56,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     qc.clear();
   }, [qc]);
 
-  return <AuthContext.Provider value={{ user, company, sipDomain, loading, login, logout, refresh }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, plan, company, sipDomain, loading, login, logout, refresh }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthState {
@@ -74,4 +78,10 @@ export function useUser(): User {
 export function useIsAdmin(): boolean {
   const { user } = useAuth();
   return user?.role === 'superadmin' || user?.role === 'admin';
+}
+
+/** True when the package includes the feature (platform admins and internal accounts: always). */
+export function useFeature(feature: 'call_monitoring' | 'api_access'): boolean {
+  const { plan } = useAuth();
+  return !plan || plan.limits[feature];
 }

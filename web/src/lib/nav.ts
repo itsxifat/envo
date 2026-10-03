@@ -3,6 +3,8 @@ import {
   Activity,
   BadgeDollarSign,
   Briefcase,
+  CreditCard,
+  Receipt,
   Building2,
   Gem,
   Clock,
@@ -34,6 +36,8 @@ export interface NavItem {
   feature?: 'call_monitoring' | 'api_access';
   /** Customers only (platform admins have no account of their own). */
   customer?: boolean;
+  /** The account owner only. */
+  owner?: boolean;
   /** Extra words the command palette should match on. */
   keywords?: string;
 }
@@ -80,7 +84,8 @@ export const NAV: NavGroup[] = [
       { to: '/servers', label: 'SIP servers', icon: Building2, roles: ['superadmin', 'admin'], keywords: 'tenants multi tenant pbx instance' },
       { to: '/users', label: 'Users', icon: UserRound, roles: ['superadmin', 'admin'], keywords: 'logins roles admin agent password' },
       { to: '/developers', label: 'Developers', icon: Code2, roles: ['superadmin', 'admin'], feature: 'api_access', keywords: 'api keys webhooks embed widget integration commerce' },
-      { to: '/account', label: 'Plan & usage', icon: Gem, roles: ['admin'], customer: true, keywords: 'package subscription limits upgrade billing invoice' },
+      { to: '/account', label: 'Plan & usage', icon: Gem, roles: ['admin'], customer: true, keywords: 'package subscription limits upgrade' },
+      { to: '/billing', label: 'Billing', icon: CreditCard, roles: ['admin'], customer: true, owner: true, keywords: 'invoice pay payment bkash card renew upgrade package' },
       { to: '/system', label: 'System', icon: Settings, roles: ['superadmin'], keywords: 'health asterisk modules audit backup settings' },
     ],
   },
@@ -88,6 +93,7 @@ export const NAV: NavGroup[] = [
     title: 'Business',
     items: [
       { to: '/admin/customers', label: 'Customers', icon: Briefcase, roles: ['superadmin'], keywords: 'accounts clients subscribers tenants companies suspend' },
+      { to: '/admin/sales', label: 'Sales', icon: Receipt, roles: ['superadmin'], keywords: 'revenue invoices payments mrr approve bkash sslcommerz' },
       { to: '/admin/packages', label: 'Packages', icon: BadgeDollarSign, roles: ['superadmin'], keywords: 'plans pricing limits price tiers' },
     ],
   },
@@ -96,6 +102,7 @@ export const NAV: NavGroup[] = [
 function allowed(item: NavItem, user: User, plan: Plan | null): boolean {
   if (item.roles && !item.roles.includes(user.role)) return false;
   if (item.customer && user.accountId === null) return false;
+  if (item.owner && !user.isOwner) return false;
   if (item.feature && plan && !plan.limits[item.feature]) return false;
   return true;
 }

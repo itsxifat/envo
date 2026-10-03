@@ -140,7 +140,7 @@ function TabBar({ onMore }: { onMore: () => void }) {
     </NavLink>
   );
   return (
-    <nav className="safe-bottom fixed inset-x-0 bottom-0 z-30 border-t border-slate-200/80 bg-white/92 backdrop-blur-xl lg:hidden" aria-label="Quick navigation">
+    <nav className="safe-bottom fixed inset-x-0 bottom-0 z-30 print:hidden border-t border-slate-200/80 bg-white/92 backdrop-blur-xl lg:hidden" aria-label="Quick navigation">
       <div className="mx-auto flex max-w-md items-stretch px-2">
         {tab(tabs[0]!)}
         {tab(tabs[1]!)}
@@ -453,7 +453,7 @@ export function Layout() {
       >
         Skip to content
       </a>
-      <aside className="hidden w-[260px] shrink-0 lg:block">
+      <aside className="hidden w-[260px] shrink-0 lg:block print:hidden">
         <Sidebar />
       </aside>
       {mobileOpen && (
@@ -473,7 +473,7 @@ export function Layout() {
         </div>
       )}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-slate-200/70 bg-white/88 px-3 backdrop-blur-xl sm:gap-3 sm:px-6 lg:h-16">
+        <header className="sticky top-0 z-20 flex h-14 print:hidden shrink-0 items-center justify-between gap-2 border-b border-slate-200/70 bg-white/88 px-3 backdrop-blur-xl sm:gap-3 sm:px-6 lg:h-16">
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <NavLink to="/" className="lg:hidden" aria-label="Dashboard">
               <LogoMark className="size-8 rounded-[10px] [&>svg]:size-[18px]" />
@@ -487,7 +487,7 @@ export function Layout() {
             <UserMenu />
           </div>
         </header>
-        <main id="main" ref={main} className="app-surface flex-1 overflow-y-auto">
+        <main id="main" ref={main} className="app-surface flex-1 overflow-y-auto print:overflow-visible">
           <div className="pb-tabbar mx-auto max-w-[1400px] px-4 pt-5 sm:px-6 sm:pt-7 lg:px-8 lg:pb-16">
             <Outlet />
           </div>

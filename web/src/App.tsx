@@ -32,6 +32,10 @@ import { CustomersPage } from './pages/admin/Customers';
 import { CustomerDetailPage } from './pages/admin/CustomerDetail';
 import { PackagesPage } from './pages/admin/Packages';
 import { AccountInactive } from './pages/AccountInactive';
+import { BillingPage } from './pages/Billing';
+import { InvoiceViewPage } from './pages/InvoiceView';
+import { SalesPage } from './pages/admin/Sales';
+import { BillingSettingsPage } from './pages/admin/BillingSettings';
 
 function RequireRole({ roles, children }: { roles: Role[]; children: ReactNode }) {
   const { user } = useAuth();
@@ -79,6 +83,10 @@ export function App() {
               <Route path="developers" element={<RequireRole roles={ADMIN}><DevelopersPage /></RequireRole>} />
               <Route path="system" element={<RequireRole roles={['superadmin']}><SystemPage /></RequireRole>} />
               <Route path="account" element={<RequireRole roles={['admin']}><AccountPage /></RequireRole>} />
+              <Route path="billing" element={<RequireRole roles={['admin']}><BillingPage /></RequireRole>} />
+              <Route path="billing/invoices/:id" element={<RequireRole roles={['admin']}><InvoiceViewPage /></RequireRole>} />
+              <Route path="admin/sales" element={<RequireRole roles={['superadmin']}><SalesPage /></RequireRole>} />
+              <Route path="admin/billing-settings" element={<RequireRole roles={['superadmin']}><BillingSettingsPage /></RequireRole>} />
               <Route path="admin/customers" element={<RequireRole roles={['superadmin']}><CustomersPage /></RequireRole>} />
               <Route path="admin/customers/:id" element={<RequireRole roles={['superadmin']}><CustomerDetailPage /></RequireRole>} />
               <Route path="admin/packages" element={<RequireRole roles={['superadmin']}><PackagesPage /></RequireRole>} />

@@ -1,11 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router';
+import { useAuth } from '../state/auth';
 import clsx from 'clsx';
 import { Activity, Building2, Check, Code2, Disc3, Gem, Hash, ListTree, Minus, PhoneCall, Users } from 'lucide-react';
 import { api } from '../lib/api';
 import { useLive } from '../state/live';
 import { ACCOUNT_STATUS, IVR_TIER_LABELS, formatBdt, formatDate, limitLabel } from '../lib/format';
 import type { AccountStatus, Package, Plan, Usage } from '../lib/types';
-import { Badge, Card, CardHeader, ErrorBlock, LoadingBlock, Meter, Notice, PageHeader } from '../components/ui';
+import { Badge, Button, Card, CardHeader, ErrorBlock, LoadingBlock, Meter, Notice, PageHeader } from '../components/ui';
 
 interface AccountInfo {
   account: { id: number; name: string; email: string; phone: string; status: AccountStatus; internal: boolean; created_at: string };
@@ -28,6 +30,7 @@ export function AccountPage() {
   const info = useQuery({ queryKey: ['account'], queryFn: () => api.get<AccountInfo>('/api/account') });
   const packages = useQuery({ queryKey: ['account', 'packages'], queryFn: () => api.get<Package[]>('/api/account/packages') });
   const live = useLive();
+  const { user } = useAuth();
 
   if (info.isLoading) return <LoadingBlock />;
   if (info.error || !info.data) return <ErrorBlock error={info.error} onRetry={() => info.refetch()} />;
@@ -115,7 +118,19 @@ export function AccountPage() {
 
       {!plan.internal && packages.data && packages.data.length > 0 && (
         <Card className="mt-8 overflow-hidden">
-          <CardHeader title="Compare packages" description="Need more extensions, channels or recording? Contact Enfinito to change your package; online upgrades are coming soon." />
+          <CardHeader
+            title="Compare packages"
+            description="Need more extensions, channels or recording? Upgrades start right away."
+            actions={
+              user?.isOwner && (
+                <Link to="/billing">
+                  <Button size="sm" variant="primary">
+                    Change package
+                  </Button>
+                </Link>
+              )
+            }
+          />
           <div className="overflow-x-auto">
             <table className="table-base">
               <thead>

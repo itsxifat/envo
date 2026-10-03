@@ -6,7 +6,7 @@ import { ArrowLeft, ArrowRight, Building2, Crown, Disc3, Hash, ListTree, Pause, 
 import { api, errorMessage } from '../../lib/api';
 import { useTenant } from '../../state/tenant';
 import { ACCOUNT_STATUS, IVR_TIER_LABELS, formatBdt, formatDate, timeAgo } from '../../lib/format';
-import type { AccountStatus, IvrTier, Package, Plan, PlanLimits, Usage } from '../../lib/types';
+import type { AccountStatus, Invoice, IvrTier, Package, Plan, PlanLimits, Usage } from '../../lib/types';
 import { Badge, Button, Card, CardHeader, ErrorBlock, Field, Input, LoadingBlock, Meter, NumberInput, Select, Textarea, Toggle, useConfirm } from '../../components/ui';
 
 interface Detail {
@@ -356,6 +356,7 @@ export function CustomerDetailPage() {
         </div>
         <div className="space-y-4 sm:space-y-6">
           <ContactCard key={d.account.id} detail={d} />
+          <CustomerInvoices accountId={d.account.id} />
           {d.subscriptions.length > 0 && (
             <Card className="overflow-hidden">
               <CardHeader title="Package history" />
@@ -374,5 +375,29 @@ export function CustomerDetailPage() {
         </div>
       </div>
     </>
+  );
+}
+
+function CustomerInvoices({ accountId }: { accountId: number }) {
+  const q = useQuery({ queryKey: ['admin', 'billing', 'invoices', 'account', accountId], queryFn: () => api.get<Invoice[]>(`/api/admin/billing/invoices?account_id=${accountId}`) });
+  if (!q.data?.length) return null;
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader title="Invoices" actions={<Link to="/admin/sales" className="text-sm font-medium text-brand-700 hover:text-brand-800">Sales</Link>} />
+      <ul className="divide-y divide-slate-100 text-sm">
+        {q.data.slice(0, 8).map((inv) => (
+          <li key={inv.id} className="flex items-center justify-between gap-3 px-4 py-2.5 sm:px-5">
+            <span className="min-w-0">
+              <span className="block truncate text-slate-700">{inv.description}</span>
+              <span className="font-mono text-xs text-slate-400">{inv.number}</span>
+            </span>
+            <span className="flex shrink-0 items-center gap-2">
+              <span className="tabular-nums">{formatBdt(inv.amount)}</span>
+              <Badge tone={inv.status === 'paid' ? 'green' : inv.status === 'void' ? 'gray' : 'amber'}>{inv.status === 'paid' ? 'Paid' : inv.status === 'void' ? 'Cancelled' : 'Unpaid'}</Badge>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }

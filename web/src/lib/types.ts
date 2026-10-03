@@ -431,3 +431,78 @@ export interface Option {
 }
 
 export type Destinations = Record<Exclude<DestType, 'external' | 'hangup'>, Option[]>;
+
+export type InvoiceKind = 'subscription' | 'renewal' | 'upgrade' | 'manual';
+
+export interface Invoice {
+  id: number;
+  number: string;
+  account_id: number;
+  kind: InvoiceKind;
+  package_id: number | null;
+  months: number;
+  description: string;
+  amount: string;
+  currency: string;
+  status: 'unpaid' | 'paid' | 'void';
+  due_at: string;
+  paid_at: string | null;
+  period_start: string | null;
+  created_at: string;
+  account_name?: string;
+}
+
+export type PaymentStatus = 'initiated' | 'pending_review' | 'succeeded' | 'failed' | 'cancelled' | 'refunded';
+
+export interface PaymentRow {
+  id: number;
+  invoice_id: number;
+  method: 'sslcommerz' | 'manual';
+  status: PaymentStatus;
+  amount: string;
+  card_type: string | null;
+  channel: string;
+  reference: string;
+  note?: string;
+  tran_id?: string | null;
+  bank_tran_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  invoice_number?: string;
+  description?: string;
+  account_id?: number;
+  account_name?: string;
+}
+
+export interface PaymentOptions {
+  online: boolean;
+  manual: boolean;
+  manualInstructions: string;
+}
+
+export type CheckoutResult =
+  | { action: 'invoice'; invoice: Invoice }
+  | { action: 'scheduled'; message: string }
+  | { action: 'applied'; message: string };
+
+export interface BillingSettings {
+  sslcommerz: { enabled: boolean; sandbox: boolean; store_id: string; store_passwd: string; has_passwd?: boolean };
+  manual: { enabled: boolean; instructions: string };
+  grace_days: number;
+  renewal_notice_days: number;
+  business: { name: string; address: string; email: string; phone: string };
+}
+
+export interface BillingOverview {
+  mrr: string;
+  collected_month: string;
+  collected_last_month: string;
+  outstanding: string;
+  overdue: number;
+  active_customers: number;
+  suspended_customers: number;
+  pending_customers: number;
+  new_this_month: number;
+  pending_reviews: number;
+  by_month: { month: string; amount: string; payments: number }[];
+}

@@ -1,0 +1,5 @@
+# Everything here is deployed to Linux (shell scripts, Asterisk/nginx configs): keep LF everywhere.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.wav binary

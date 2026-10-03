@@ -38,17 +38,24 @@ import { toast } from 'sonner';
 // ------------------------------------------------------------------ Button
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success' | 'dark';
 const VARIANTS: Record<Variant, string> = {
-  primary: 'bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800 shadow-xs focus-visible:ring-brand-500/30',
-  secondary: 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 shadow-xs focus-visible:ring-slate-400/25',
+  primary: 'bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800 shadow-[var(--shadow-button)] focus-visible:ring-brand-500/30',
+  secondary:
+    'bg-white text-slate-700 border border-slate-300/90 hover:bg-slate-50 hover:border-slate-400/80 hover:text-slate-900 active:bg-slate-100 shadow-xs focus-visible:ring-slate-400/25',
   ghost: 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200/70 focus-visible:ring-slate-400/25',
-  danger: 'bg-rose-600 text-white hover:bg-rose-700 active:bg-rose-800 shadow-xs focus-visible:ring-rose-500/30',
-  success: 'bg-emerald-600 text-white hover:bg-emerald-700 active:bg-emerald-800 shadow-xs focus-visible:ring-emerald-500/30',
-  dark: 'bg-ink-950 text-white hover:bg-ink-800 active:bg-ink-900 shadow-xs focus-visible:ring-slate-500/30',
+  danger: 'bg-rose-600 text-white hover:bg-rose-700 active:bg-rose-800 shadow-[var(--shadow-button)] focus-visible:ring-rose-500/30',
+  success: 'bg-emerald-600 text-white hover:bg-emerald-700 active:bg-emerald-800 shadow-[var(--shadow-button)] focus-visible:ring-emerald-500/30',
+  dark: 'bg-ink-900 text-white hover:bg-ink-800 active:bg-ink-950 shadow-[var(--shadow-button)] focus-visible:ring-slate-500/30',
 };
+
+const BUTTON_SIZES = {
+  sm: 'h-8 px-3 text-[13px] rounded-lg',
+  md: 'h-10 px-4 text-sm rounded-[10px] sm:h-9.5',
+  lg: 'h-11 px-5 text-[15px] rounded-xl',
+} as const;
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
-  size?: 'sm' | 'md';
+  size?: keyof typeof BUTTON_SIZES;
   loading?: boolean;
   icon?: ReactNode;
 }
@@ -64,8 +71,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       className={clsx(
-        'inline-flex items-center justify-center gap-2 rounded-lg font-medium whitespace-nowrap transition duration-150 focus-visible:ring-3 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-55',
-        size === 'sm' ? 'h-8 px-3 text-[13px]' : 'h-9.5 px-4 text-sm',
+        'inline-flex items-center justify-center gap-2 font-medium whitespace-nowrap transition duration-150 select-none focus-visible:ring-4 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-55',
+        BUTTON_SIZES[size],
         VARIANTS[variant],
         className,
       )}
@@ -89,7 +96,7 @@ export function IconButton({
         type="button"
         aria-label={label}
         className={clsx(
-          'inline-flex size-8 items-center justify-center rounded-lg transition focus-visible:ring-3 focus-visible:ring-slate-400/25 focus-visible:outline-none disabled:opacity-40',
+          'inline-flex size-9 items-center justify-center rounded-lg transition focus-visible:ring-3 focus-visible:ring-slate-400/25 focus-visible:outline-none disabled:opacity-40 sm:size-8',
           tone === 'danger' && 'text-slate-400 hover:bg-rose-50 hover:text-rose-600',
           tone === 'brand' && 'text-brand-600 hover:bg-brand-50 hover:text-brand-700',
           tone === 'default' && 'text-slate-400 hover:bg-slate-100 hover:text-slate-700',
@@ -269,7 +276,7 @@ export function SearchInput({
   autoFocus?: boolean;
 }) {
   return (
-    <div className={clsx('relative w-full max-w-xs', className)}>
+    <div className={clsx('relative w-full sm:max-w-xs', className)}>
       <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" />
       <Input
         value={value}
@@ -296,18 +303,18 @@ export function SearchInput({
 // ------------------------------------------------------------------ Display
 type Tone = 'gray' | 'green' | 'red' | 'amber' | 'blue' | 'brand' | 'violet';
 const TONES: Record<Tone, string> = {
-  gray: 'bg-slate-100 text-slate-600 ring-slate-500/15',
-  green: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
-  red: 'bg-rose-50 text-rose-700 ring-rose-600/20',
-  amber: 'bg-amber-50 text-amber-800 ring-amber-600/25',
-  blue: 'bg-sky-50 text-sky-700 ring-sky-600/20',
-  brand: 'bg-brand-50 text-brand-700 ring-brand-600/20',
-  violet: 'bg-violet-50 text-violet-700 ring-violet-600/20',
+  gray: 'bg-slate-100 text-slate-600 ring-slate-500/10',
+  green: 'bg-emerald-50 text-emerald-700 ring-emerald-600/15',
+  red: 'bg-rose-50 text-rose-700 ring-rose-600/15',
+  amber: 'bg-amber-50 text-amber-800 ring-amber-600/20',
+  blue: 'bg-sky-50 text-sky-700 ring-sky-600/15',
+  brand: 'bg-brand-50 text-brand-700 ring-brand-600/15',
+  violet: 'bg-violet-50 text-violet-700 ring-violet-600/15',
 };
 
 export function Badge({ tone = 'gray', children, className }: { tone?: Tone; children: ReactNode; className?: string }) {
   return (
-    <span className={clsx('inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset', TONES[tone], className)}>
+    <span className={clsx('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-medium whitespace-nowrap ring-1 ring-inset', TONES[tone], className)}>
       {children}
     </span>
   );
@@ -348,27 +355,31 @@ export function Card({ children, className, interactive }: { children: ReactNode
 
 export function CardHeader({ title, description, actions, className }: { title: ReactNode; description?: ReactNode; actions?: ReactNode; className?: string }) {
   return (
-    <div className={clsx('flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-4', className)}>
+    <div className={clsx('flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3.5 sm:px-5 sm:py-4', className)}>
       <div className="min-w-0">
-        <h3 className="text-[15px] font-semibold text-slate-900">{title}</h3>
+        <h3 className="text-[15px] font-semibold tracking-tight text-slate-900">{title}</h3>
         {description && <p className="mt-0.5 text-[13px] text-slate-500">{description}</p>}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }
 
 export function PageHeader({ title, description, actions, icon }: { title: string; description?: ReactNode; actions?: ReactNode; icon?: ReactNode }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-      <div className="flex items-center gap-3">
-        {icon && <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white text-brand-600 shadow-xs ring-1 ring-slate-200">{icon}</div>}
+    <div className="mb-5 flex flex-col gap-4 sm:mb-7 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+      <div className="flex min-w-0 items-center gap-3.5">
+        {icon && (
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-white text-brand-600 shadow-[var(--shadow-card)] ring-1 ring-slate-200/80 [&>svg]:size-5">
+            {icon}
+          </div>
+        )}
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900">{title}</h1>
-          {description && <p className="mt-0.5 text-sm text-slate-500">{description}</p>}
+          <h1 className="text-[22px] leading-tight font-semibold tracking-tight text-slate-900 sm:text-2xl">{title}</h1>
+          {description && <p className="mt-1 text-[13.5px] text-slate-500 sm:text-sm">{description}</p>}
         </div>
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className="page-actions flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }
@@ -390,8 +401,8 @@ export function EmptyState({
     <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
       {icon && (
         <div className="relative mb-4">
-          <div className="absolute inset-0 scale-150 rounded-full bg-slate-100/70 blur-md" />
-          <div className="relative flex size-12 items-center justify-center rounded-2xl bg-white text-slate-400 ring-1 ring-slate-200">{icon}</div>
+          <div className="absolute inset-0 scale-150 rounded-full bg-brand-100/50 blur-lg" />
+          <div className="relative flex size-12 items-center justify-center rounded-2xl bg-white text-brand-600 shadow-[var(--shadow-card)] ring-1 ring-slate-200/80">{icon}</div>
         </div>
       )}
       <p className="text-sm font-semibold text-slate-800">{title}</p>
@@ -548,7 +559,7 @@ export function CopyField({ label, value, secret, mono = true }: { label: string
 // ------------------------------------------------------------------ Tabs & segmented
 export function Tabs<T extends string>({ value, onChange, tabs, className }: { value: T; onChange: (v: T) => void; tabs: { value: T; label: ReactNode; count?: number }[]; className?: string }) {
   return (
-    <div className={clsx('inline-flex rounded-lg bg-slate-100 p-0.5', className)} role="tablist">
+    <div className={clsx('no-scrollbar inline-flex max-w-full overflow-x-auto rounded-[10px] bg-slate-100/90 p-1', className)} role="tablist">
       {tabs.map((t) => (
         <button
           key={t.value}
@@ -557,8 +568,8 @@ export function Tabs<T extends string>({ value, onChange, tabs, className }: { v
           aria-selected={value === t.value}
           onClick={() => onChange(t.value)}
           className={clsx(
-            'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-medium transition',
-            value === t.value ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800',
+            'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium whitespace-nowrap transition',
+            value === t.value ? 'bg-white text-slate-900 shadow-[0_1px_2px_rgb(16_24_40/0.08)] ring-1 ring-slate-900/5' : 'text-slate-500 hover:text-slate-800',
           )}
         >
           {t.label}
@@ -744,9 +755,11 @@ export function Modal({
   }, [open, onClose]);
 
   if (!open) return null;
+  // Phones: a bottom sheet with its own scroll and the footer pinned above the home indicator.
+  // From sm up: the usual centred dialog that scrolls with the page.
   return createPortal(
     <div
-      className="animate-fade-in fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 px-4 py-6 backdrop-blur-[2px] sm:py-10"
+      className="animate-fade-in fixed inset-0 z-50 flex items-end justify-center bg-slate-900/45 backdrop-blur-[3px] sm:items-start sm:overflow-y-auto sm:px-4 sm:py-10"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
@@ -755,16 +768,17 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={titleId}
         className={clsx(
-          'animate-slide-up w-full rounded-2xl bg-white shadow-[var(--shadow-pop)] ring-1 ring-slate-900/5',
-          size === 'sm' && 'max-w-md',
-          size === 'md' && 'max-w-xl',
-          size === 'lg' && 'max-w-3xl',
-          size === 'xl' && 'max-w-5xl',
+          'animate-sheet flex max-h-[92dvh] w-full flex-col rounded-t-3xl bg-white shadow-[var(--shadow-pop)] ring-1 ring-slate-900/5 sm:max-h-none sm:rounded-2xl',
+          size === 'sm' && 'sm:max-w-md',
+          size === 'md' && 'sm:max-w-xl',
+          size === 'lg' && 'sm:max-w-3xl',
+          size === 'xl' && 'sm:max-w-5xl',
         )}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-4">
+        <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-slate-200 sm:hidden" aria-hidden />
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 px-5 pt-3 pb-3.5 sm:px-6 sm:py-4">
           <div className="min-w-0">
-            <h2 id={titleId} className="text-base font-semibold text-slate-900">
+            <h2 id={titleId} className="text-[17px] font-semibold tracking-tight text-slate-900 sm:text-base">
               {title}
             </h2>
             {description && <p className="mt-0.5 text-[13px] text-slate-500">{description}</p>}
@@ -773,8 +787,12 @@ export function Modal({
             <X className="size-4" />
           </IconButton>
         </div>
-        <div className="px-6 py-5">{children}</div>
-        {footer && <div className="sticky bottom-0 flex items-center justify-end gap-2 rounded-b-2xl border-t border-slate-100 bg-slate-50/90 px-6 py-3 backdrop-blur">{footer}</div>}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:overflow-visible sm:px-6">{children}</div>
+        {footer && (
+          <div className="safe-bottom flex shrink-0 items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/90 px-5 pt-3 backdrop-blur sm:sticky sm:bottom-0 sm:rounded-b-2xl sm:px-6 sm:pb-3 [&>*]:max-sm:flex-1 max-sm:pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            {footer}
+          </div>
+        )}
       </div>
     </div>,
     document.body,
@@ -840,7 +858,7 @@ export function Sparkline({
 }) {
   const w = 96;
   const h = 30;
-  const stroke = { brand: '#0c8c80', blue: '#0284c7', violet: '#7c3aed', amber: '#d97706' }[tone];
+  const stroke = { brand: '#1f57eb', blue: '#0284c7', violet: '#7c3aed', amber: '#d97706' }[tone];
   const { line, area, last } = useMemo(() => {
     if (data.length < 2) return { line: '', area: '', last: null as null | [number, number] };
     const max = Math.max(...data, 1);
@@ -902,19 +920,19 @@ export function Stat({
     amber: 'bg-amber-50 text-amber-600',
   }[tone];
   return (
-    <Card className="flex flex-col p-5">
-      <div className="flex items-start justify-between gap-3">
+    <Card className="flex flex-col p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-2 sm:gap-3">
         <div className="min-w-0">
-          <p className="text-[13px] font-medium text-slate-500">{label}</p>
-          <p className="mt-1.5 text-2xl font-semibold tracking-tight text-slate-900 tabular-nums">{value}</p>
+          <p className="truncate text-[12.5px] font-medium text-slate-500 sm:text-[13px]">{label}</p>
+          <p className="mt-1 text-[22px] leading-tight font-semibold tracking-tight text-slate-900 tabular-nums sm:mt-1.5 sm:text-[26px]">{value}</p>
           {sub && <p className="mt-1 truncate text-xs text-slate-500">{sub}</p>}
         </div>
-        {icon && <div className={clsx('flex size-10 shrink-0 items-center justify-center rounded-xl', toneClass)}>{icon}</div>}
+        {icon && <div className={clsx('flex size-8 shrink-0 items-center justify-center rounded-xl sm:size-10 [&>svg]:max-sm:size-4', toneClass)}>{icon}</div>}
       </div>
       {(series?.some((n) => n > 0) || footer) && (
         <div className="mt-3 flex items-end justify-between gap-3">
-          <div className="min-w-0">{footer}</div>
-          {series?.some((n) => n > 0) && <Sparkline data={series} tone={tone} label={`${label}: 14-day trend`} />}
+          <div className="min-w-0 max-sm:text-[11px] [&_.text-xs]:max-sm:text-[11px]">{footer}</div>
+          {series?.some((n) => n > 0) && <Sparkline data={series} tone={tone} label={`${label}: 14-day trend`} className="max-sm:hidden" />}
         </div>
       )}
     </Card>

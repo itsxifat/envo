@@ -264,12 +264,12 @@ export function Softphone() {
   // Compact bar so an in-progress call never blocks the page behind it.
   if (call && minimized && !ringing) {
     return (
-      <div className="animate-slide-up fixed right-5 bottom-5 z-40 flex items-center gap-3 rounded-2xl bg-ink-950 py-2.5 pr-2.5 pl-4 text-white shadow-2xl ring-1 ring-white/10">
-        <span className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-cyan-600 text-xs font-semibold">
+      <div className="animate-slide-up fixed z-40 flex items-center gap-3 rounded-2xl bg-ink-950 py-2.5 pr-2.5 pl-4 text-white shadow-2xl ring-1 ring-white/10 max-lg:inset-x-3 max-lg:bottom-[calc(4.75rem+env(safe-area-inset-bottom))] lg:right-5 lg:bottom-5">
+        <span className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-brand-700 text-xs font-semibold">
           {(call.name || call.number || '?').slice(0, 1).toUpperCase()}
         </span>
         <div className="min-w-0">
-          <div className="max-w-[9rem] truncate text-[13px] font-medium">{call.name || call.number || 'Unknown'}</div>
+          <div className="max-w-[9rem] truncate text-[13px] font-medium max-lg:max-w-none max-lg:flex-1">{call.name || call.number || 'Unknown'}</div>
           <div className="text-[11px] tabular-nums text-brand-300">{call.state === 'active' ? `${call.held ? 'On hold · ' : ''}${elapsed}` : 'Connecting…'}</div>
         </div>
         <button
@@ -291,9 +291,9 @@ export function Softphone() {
   }
 
   return (
-    <div className="fixed right-4 bottom-4 z-40 flex flex-col items-end gap-3 sm:right-5 sm:bottom-5">
+    <div className="fixed z-40 flex flex-col gap-3 max-lg:inset-x-3 max-lg:bottom-[calc(4.75rem+env(safe-area-inset-bottom))] lg:right-5 lg:bottom-5 lg:items-end">
       {panelOpen && (
-        <div className="animate-slide-up w-[min(21rem,calc(100vw-2rem))] overflow-hidden rounded-3xl bg-ink-950 text-white shadow-2xl ring-1 ring-white/10">
+        <div className="animate-slide-up w-full overflow-hidden overflow-y-auto rounded-3xl bg-ink-950 text-white shadow-2xl ring-1 ring-white/10 max-lg:max-h-[calc(100dvh-9rem)] lg:w-[21rem]">
           <div className="flex items-start justify-between gap-2 px-5 pt-4 pb-2">
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-sm font-semibold">
@@ -333,7 +333,7 @@ export function Softphone() {
               <div className="flex flex-col items-center text-center">
                 <div
                   className={clsx(
-                    'mb-3 flex size-18 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-cyan-600 text-2xl font-semibold',
+                    'mb-3 flex size-18 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-brand-700 text-2xl font-semibold',
                     ringing && 'ring-pulse',
                   )}
                 >
@@ -514,14 +514,14 @@ export function Softphone() {
         type="button"
         onClick={() => setPanelOpen(!panelOpen)}
         className={clsx(
-          'relative flex size-14 items-center justify-center rounded-full text-white shadow-xl transition hover:scale-105 active:scale-95',
-          ringing ? 'ring-pulse bg-emerald-500' : call ? 'bg-rose-500' : 'bg-ink-950 ring-1 ring-white/10',
+          'relative hidden size-14 items-center justify-center rounded-full text-white shadow-xl transition hover:scale-105 active:scale-95 lg:flex',
+          ringing ? 'ring-pulse bg-emerald-500' : call ? 'bg-rose-500' : 'bg-gradient-to-br from-brand-500 to-brand-700 shadow-[0_10px_24px_-8px_rgb(31_87_235/0.7)]',
         )}
         aria-label={panelOpen ? 'Hide web phone' : 'Show web phone'}
         aria-expanded={panelOpen}
       >
         {ringing ? <PhoneIncoming className="size-6 animate-bounce" /> : <Phone className="size-6" />}
-        <span className={clsx('absolute top-1 right-1 size-3 rounded-full ring-2 ring-ink-950', dot)} />
+        <span className={clsx('absolute top-1 right-1 size-3 rounded-full ring-2 ring-white', dot)} />
       </button>
     </div>
   );

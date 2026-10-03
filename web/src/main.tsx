@@ -8,6 +8,7 @@ import { App } from './App';
 import { AuthProvider } from './state/auth';
 import { ConfirmProvider } from './components/ui';
 import { ApiError } from './lib/api';
+import { startTableCards } from './lib/tableCards';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -19,14 +20,17 @@ const queryClient = new QueryClient({
   },
 });
 
-createRoot(document.getElementById('root')!).render(
+const rootEl = document.getElementById('root')!;
+startTableCards(rootEl);
+
+createRoot(rootEl).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AuthProvider>
           <ConfirmProvider>
             <App />
-            <Toaster position="top-right" richColors closeButton />
+            <Toaster position="top-center" richColors closeButton toastOptions={{ className: 'font-sans' }} />
           </ConfirmProvider>
         </AuthProvider>
       </BrowserRouter>

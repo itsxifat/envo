@@ -211,7 +211,7 @@ export function DashboardPage() {
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         {stats.isLoading && !stats.data ? (
           <>
             <StatSkeleton />
@@ -275,7 +275,7 @@ export function DashboardPage() {
       </div>
 
       {issues.length > 0 && (
-        <Card className="mt-6 overflow-hidden">
+        <Card className="mt-4 overflow-hidden sm:mt-6">
           <CardHeader
             title={
               <span className="flex items-center gap-2">
@@ -287,11 +287,11 @@ export function DashboardPage() {
           />
           <ul className="divide-y divide-slate-100">
             {issues.slice(0, 5).map((i) => (
-              <li key={i.key} className="flex flex-wrap items-start gap-3 px-5 py-3.5">
+              <li key={i.key} className="flex flex-wrap items-start gap-3 px-4 py-3.5 sm:px-5">
                 <span className={clsx('mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg', i.tone === 'danger' ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-600')}>
                   {i.tone === 'danger' ? <ServerCrash className="size-4" /> : <WifiOff className="size-4" />}
                 </span>
-                <div className="min-w-[14rem] flex-1">
+                <div className="min-w-0 flex-1 basis-48">
                   <p className="text-sm font-medium text-slate-900">{i.title}</p>
                   <p className="mt-0.5 text-[13px] text-slate-500">{i.detail}</p>
                 </div>
@@ -307,24 +307,24 @@ export function DashboardPage() {
       )}
 
       {showSetup && (
-        <Card className="mt-6 overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-4 bg-gradient-to-r from-ink-950 via-ink-900 to-ink-800 px-6 py-5 text-white">
+        <Card className="mt-4 overflow-hidden sm:mt-6">
+          <div className="relative flex flex-wrap items-center justify-between gap-4 overflow-hidden bg-gradient-to-br from-brand-600 via-brand-700 to-brand-900 px-4 py-5 text-white sm:px-6">
             <div>
               <h3 className="font-semibold">Get this SIP server taking calls</h3>
-              <p className="mt-0.5 text-sm text-slate-300">
+              <p className="mt-0.5 text-sm text-brand-100">
                 {doneCount} of {steps.length} steps done
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <div className="h-2 w-40 overflow-hidden rounded-full bg-white/10 sm:w-48">
-                <div className="h-full rounded-full bg-brand-400 transition-all duration-700" style={{ width: `${(doneCount / steps.length) * 100}%` }} />
+              <div className="h-2 w-40 overflow-hidden rounded-full bg-white/15 sm:w-48">
+                <div className="h-full rounded-full bg-white transition-all duration-700" style={{ width: `${(doneCount / steps.length) * 100}%` }} />
               </div>
-              <span className="text-sm font-semibold tabular-nums text-brand-300">{Math.round((doneCount / steps.length) * 100)}%</span>
+              <span className="text-sm font-semibold tabular-nums text-white">{Math.round((doneCount / steps.length) * 100)}%</span>
             </div>
           </div>
           <ul className="divide-y divide-slate-100">
             {steps.map((st) => (
-              <li key={st.label} className="flex items-center gap-3 px-6 py-3 text-sm">
+              <li key={st.label} className="flex items-center gap-3 px-4 py-3 text-sm sm:px-6">
                 {st.done ? <CheckCircle2 className="size-5 shrink-0 text-emerald-500" /> : <Circle className="size-5 shrink-0 text-slate-300" />}
                 <span className={clsx('flex-1', st.done ? 'text-slate-400 line-through' : 'text-slate-700')}>{st.label}</span>
                 {!st.done &&
@@ -343,7 +343,7 @@ export function DashboardPage() {
         </Card>
       )}
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-3">
+      <div className="mt-4 grid gap-4 sm:mt-6 sm:gap-6 xl:grid-cols-3">
         <Card className="min-w-0 xl:col-span-2">
           <CardHeader title="Calls per hour" description="Last 24 hours, answered and missed" />
           <div className={clsx('px-5 pt-4 pb-5 transition-opacity', stats.isFetching && stats.data && 'opacity-60')}>
@@ -379,7 +379,7 @@ export function DashboardPage() {
         </Card>
       </div>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-3">
+      <div className="mt-4 grid gap-4 sm:mt-6 sm:gap-6 xl:grid-cols-3">
         <Card className="min-w-0 xl:col-span-2">
           <CardHeader
             title="Recent calls"

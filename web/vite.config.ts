@@ -11,5 +11,9 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Local development against `npm run dev` in ../server.
+    proxy: {
+      '/api': { target: 'http://127.0.0.1:4310', ws: true },
+    },
   },
 });

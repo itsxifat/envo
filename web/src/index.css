@@ -4,27 +4,32 @@
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-  --color-brand-50: #eefdfa;
-  --color-brand-100: #cdf9f0;
-  --color-brand-200: #9bf2e2;
-  --color-brand-300: #5fe3cf;
-  --color-brand-400: #2dcbb7;
-  --color-brand-500: #14ae9d;
-  --color-brand-600: #0c8c80;
-  --color-brand-700: #0e7068;
-  --color-brand-800: #105955;
-  --color-brand-900: #114a47;
-  --color-brand-950: #032c2b;
+  /* Brand: the blue of Enfinito's pricing material. Everything themed goes through brand-*. */
+  --color-brand-50: #eff4ff;
+  --color-brand-100: #dce7fe;
+  --color-brand-200: #c0d4fe;
+  --color-brand-300: #94b6fd;
+  --color-brand-400: #618ffa;
+  --color-brand-500: #3b6df6;
+  --color-brand-600: #1f57eb;
+  --color-brand-700: #1745d0;
+  --color-brand-800: #193ba8;
+  --color-brand-900: #1a3684;
+  --color-brand-950: #152351;
 
-  --color-ink-950: #0b1220;
-  --color-ink-900: #111a2e;
-  --color-ink-800: #1a2540;
-  --color-ink-700: #243154;
+  --color-ink-950: #0a0f1c;
+  --color-ink-900: #111827;
+  --color-ink-800: #1c2536;
+  --color-ink-700: #2a3549;
 
-  /* Elevation: one soft ambient shadow plus a tight contact shadow. */
-  --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.03);
-  --shadow-raise: 0 4px 6px -2px rgb(15 23 42 / 0.06), 0 12px 20px -8px rgb(15 23 42 / 0.12);
-  --shadow-pop: 0 8px 12px -4px rgb(15 23 42 / 0.08), 0 24px 40px -12px rgb(15 23 42 / 0.2);
+  /* App canvas behind cards: a neutral, slightly warm grey (not the blue-ish slate-50). */
+  --color-canvas: #f5f6f8;
+
+  /* Elevation: hairline contact shadow + very soft ambient. Cards rely mostly on their border. */
+  --shadow-card: 0 1px 2px 0 rgb(16 24 40 / 0.04);
+  --shadow-raise: 0 2px 4px -2px rgb(16 24 40 / 0.06), 0 12px 24px -6px rgb(16 24 40 / 0.1);
+  --shadow-pop: 0 8px 16px -6px rgb(16 24 40 / 0.1), 0 24px 48px -12px rgb(16 24 40 / 0.22);
+  --shadow-button: 0 1px 2px 0 rgb(16 24 40 / 0.06), inset 0 1px 0 0 rgb(255 255 255 / 0.12);
 
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -36,14 +41,15 @@
     height: 100%;
   }
   body {
-    @apply bg-slate-50 text-slate-800 antialiased;
-    font-feature-settings: "cv11", "ss01";
+    @apply bg-canvas text-slate-800 antialiased;
+    font-feature-settings: "cv11", "ss01", "ss03";
     -webkit-tap-highlight-color: transparent;
+    text-rendering: optimizeLegibility;
   }
   h1,
   h2,
   h3 {
-    letter-spacing: -0.012em;
+    letter-spacing: -0.018em;
   }
   ::selection {
     @apply bg-brand-200 text-brand-950;
@@ -84,11 +90,16 @@
 }
 
 @layer components {
+  /* 16px text on phones so iOS doesn't zoom into focused fields; 14px from sm up. */
   .input {
-    @apply block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-xs
-      placeholder:text-slate-400 transition
-      focus:border-brand-500 focus:ring-3 focus:ring-brand-500/15 focus:outline-none
+    @apply block h-10 w-full rounded-[10px] border border-slate-300/90 bg-white px-3 text-base text-slate-900 shadow-xs
+      placeholder:text-slate-400 transition sm:h-9.5 sm:text-sm
+      hover:border-slate-400/80
+      focus:border-brand-500 focus:ring-4 focus:ring-brand-500/12 focus:outline-none
       disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500;
+  }
+  textarea.input {
+    @apply h-auto py-2;
   }
   .input-error {
     @apply border-rose-400 focus:border-rose-500 focus:ring-rose-500/15;
@@ -97,27 +108,93 @@
     @apply mb-1.5 block text-[13px] font-medium text-slate-700;
   }
   .card {
-    @apply rounded-xl border border-slate-200/80 bg-white;
+    @apply rounded-2xl border border-slate-200/70 bg-white;
     box-shadow: var(--shadow-card);
   }
   /* Content surface behind the app: a faint brand wash at the top. */
   .app-surface {
-    background-image: radial-gradient(60rem 22rem at 50% -8rem, rgb(20 174 157 / 0.07), transparent 70%);
+    background-image: radial-gradient(70rem 20rem at 50% -10rem, rgb(31 87 235 / 0.06), transparent 70%);
   }
   .table-base {
     @apply w-full text-left text-sm;
   }
   .table-base thead th {
-    @apply border-b border-slate-200 bg-slate-50/80 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500;
+    @apply border-b border-slate-200/80 bg-slate-50/70 px-4 py-2.5 text-[11.5px] font-medium tracking-wide text-slate-500;
   }
   .table-base tbody td {
-    @apply border-b border-slate-100 px-4 py-3 align-middle;
+    @apply border-b border-slate-100 px-4 py-3.5 align-middle;
   }
   .table-base tbody tr:last-child td {
     @apply border-b-0;
   }
   .table-base tbody tr {
-    @apply transition-colors hover:bg-slate-50/70;
+    @apply transition-colors hover:bg-slate-50/60;
+  }
+
+  /*
+   * Phones: every .table-base becomes a stack of cards. Cell labels come from the table's own
+   * header (copied into data-label by lib/tableCards.ts), the first cell is the card title and a
+   * cell holding only buttons becomes the card's action row.
+   */
+  @media (max-width: 767px) {
+    .table-base,
+    .table-base tbody {
+      @apply block;
+    }
+    .table-base thead {
+      @apply sr-only;
+    }
+    .table-base tbody tr {
+      @apply relative flex flex-col gap-1 border-b border-slate-100 px-4 py-3.5 last:border-b-0 hover:bg-transparent active:bg-slate-50;
+    }
+    .table-base tbody td {
+      @apply flex min-h-0 items-center justify-between gap-4 border-0 p-0 text-[13.5px];
+    }
+    /*
+     * Label floats left, the cell's own content flows right-aligned beside it - so inline bits
+     * ("0 / 3") stay on one line and block bits (name, then username) stack.
+     */
+    .table-base tbody td[data-label]:not(:first-child, [data-title]) {
+      @apply block text-right;
+    }
+    .table-base tbody td[data-label]:not(:first-child, [data-title])::before {
+      content: attr(data-label);
+      @apply float-left mr-4 font-sans text-[12.5px] leading-[1.6] font-normal tracking-normal text-slate-500 normal-case;
+    }
+    .table-base tbody td[data-label]:not(:first-child, [data-title]) :where(.flex, .inline-flex) {
+      @apply justify-end;
+    }
+    .table-base tbody td[data-label]:not(:first-child, [data-title]) :where(.flex-col) {
+      @apply items-end;
+    }
+    .table-base tbody td:first-child,
+    .table-base tbody td[data-title] {
+      @apply mb-0.5 justify-start pr-28 text-[15px] font-medium;
+    }
+    /* An icon-only first column (an expand chevron): the whole card is tappable, so drop it. */
+    .table-base tbody td[data-lead] {
+      @apply hidden;
+    }
+    /* Cells with no content would only show a lonely label. */
+    .table-base tbody td:empty {
+      @apply hidden;
+    }
+    .table-base tbody td[data-actions] {
+      @apply absolute top-2.5 right-2 w-auto;
+    }
+    .table-base tbody td[data-actions]::before {
+      content: none;
+    }
+    .table-base tbody td[data-actions] .row-actions {
+      @apply opacity-100;
+    }
+    /* A row that spans the whole table (empty state, "load more") stays a plain block. */
+    .table-base tbody td[colspan] {
+      @apply block;
+    }
+    .table-base tbody td[colspan]::before {
+      content: none;
+    }
   }
   /* Sticky header for long tables inside a scroll container. */
   .table-sticky thead th {
@@ -141,18 +218,37 @@
       @apply opacity-100;
     }
   }
+  /* Bottom padding that clears the phone tab bar and the iOS home indicator. */
+  .pb-tabbar {
+    padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  /* Page action buttons share the row evenly on phones. */
+  @media (max-width: 639px) {
+    .page-actions > * {
+      @apply flex-1;
+    }
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* ---------------------------------------------------------------- animations */
 @keyframes ring-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgb(20 174 157 / 0.55);
+    box-shadow: 0 0 0 0 rgb(16 185 129 / 0.55);
   }
   70% {
-    box-shadow: 0 0 0 16px rgb(20 174 157 / 0);
+    box-shadow: 0 0 0 16px rgb(16 185 129 / 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgb(20 174 157 / 0);
+    box-shadow: 0 0 0 0 rgb(16 185 129 / 0);
   }
 }
 .ring-pulse {
@@ -171,6 +267,36 @@
 }
 .animate-slide-up {
   animation: slide-up 0.22s var(--ease-out-soft);
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+/* Bottom sheet on phones, the usual lift-in from sm up. */
+.animate-sheet {
+  animation: sheet-up 0.28s var(--ease-out-soft);
+}
+@media (min-width: 640px) {
+  .animate-sheet {
+    animation: slide-up 0.22s var(--ease-out-soft);
+  }
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+.animate-drawer {
+  animation: drawer-in 0.26s var(--ease-out-soft);
 }
 
 @keyframes pop-in {

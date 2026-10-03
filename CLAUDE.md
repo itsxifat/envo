@@ -24,8 +24,16 @@ deploy/deploy.sh                   # build + ship app to the office server (auto
 ENVO_TARGET=vps deploy/deploy.sh setup   # old VPS only: re-provision (idempotent)
 ```
 
-Vite builds without typechecking, so a web change that fails `tsc` can still ship and crash at
-runtime — always run both typechecks.
+`npm run build` in `web/` typechecks first, so a broken web change fails the build/deploy.
+
+**Local development** (Docker Desktop must be running): `cd server && npm run dev` starts Postgres in
+Docker (`envo-dev-pg`, port 54329) and rebuilds/restarts the server on change; `cd web && npm run dev`
+serves the dashboard on http://localhost:5173 with `/api` proxied. Sign in as `admin@envo.local` /
+`admin12345`. No Asterisk locally — AMI just retries, generated configs land in `.dev/`.
+
+**Mobile layout:** every `table.table-base` turns into cards below `md` (CSS in `index.css`, cell
+labels copied from the header by `lib/tableCards.ts`) — keep tables plain with a real `<thead>`.
+`Modal` is a bottom sheet below `sm`; the phone tab bar (`Layout.tsx`) needs `pb-tabbar` space.
 
 - The dashboard database is the source of truth. `server/src/asterisk/generator.ts` turns it into
   `/etc/asterisk/envo/*.conf`; `apply.ts` writes changed files and reloads only affected modules

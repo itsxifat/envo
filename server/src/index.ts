@@ -41,6 +41,7 @@ import { adminRouter, publicRouter } from './routes/admin.js';
 import { startRetention } from './billing/retention.js';
 import { startBillingClock } from './billing/jobs.js';
 import { adminBillingRouter, billingRouter, gatewayRouter } from './routes/billing.js';
+import { signupRouter } from './routes/signup.js';
 
 /** Keeps Postgres in sync when a phone changes DND / call forwarding with a feature code. */
 async function onFeatureEvent(e: AmiMessage): Promise<void> {
@@ -96,6 +97,7 @@ async function main(): Promise<void> {
   app.use('/api/embed', embedRouter);
   app.use('/api/public/sslcommerz', gatewayRouter);
   app.use('/api/public', publicRouter);
+  app.use('/api/public', signupRouter);
   app.use('/api', authenticate);
   // Plan, usage and billing stay reachable while an account is pending or suspended.
   app.use('/api/account/billing', billingRouter);

@@ -6,6 +6,8 @@ import { HttpError, badRequest, notFound } from '../lib/http.js';
 import { scheduleApply } from '../asterisk/apply.js';
 import { getUsage, invalidatePlans } from './plan.js';
 import { createSession, queryTransaction, validate, type Validation } from './sslcommerz.js';
+import { provisionFirstServer } from './provision.js';
+import { notifyPaymentReceived } from './notify.js';
 
 export type InvoiceKind = 'subscription' | 'renewal' | 'upgrade' | 'manual';
 
@@ -203,6 +205,8 @@ async function applyInvoice(db: Db, invoice: Invoice): Promise<void> {
         [invoice.account_id, pkg.id, Number(pkg.price_monthly ?? 0), months],
       );
     }
+    // First package: a ready SIP server with extensions, so the customer can call right away.
+    await provisionFirstServer(db, invoice.account_id, pkg.id);
   } else if (invoice.kind === 'renewal') {
     if (!sub) throw new HttpError(409, 'There is no package to renew; buy one instead');
     const nextPkg = sub.next_package_id ? (await db.query<PackageRow>('SELECT * FROM packages WHERE id = $1', [sub.next_package_id])).rows[0] : undefined;
@@ -240,6 +244,7 @@ export async function markInvoicePaid(invoiceId: number, db?: Db): Promise<boole
   if (r.changed) {
     invalidatePlans(r.accountId);
     scheduleApply();
+    notifyPaymentReceived(invoiceId);
   }
   return r.changed;
 }

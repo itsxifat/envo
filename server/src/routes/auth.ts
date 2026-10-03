@@ -29,12 +29,15 @@ authRouter.post('/login', async (req, res) => {
   const { email, password } = loginSchema.parse(req.body);
   const key = `${req.ip}|${email}`;
   if (loginRateLimited(key)) throw new HttpError(429, 'Too many attempts. Try again in a few minutes.');
-  const user = await one<{ id: number; password_hash: string; enabled: boolean }>(
-    'SELECT id, password_hash, enabled FROM users WHERE email = $1',
+  const user = await one<{ id: number; password_hash: string; enabled: boolean; email_verified_at: Date | null }>(
+    'SELECT id, password_hash, enabled, email_verified_at FROM users WHERE email = $1',
     [email],
   );
   const ok = await verifyPassword(password, user?.password_hash ?? (await dummyHash));
   if (!user || !ok || !user.enabled) throw new HttpError(401, 'Wrong email or password');
+  if (!user.email_verified_at) {
+    throw new HttpError(403, 'Confirm your email first: open the link we sent you.', { code: 'email_unverified' });
+  }
   clearLoginAttempts(key);
   await exec('UPDATE users SET last_login_at = now() WHERE id = $1', [user.id]);
   issueSession(res, user.id);

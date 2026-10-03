@@ -108,8 +108,8 @@ userRouter.post('/', async (req, res) => {
   const data = await normalize(req, userSchema.parse(req.body));
   if (!data.password) throw badRequest('password: is required');
   const row = await one<{ id: number }>(
-    `INSERT INTO users (email, name, role, account_id, is_owner, tenant_id, extension_id, enabled, password_hash)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+    `INSERT INTO users (email, name, role, account_id, is_owner, tenant_id, extension_id, enabled, password_hash, email_verified_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now()) RETURNING id`,
     [data.email, data.name, data.role, data.account_id, data.is_owner, data.tenant_id, data.extension_id, data.enabled, await hashPassword(data.password)],
   );
   await audit(req, 'create', 'user', row!.id, data.email, data.tenant_id);

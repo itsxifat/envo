@@ -7,6 +7,7 @@ import { audit } from '../lib/validate.js';
 import { randomPassword } from '../lib/secrets.js';
 import { scheduleApply } from '../asterisk/apply.js';
 import { getAccountPlan, getUsage, invalidatePlans, IVR_TIERS } from '../billing/plan.js';
+import { getEmailSettings, testEmail, updateEmailSettings, type EmailSettings } from '../lib/mailer.js';
 
 /** Platform administration (Enfinito): packages, customers and their subscriptions. */
 export const adminRouter = Router();
@@ -144,7 +145,7 @@ adminRouter.get('/accounts/:id', async (req, res) => {
          FROM tenants t WHERE t.account_id = $1 ORDER BY t.id`,
       [id],
     ),
-    many('SELECT id, email, name, role, is_owner, enabled, last_login_at FROM users WHERE account_id = $1 ORDER BY is_owner DESC, id', [id]),
+    many('SELECT id, email, name, role, is_owner, enabled, last_login_at, email_verified_at FROM users WHERE account_id = $1 ORDER BY is_owner DESC, id', [id]),
     many(
       `SELECT s.*, p.name AS package_name FROM subscriptions s JOIN packages p ON p.id = s.package_id
         WHERE s.account_id = $1 ORDER BY s.id DESC`,
@@ -193,7 +194,7 @@ adminRouter.post('/accounts', async (req, res) => {
         .rows[0].id as number;
     }
     await db.query(
-      `INSERT INTO users (email, name, password_hash, role, account_id, is_owner, tenant_id) VALUES ($1, $2, $3, 'admin', $4, true, $5)`,
+      `INSERT INTO users (email, name, password_hash, role, account_id, is_owner, tenant_id, email_verified_at) VALUES ($1, $2, $3, 'admin', $4, true, $5, now())`,
       [d.email, d.owner_name, await hashPassword(password), account.id, tenantId],
     );
     if (pkg) {
@@ -299,4 +300,58 @@ publicRouter.get('/packages', async (_req, res) => {
          FROM packages WHERE active AND public ORDER BY sort_order, id`,
     ),
   );
+});
+
+// ---------------------------------------------------------------------------------------- email
+const emailSchema = z.object({
+  enabled: z.boolean(),
+  host: z.string().trim().max(200),
+  port: z.number().int().min(1).max(65535),
+  secure: z.boolean(),
+  user: z.string().trim().max(200),
+  /** Empty keeps the stored password. */
+  pass: z.string().max(300).default(''),
+  from_name: z.string().trim().min(1).max(60),
+  from_email: z.string().trim().max(200),
+});
+
+function maskEmail(s: EmailSettings) {
+  return { ...s, pass: '', has_pass: !!s.pass };
+}
+
+adminRouter.get('/email-settings', async (_req, res) => {
+  res.json(maskEmail(await getEmailSettings()));
+});
+
+adminRouter.put('/email-settings', async (req, res) => {
+  const d = emailSchema.parse(req.body);
+  const current = await getEmailSettings();
+  const saved = await updateEmailSettings({ ...d, pass: d.pass || current.pass });
+  await audit(req, 'update', 'email_settings', '', d.host, null);
+  res.json(maskEmail(saved));
+});
+
+/** Sends a test message with the settings in the form (saved password if the field is empty). */
+adminRouter.post('/email-settings/test', async (req, res) => {
+  const { to, ...rest } = emailSchema.extend({ to: z.email() }).parse(req.body);
+  const current = await getEmailSettings();
+  try {
+    await testEmail({ ...rest, pass: rest.pass || current.pass }, to);
+  } catch (err) {
+    throw badRequest(`Sending failed: ${(err as Error).message}`);
+  }
+  res.json({ ok: true });
+});
+
+adminRouter.get('/email-log', async (_req, res) => {
+  res.json(await many('SELECT id, to_addr, subject, status, error, created_at FROM email_log ORDER BY id DESC LIMIT 200'));
+});
+
+/** Support: confirm a customer's email by hand (their verification mail never arrived). */
+adminRouter.post('/users/:id/verify-email', async (req, res) => {
+  const id = intParam(req.params.id);
+  const n = await exec('UPDATE users SET email_verified_at = COALESCE(email_verified_at, now()), updated_at = now() WHERE id = $1', [id]);
+  if (!n) throw notFound('User');
+  await audit(req, 'verify_email', 'user', id, '', null);
+  res.json({ ok: true });
 });

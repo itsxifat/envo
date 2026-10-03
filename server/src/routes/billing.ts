@@ -194,7 +194,7 @@ adminBillingRouter.post('/invoices/:id/void', async (req, res) => {
 /** Cash or any payment received outside the system. */
 adminBillingRouter.post('/invoices/:id/mark-paid', async (req, res) => {
   const id = intParam(req.params.id);
-  const { note, channel } = z.object({ note: z.string().trim().max(300).default(''), channel: z.string().trim().max(20).default('cash') }).parse(req.body);
+  const { note, channel } = z.object({ note: z.string().trim().max(300).default(''), channel: z.string().trim().max(20).default('cash') }).parse(req.body ?? {});
   await tx(async (db) => {
     const inv = (await db.query<{ account_id: number; amount: string; status: string }>('SELECT account_id, amount, status FROM invoices WHERE id = $1 FOR UPDATE', [id])).rows[0];
     if (!inv) throw notFound('Invoice');
@@ -229,7 +229,7 @@ adminBillingRouter.get('/payments', async (req, res) => {
 for (const decision of ['approve', 'reject'] as const) {
   adminBillingRouter.post(`/payments/:id/${decision}`, async (req, res) => {
     const id = intParam(req.params.id);
-    const { note } = z.object({ note: z.string().trim().max(300).default('') }).parse(req.body);
+    const { note } = z.object({ note: z.string().trim().max(300).default('') }).parse(req.body ?? {});
     await reviewPayment(id, decision === 'approve', req.user!.id, note);
     await audit(req, decision, 'payment', id, note, null);
     res.json({ ok: true });

@@ -3,6 +3,7 @@ import { scheduleApply } from '../asterisk/apply.js';
 import { getBillingSettings } from './settings.js';
 import { invalidatePlans } from './plan.js';
 import { createInvoice, reconcileOnlinePayments } from './invoices.js';
+import { notifyInvoiceIssued, notifySuspended } from './notify.js';
 
 const EVERY_MS = 60 * 60_000;
 
@@ -36,10 +37,10 @@ export async function runBillingClock(now = new Date()): Promise<{ invoiced: num
   for (const sub of due) {
     // One customer's problem must not stop everyone else's billing.
     try {
-      await tx(async (db) => {
+      const created = await tx(async (db) => {
       const name = sub.next_name ?? sub.pkg_name;
       const amount = sub.next_package_id ? Number(sub.next_price ?? sub.price) : Number(sub.price);
-      await createInvoice(db, {
+      return createInvoice(db, {
         accountId: sub.account_id,
         kind: 'renewal',
         packageId: sub.next_package_id ?? null,
@@ -49,6 +50,7 @@ export async function runBillingClock(now = new Date()): Promise<{ invoiced: num
         dueAt: sub.current_period_end,
       });
       });
+      notifyInvoiceIssued(created.id);
       invoiced++;
     } catch (err) {
       console.warn(`[billing] renewal invoice for account ${sub.account_id} failed:`, (err as Error).message);
@@ -72,7 +74,10 @@ export async function runBillingClock(now = new Date()): Promise<{ invoiced: num
       RETURNING id`,
     [now, s.grace_days],
   );
-  suspended.forEach((r) => touched.add(r.id));
+  suspended.forEach((r) => {
+    touched.add(r.id);
+    notifySuspended(r.id);
+  });
 
   const ended = await many<{ account_id: number }>(
     `UPDATE subscriptions SET status = 'cancelled', updated_at = now()

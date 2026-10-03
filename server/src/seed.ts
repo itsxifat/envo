@@ -39,8 +39,8 @@ export async function seed(): Promise<void> {
     await ext('1002', 'IP Phone 1002');
 
     await db.query(
-      `INSERT INTO users (email, name, password_hash, role, tenant_id, extension_id)
-       VALUES ($1, 'Administrator', $2, 'superadmin', NULL, $3)`,
+      `INSERT INTO users (email, name, password_hash, role, tenant_id, extension_id, email_verified_at)
+       VALUES ($1, 'Administrator', $2, 'superadmin', NULL, $3, now())`,
       [config.admin.email.toLowerCase(), await hashPassword(password), admin.id],
     );
   });

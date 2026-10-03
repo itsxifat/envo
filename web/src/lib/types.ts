@@ -99,6 +99,8 @@ export type Recording = 'off' | 'inbound' | 'outbound' | 'all';
 
 export interface Tenant {
   id: number;
+  account_id?: number;
+  account_name?: string;
   name: string;
   slug: string;
   description: string;
@@ -318,6 +320,9 @@ export interface AppUser {
   last_login_at: string | null;
   extension_number?: string | null;
   tenant_name?: string | null;
+  account_id?: number | null;
+  account_name?: string | null;
+  is_owner?: boolean;
 }
 
 export interface CallRow {

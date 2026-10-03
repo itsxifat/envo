@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import clsx from 'clsx';
 import { Building2, Hash, Pencil, Plus, Server, Trash2, Users } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { api } from '../lib/api';
+import { useAuth } from '../state/auth';
 import { useList, useRemove, useSave } from '../lib/hooks';
 import { useTenant } from '../state/tenant';
 import { useLive } from '../state/live';
-import type { Tenant } from '../lib/types';
+import type { AccountRow, Tenant } from '../lib/types';
 import { Badge, Button, Card, EmptyState, ErrorBlock, Field, IconButton, Input, LoadingBlock, Modal, NumberInput, PageHeader, Select, Textarea, Toggle, useConfirm } from '../components/ui';
 
-type Form = Omit<Tenant, 'id' | 'extension_count' | 'number_count' | 'trunk_count'> & { quick: boolean; quick_start: string; quick_count: number };
+type Form = Omit<Tenant, 'id' | 'extension_count' | 'number_count' | 'trunk_count'> & { quick: boolean; quick_start: string; quick_count: number; account_id?: number };
 const EMPTY: Form = {
   name: '',
   slug: '',
@@ -33,16 +35,23 @@ export function ServersPage() {
   const confirm = useConfirm();
   const { setTenantId, tenantId } = useTenant();
   const { groups } = useLive();
+  const { user, plan } = useAuth();
+  const platform = user?.role === 'superadmin';
   const [editing, setEditing] = useState<Tenant | 'new' | null>(null);
+  const atLimit = !!plan && plan.limits.max_servers !== null && (list.data?.length ?? 0) >= plan.limits.max_servers;
 
   return (
     <div>
       <PageHeader
         title="SIP servers"
         icon={<Building2 className="size-5" />}
-        description="Each SIP server is an isolated PBX with its own extensions, numbers, routing and channel limit"
+        description={
+          platform
+            ? 'Each SIP server is an isolated PBX with its own extensions, numbers, routing and channel limit'
+            : `Separate phone systems for your offices or brands${plan?.limits.max_servers != null ? ` · ${list.data?.length ?? 0} of ${plan.limits.max_servers} in your package` : ''}`
+        }
         actions={
-          <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>
+          <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')} disabled={atLimit} title={atLimit ? 'Your package limit is reached' : undefined}>
             New SIP server
           </Button>
         }
@@ -63,7 +72,7 @@ export function ServersPage() {
               <Card key={t.id} className={clsx('flex flex-col p-5', !t.enabled && 'opacity-60', t.id === tenantId && 'ring-2 ring-brand-500/40')}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <div className="flex size-10 items-center justify-center rounded-xl bg-gradient-to-br from-slate-800 to-ink-950 text-sm font-semibold text-white">
+                    <div className="flex size-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-800 text-sm font-semibold text-white">
                       {t.name.slice(0, 2).toUpperCase()}
                     </div>
                     <div>
@@ -71,13 +80,17 @@ export function ServersPage() {
                         {t.name}
                         {!t.enabled && <Badge>Disabled</Badge>}
                       </div>
-                      <div className="font-mono text-xs text-slate-500">{t.slug}</div>
+                      <div className="font-mono text-xs text-slate-500">
+                        {t.slug}
+                        {platform && t.account_name && <span className="font-sans"> · {t.account_name}</span>}
+                      </div>
                     </div>
                   </div>
                   <div className="flex gap-0.5">
                     <IconButton label="Edit" onClick={() => setEditing(t)}>
                       <Pencil className="size-4" />
                     </IconButton>
+                    {(platform || user?.isOwner) && (
                     <IconButton
                       label="Delete"
                       tone="danger"
@@ -95,6 +108,7 @@ export function ServersPage() {
                     >
                       <Trash2 className="size-4" />
                     </IconButton>
+                    )}
                   </div>
                 </div>
                 {t.description && <p className="mt-3 text-sm text-slate-500">{t.description}</p>}
@@ -116,7 +130,7 @@ export function ServersPage() {
                     <Server className="mx-auto size-4 text-slate-400" />
                     <div className="mt-1 text-sm font-semibold text-slate-900">
                       {used}
-                      <span className="text-slate-400">/{t.max_channels || '∞'}</span>
+                      <span className="text-slate-400">/{t.max_channels || (plan?.limits.max_channels ?? '∞')}</span>
                     </div>
                     <div className="text-[11px] text-slate-500">Channels</div>
                   </div>
@@ -141,6 +155,10 @@ function ServerModal({ tenant, onClose }: { tenant: Tenant | null; onClose: () =
   const save = useSave<Tenant>('tenants', { created: 'SIP server created', updated: 'SIP server saved' });
   const qc = useQueryClient();
   const { setTenantId } = useTenant();
+  const { user, plan } = useAuth();
+  const platform = user?.role === 'superadmin';
+  const noRecording = !!plan && plan.limits.recording_days === 0;
+  const accounts = useQuery({ queryKey: ['admin', 'accounts', '', ''], queryFn: () => api.get<AccountRow[]>('/api/admin/accounts'), enabled: platform && !tenant });
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   return (
@@ -182,17 +200,33 @@ function ServerModal({ tenant, onClose }: { tenant: Tenant | null; onClose: () =
         <Field label="Description" className="sm:col-span-2">
           <Textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows={2} />
         </Field>
-        <Field label="Channels" hint="Max simultaneous outside calls, 0 = unlimited">
-          <NumberInput value={form.max_channels} onChange={(v) => set('max_channels', v)} min={0} />
-        </Field>
-        <Field label="Max extensions" hint="0 = unlimited">
-          <NumberInput value={form.max_extensions} onChange={(v) => set('max_extensions', v)} min={0} />
-        </Field>
+        {platform && !tenant && (
+          <Field label="Customer" className="sm:col-span-2" hint="The account this SIP server belongs to">
+            <Select value={form.account_id ?? ''} onChange={(e) => set('account_id', e.target.value ? Number(e.target.value) : undefined)}>
+              {accounts.data?.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                  {a.internal ? ' (Enfinito)' : ''}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
+        {platform && (
+          <>
+            <Field label="Channels" hint="Max simultaneous outside calls, 0 = unlimited">
+              <NumberInput value={form.max_channels} onChange={(v) => set('max_channels', v)} min={0} />
+            </Field>
+            <Field label="Max extensions" hint="0 = unlimited">
+              <NumberInput value={form.max_extensions} onChange={(v) => set('max_extensions', v)} min={0} />
+            </Field>
+          </>
+        )}
         <Field label="Default outbound caller ID" hint="Number shown when extensions call out">
           <Input value={form.outbound_cid} onChange={(e) => set('outbound_cid', e.target.value.replace(/[^\d+]/g, ''))} placeholder="09612345678" />
         </Field>
-        <Field label="Call recording default">
-          <Select value={form.recording} onChange={(e) => set('recording', e.target.value as Form['recording'])}>
+        <Field label="Call recording default" hint={noRecording ? 'Not included in your package' : undefined}>
+          <Select value={noRecording ? 'off' : form.recording} disabled={noRecording} onChange={(e) => set('recording', e.target.value as Form['recording'])}>
             <option value="off">Off</option>
             <option value="inbound">Incoming calls</option>
             <option value="outbound">Outgoing calls</option>
@@ -214,7 +248,7 @@ function ServerModal({ tenant, onClose }: { tenant: Tenant | null; onClose: () =
           </Select>
         </Field>
         <div className="space-y-3 sm:col-span-2">
-          <Toggle checked={form.enabled} onChange={(v) => set('enabled', v)} label="Enabled" description="A disabled SIP server stops registering phones and taking calls" />
+          {platform && <Toggle checked={form.enabled} onChange={(v) => set('enabled', v)} label="Enabled" description="A disabled SIP server stops registering phones and taking calls" />}
           {!tenant && (
             <>
               <Toggle checked={form.quick} onChange={(v) => set('quick', v)} label="Create extensions now" description="Start with a block of ready-to-use extensions" />

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Pencil, Plus, Trash2, UserRound } from 'lucide-react';
+import { Crown, Pencil, Plus, Trash2, UserRound } from 'lucide-react';
 import { api, scoped } from '../lib/api';
 import { useList, useRemove, useSave } from '../lib/hooks';
 import { useAuth } from '../state/auth';
@@ -15,13 +15,14 @@ interface Form {
   role: Role;
   tenant_id: number | null;
   extension_id: number | null;
+  is_owner: boolean;
   enabled: boolean;
   password: string;
 }
 
 const ROLE: Record<Role, { label: string; tone: 'violet' | 'brand' | 'gray'; desc: string }> = {
   superadmin: { label: 'Platform admin', tone: 'violet', desc: 'Everything, across all SIP servers' },
-  admin: { label: 'Admin', tone: 'brand', desc: 'Manages one SIP server' },
+  admin: { label: 'Admin', tone: 'brand', desc: 'Manages every SIP server of the account' },
   agent: { label: 'Agent', tone: 'gray', desc: 'Web phone, own calls and voicemail' },
 };
 
@@ -58,7 +59,7 @@ export function UsersPage() {
                 <tr>
                   <th>User</th>
                   <th>Role</th>
-                  {me?.role === 'superadmin' && <th>SIP server</th>}
+                  {me?.role === 'superadmin' && <th>Customer</th>}
                   <th>Web phone ext</th>
                   <th>Last sign-in</th>
                   <th className="w-24" />
@@ -75,8 +76,18 @@ export function UsersPage() {
                     </td>
                     <td>
                       <Badge tone={ROLE[u.role].tone}>{ROLE[u.role].label}</Badge>
+                      {u.is_owner && (
+                        <Badge tone="amber" className="ml-1.5">
+                          <Crown className="size-3" /> Owner
+                        </Badge>
+                      )}
                     </td>
-                    {me?.role === 'superadmin' && <td className="text-sm text-slate-600">{u.tenant_name ?? '—'}</td>}
+                    {me?.role === 'superadmin' && (
+                      <td className="text-sm text-slate-600">
+                        {u.account_name ?? '—'}
+                        {u.tenant_name && <div className="text-xs text-slate-400">{u.tenant_name}</div>}
+                      </td>
+                    )}
                     <td className="font-mono text-sm text-slate-700">{u.extension_number ?? '—'}</td>
                     <td className="text-sm text-slate-500">{timeAgo(u.last_login_at)}</td>
                     <td>
@@ -114,8 +125,8 @@ function UserModal({ user, onClose }: { user: AppUser | null; onClose: () => voi
   const { tenants, tenantId } = useTenant();
   const [form, setForm] = useState<Form>(() =>
     user
-      ? { email: user.email, name: user.name, role: user.role, tenant_id: user.tenant_id, extension_id: user.extension_id, enabled: user.enabled, password: '' }
-      : { email: '', name: '', role: 'agent', tenant_id: tenantId, extension_id: null, enabled: true, password: '' },
+      ? { email: user.email, name: user.name, role: user.role, tenant_id: user.tenant_id, extension_id: user.extension_id, is_owner: !!user.is_owner, enabled: user.enabled, password: '' }
+      : { email: '', name: '', role: 'agent', tenant_id: tenantId, extension_id: null, is_owner: false, enabled: true, password: '' },
   );
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }));
   const save = useSave('users', { created: 'User added', updated: 'User saved' });
@@ -167,8 +178,8 @@ function UserModal({ user, onClose }: { user: AppUser | null; onClose: () => voi
             ))}
           </Select>
         </Field>
-        {me?.role === 'superadmin' && (
-          <Field label={form.role === 'superadmin' ? 'Browse extensions of' : 'SIP server'}>
+        {(me?.role === 'superadmin' || tenants.length > 1) && (
+          <Field label={form.role === 'superadmin' ? 'Browse extensions of' : 'SIP server'} hint={me?.role === 'superadmin' && form.role !== 'superadmin' ? 'Also decides the customer account' : undefined}>
             <Select
               value={(form.role === 'superadmin' ? extTenant : form.tenant_id) ?? ''}
               onChange={(e) => {
@@ -180,6 +191,7 @@ function UserModal({ user, onClose }: { user: AppUser | null; onClose: () => voi
               {tenants.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
+                  {me?.role === 'superadmin' && t.account_name ? ` · ${t.account_name}` : ''}
                 </option>
               ))}
             </Select>
@@ -198,8 +210,11 @@ function UserModal({ user, onClose }: { user: AppUser | null; onClose: () => voi
         <Field label={user ? 'New password' : 'Password'} className="sm:col-span-2" hint={user ? 'Leave empty to keep the current password' : 'At least 8 characters'}>
           <Input type="password" value={form.password} onChange={(e) => set('password', e.target.value)} autoComplete="new-password" />
         </Field>
-        <div className="sm:col-span-2">
+        <div className="space-y-3 sm:col-span-2">
           <Toggle checked={form.enabled} onChange={(v) => set('enabled', v)} label="Can sign in" />
+          {form.role === 'admin' && (me?.role === 'superadmin' || me?.isOwner) && (
+            <Toggle checked={form.is_owner} onChange={(v) => set('is_owner', v)} label="Account owner" description="Can manage billing, the team and delete SIP servers" />
+          )}
         </div>
       </div>
     </Modal>

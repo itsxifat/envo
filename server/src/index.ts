@@ -38,6 +38,7 @@ import { integrationRouter } from './routes/integrations.js';
 import { startWebhooks } from './webhooks.js';
 import { accountRouter } from './routes/account.js';
 import { adminRouter, publicRouter } from './routes/admin.js';
+import { startRetention } from './billing/retention.js';
 
 /** Keeps Postgres in sync when a phone changes DND / call forwarding with a feature code. */
 async function onFeatureEvent(e: AmiMessage): Promise<void> {
@@ -147,6 +148,7 @@ async function main(): Promise<void> {
 
   live.start();
   startWebhooks();
+  startRetention();
   ami.start();
   // Write the Asterisk config right away, even if Asterisk is not reachable yet.
   await applyNow();

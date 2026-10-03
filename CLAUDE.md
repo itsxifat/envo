@@ -48,6 +48,25 @@ labels copied from the header by `lib/tableCards.ts`) — keep tables plain with
 - `cdr_pgsql` reads the CDR table's columns only when it loads: after a CDR schema migration the
   module must be unloaded and loaded again (handled in `index.ts`).
 
+## Product model (accounts, packages, limits)
+
+- A customer **account** owns SIP servers (tenants) and logins. Platform admins (`superadmin`) have no
+  account; `admin` works across every server of its account; `agent` sits in one server;
+  `users.is_owner` = billing/team. `SessionUser.tenantIds` is the access list — always check access
+  with `canAccessTenant` / `tenantOf` / `assertTenantAccess`, never compare `user.tenantId`.
+- Limits live in `packages` (+ per-customer `subscriptions.overrides`); `billing/plan.ts` resolves
+  the effective plan (cached 10 s — call `invalidatePlans()` + `scheduleApply()` after changes) and
+  `assertLimit` / `assertFeature` enforce them. NULL = unlimited, 0 = not included. Enfinito's own
+  account is `internal` (never limited or billed).
+- `asterisk/model.ts` applies plans to the config: servers of non-active accounts are disabled, recording
+  forced off unless included, every server carries the account-wide channel cap (`envo_account/a<id>`).
+- Multi-customer SIP safety: numbers are unique platform-wide and route only via their own trunk
+  (`envo-did` keys `t<trunk>n<number>`); a provider IP used by several trunks is dropped from `match`
+  and those trunks are identified by `match_request_uri` (their numbers); customer trunks get an
+  endpoint ACL for their provider IPs and may not point at private networks. Config-sync status
+  (warnings name other customers' trunks) goes to platform admins only.
+- `billing/retention.ts` trims each account's recordings to its package (days, then MB) every 6 h.
+
 ## Gotchas found the hard way
 
 - Asterisk answers an empty AMI list with `Response: Error` ("No Contacts found") — treated as empty.

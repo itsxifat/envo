@@ -86,7 +86,8 @@ activate() {
   mv "$APP/web" "$APP/web.old"; mv "$APP/web.next" "$APP/web"
   rm -rf "$APP/server.old" "$APP/web.old"
   echo "$1" > "$APP/VERSION"
-  pm2 restart envo >/dev/null
+  # Re-read ecosystem.config.cjs so changed settings (secrets, SMTP) apply on every release.
+  pm2 startOrRestart "$APP/ecosystem.config.cjs" --update-env >/dev/null
 }
 
 healthy() {

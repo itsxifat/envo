@@ -14,6 +14,7 @@ export function SignupPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const packages = useQuery({ queryKey: ['public', 'packages'], queryFn: () => api.get<Package[]>('/api/public/packages') });
+  const status = useQuery({ queryKey: ['public', 'setup-status'], queryFn: () => api.get<{ needsSetup: boolean }>('/api/public/setup-status') });
   const [form, setForm] = useState({ company: '', name: '', email: '', phone: '', password: '', package: params.get('package') ?? '', website: '' });
   const [show, setShow] = useState(false);
   const set = <K extends keyof typeof form>(k: K, v: string) => setForm((f) => ({ ...f, [k]: v }));
@@ -37,6 +38,11 @@ export function SignupPage() {
           </>
         }
       >
+        {status.data?.needsSetup ? (
+          <Notice tone="info" title="Sign-ups open soon">
+            We are getting Envo ready. Please check back shortly.
+          </Notice>
+        ) : (
         <form
           className="space-y-4"
           onSubmit={(e) => {
@@ -80,6 +86,7 @@ export function SignupPage() {
             Create account
           </Button>
         </form>
+        )}
       </AuthCard>
     </PublicLayout>
   );
@@ -246,6 +253,72 @@ export function ResetPasswordPage() {
             Save and sign in
           </Button>
         </form>
+      </AuthCard>
+    </PublicLayout>
+  );
+}
+
+/** First run only: create the platform admin with the one-time link from the server. */
+export function SetupPage() {
+  const [params] = useSearchParams();
+  const navigate = useNavigate();
+  const { refresh } = useAuth();
+  const token = params.get('token') ?? '';
+  const status = useQuery({ queryKey: ['public', 'setup-status'], queryFn: () => api.get<{ needsSetup: boolean }>('/api/public/setup-status') });
+  const [form, setForm] = useState({ company: 'Enfinito', name: '', email: '', password: '' });
+  const setup = useMutation({
+    mutationFn: () => api.post('/api/public/setup', { ...form, token }),
+    onSuccess: async () => {
+      await refresh();
+      toast.success('Welcome! You are the platform administrator.');
+      navigate('/', { replace: true });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  if (status.isLoading) return <LoadingBlock />;
+  if (!status.data?.needsSetup) {
+    return (
+      <PublicLayout>
+        <AuthCard title="Envo is already set up">
+          <Link to="/login">
+            <Button variant="primary" className="w-full" size="lg">
+              Sign in
+            </Button>
+          </Link>
+        </AuthCard>
+      </PublicLayout>
+    );
+  }
+  return (
+    <PublicLayout>
+      <AuthCard title="Set up Envo" description="Create the platform administrator. This page works once, with the link from the server.">
+        {!token ? (
+          <Notice tone="warn">Open the one-time setup link from the server log to continue.</Notice>
+        ) : (
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setup.mutate();
+            }}
+          >
+            <Field label="Your company" hint="Your own SIP servers live in this account, never billed or limited">
+              <Input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} required />
+            </Field>
+            <Field label="Your name">
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} autoComplete="name" required autoFocus />
+            </Field>
+            <Field label="Email">
+              <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} autoComplete="email" required />
+            </Field>
+            <Field label="Password" hint="At least 12 characters; this account controls everything">
+              <Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="new-password" minLength={12} required />
+            </Field>
+            <Button type="submit" variant="primary" size="lg" className="w-full" loading={setup.isPending}>
+              Create administrator
+            </Button>
+          </form>
+        )}
       </AuthCard>
     </PublicLayout>
   );

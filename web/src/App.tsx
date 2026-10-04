@@ -9,7 +9,7 @@ import { LoadingBlock } from './components/ui';
 import type { Role } from './lib/types';
 import { LoginPage } from './pages/Login';
 import { LandingPage } from './pages/public/Landing';
-import { CheckEmailPage, ForgotPasswordPage, ResetPasswordPage, SignupPage, VerifyPage } from './pages/public/Signup';
+import { CheckEmailPage, ForgotPasswordPage, ResetPasswordPage, SetupPage, SignupPage, VerifyPage } from './pages/public/Signup';
 import { DashboardPage } from './pages/Dashboard';
 import { LiveCallsPage } from './pages/LiveCalls';
 import { CallLogsPage } from './pages/CallLogs';
@@ -61,6 +61,7 @@ export function App() {
         <Route path="/verify" element={<VerifyPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset" element={<ResetPasswordPage />} />
+        <Route path="/setup" element={<SetupPage />} />
         {/* Any other address: sign in, then the app continues there. */}
         <Route path="*" element={<LoginPage />} />
       </Routes>

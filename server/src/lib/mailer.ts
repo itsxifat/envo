@@ -28,11 +28,42 @@ export const DEFAULT_EMAIL: EmailSettings = {
 let cache: EmailSettings | null = null;
 let transport: { key: string; t: Transporter } | null = null;
 
+/** SMTP account from the server's environment (ENVO_SMTP_*); the admin panel can override it. */
+function fromEnv(): EmailSettings {
+  const host = process.env.ENVO_SMTP_HOST ?? '';
+  const user = process.env.ENVO_SMTP_USER ?? '';
+  return {
+    enabled: !!host,
+    host,
+    port: Number(process.env.ENVO_SMTP_PORT ?? DEFAULT_EMAIL.port),
+    secure: process.env.ENVO_SMTP_SECURE === 'true',
+    user,
+    pass: process.env.ENVO_SMTP_PASS ?? '',
+    from_name: process.env.ENVO_SMTP_FROM_NAME ?? DEFAULT_EMAIL.from_name,
+    from_email: process.env.ENVO_SMTP_FROM ?? user,
+  };
+}
+
 export async function getEmailSettings(): Promise<EmailSettings> {
   if (cache) return cache;
   const row = await one<{ value: Partial<EmailSettings> }>("SELECT value FROM settings WHERE key = 'email'");
-  cache = { ...DEFAULT_EMAIL, ...(row?.value ?? {}) };
+  cache = { ...fromEnv(), ...(row?.value ?? {}) };
   return cache;
+}
+
+/** Logs at startup whether the SMTP account works, so a broken mailbox shows up before customers notice. */
+export async function checkEmailOnStart(): Promise<void> {
+  const s = await getEmailSettings();
+  if (!emailReady(s)) {
+    console.warn('[mail] email is not set up: sign-up confirmations and billing emails only go to this log');
+    return;
+  }
+  try {
+    await transporter(s).verify();
+    console.log(`[mail] SMTP ${s.host}:${s.port} works (sending as ${s.from_email})`);
+  } catch (err) {
+    console.warn(`[mail] SMTP ${s.host}:${s.port} does not work: ${(err as Error).message}`);
+  }
 }
 
 export async function updateEmailSettings(next: EmailSettings): Promise<EmailSettings> {

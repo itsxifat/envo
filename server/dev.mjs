@@ -2,7 +2,7 @@
 // Starts Postgres in Docker (container envo-dev-pg, port 54329), rebuilds the server on every change
 // and restarts it. Asterisk is not needed - the AMI client just keeps retrying - and generated
 // configs, sounds and recordings go to ../.dev/ instead of /etc/asterisk and /var.
-// Sign in as admin@envo.local / admin12345 (created on first start).
+// First start: open the one-time /setup link printed in the log to create the platform admin.
 import { context } from 'esbuild';
 import { spawn, execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
@@ -55,8 +55,6 @@ const env = {
   PUBLIC_HOST: 'localhost',
   PUBLIC_URL: 'http://localhost:5173',
   SIP_DOMAIN: 'localhost',
-  ENVO_ADMIN_EMAIL: 'admin@envo.local',
-  ENVO_ADMIN_PASSWORD: 'admin12345',
   AMI_SECRET: 'dev',
   ASTERISK_CONF_DIR: path.join(root, dirs.conf),
   ASTERISK_SOUNDS_DIR: path.join(root, dirs.sounds),

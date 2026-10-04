@@ -7,6 +7,7 @@ import { hashPassword, issueSession } from '../auth.js';
 import { HttpError, badRequest, conflict } from '../lib/http.js';
 import { sendMail } from '../lib/mailer.js';
 import { emails } from '../lib/emails.js';
+import { closeSetup, needsSetup, setupTokenValid } from '../setup.js';
 
 /** Public self-service: sign up, confirm email, reset password. No session needed. */
 export const signupRouter = Router();
@@ -74,6 +75,7 @@ const signupSchema = z.object({
 
 signupRouter.post('/signup', async (req, res) => {
   guard(req, 'signup', 5, 3600_000);
+  if (await needsSetup()) throw new HttpError(403, 'Envo is not open for sign-ups yet.');
   const d = signupSchema.parse(req.body);
   if (d.website) {
     res.status(201).json({ ok: true });
@@ -153,4 +155,51 @@ signupRouter.post('/reset-password', async (req, res) => {
   await exec("UPDATE email_tokens SET used_at = now() WHERE user_id = $1 AND kind = 'reset' AND used_at IS NULL", [userId]);
   issueSession(res, userId);
   res.json({ ok: true });
+});
+
+// ------------------------------------------------------------------------------------ first run
+/** Whether the platform still needs its first admin (the website then shows nothing to sign up for). */
+signupRouter.get('/setup-status', async (_req, res) => {
+  res.json({ needsSetup: await needsSetup() });
+});
+
+const setupSchema = z.object({
+  token: z.string().min(20).max(100),
+  company: z.string().trim().min(2).max(80),
+  name: z.string().trim().min(1).max(60),
+  email: z.email().transform((v) => v.toLowerCase()),
+  password: z.string().min(12, 'use at least 12 characters for the platform admin').max(128),
+});
+
+/**
+ * Creates the first platform admin, only with the one-time link from the server (see setup.ts).
+ * Serialised with an advisory lock and re-checked inside the transaction, so two requests can never
+ * both create one; afterwards this answers "already set up" forever.
+ */
+signupRouter.post('/setup', async (req, res) => {
+  guard(req, 'setup', 10, 3600_000);
+  const d = setupSchema.parse(req.body);
+  if (!(await needsSetup())) throw new HttpError(404, 'Envo is already set up. Sign in instead.');
+  if (!setupTokenValid(d.token)) throw new HttpError(403, 'This setup link is not valid. Use the newest link from the server.');
+  const passwordHash = await hashPassword(d.password);
+  const userId = await tx(async (db) => {
+    await db.query('SELECT pg_advisory_xact_lock(771001)');
+    if ((await db.query("SELECT 1 FROM users WHERE role = 'superadmin' LIMIT 1")).rowCount) {
+      throw new HttpError(404, 'Envo is already set up. Sign in instead.');
+    }
+    if ((await db.query('SELECT 1 FROM users WHERE email = $1', [d.email])).rowCount) throw conflict('This email is already used by another login');
+    // The company running Envo: its own SIP servers are never billed or limited.
+    if (!(await db.query('SELECT 1 FROM accounts WHERE internal LIMIT 1')).rowCount) {
+      await db.query(`INSERT INTO accounts (name, email, status, internal) VALUES ($1, $2, 'active', true)`, [d.company, d.email]);
+    }
+    const user = await db.query<{ id: number }>(
+      `INSERT INTO users (email, name, password_hash, role, email_verified_at) VALUES ($1, $2, $3, 'superadmin', now()) RETURNING id`,
+      [d.email, d.name, passwordHash],
+    );
+    return user.rows[0]!.id;
+  });
+  await closeSetup();
+  console.log(`[setup] platform admin ${d.email} created; the setup link is closed`);
+  issueSession(res, userId);
+  res.status(201).json({ ok: true });
 });

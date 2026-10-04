@@ -3,7 +3,8 @@ import express from 'express';
 import { config } from './config.js';
 import { pool, exec, one } from './db.js';
 import { migrate } from './migrate.js';
-import { seed } from './seed.js';
+import { prepareSetup } from './setup.js';
+import { checkEmailOnStart } from './lib/mailer.js';
 import { authenticate, requireActiveAccount, requireRole } from './auth.js';
 import { errorHandler } from './lib/http.js';
 import { ami } from './asterisk/pbx.js';
@@ -76,7 +77,7 @@ async function main(): Promise<void> {
     queueReload('module unload cdr_pgsql.so');
     queueReload('module load cdr_pgsql.so');
   }
-  await seed();
+  await prepareSetup();
 
   const app = express();
   app.disable('x-powered-by');
@@ -157,6 +158,7 @@ async function main(): Promise<void> {
   startWebhooks();
   startRetention();
   startBillingClock();
+  void checkEmailOnStart();
   ami.start();
   // Write the Asterisk config right away, even if Asterisk is not reachable yet.
   await applyNow();

@@ -8,6 +8,8 @@ interface TenantState {
   tenantId: number | null;
   tenant: Tenant | null;
   tenants: Tenant[];
+  /** The SIP server list has loaded (so an empty list really means "none yet"). */
+  loaded: boolean;
   setTenantId: (id: number) => void;
   canSwitch: boolean;
 }
@@ -26,7 +28,7 @@ function readStored(): number | null {
 
 export function TenantProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
-  const { data: tenants = [] } = useQuery({
+  const { data: tenants = [], isSuccess: loaded } = useQuery({
     queryKey: ['list', 'tenants'],
     queryFn: () => api.get<Tenant[]>('/api/tenants'),
     enabled: !!user,
@@ -56,6 +58,7 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     tenantId,
     tenant: tenants.find((t) => t.id === tenantId) ?? null,
     tenants,
+    loaded,
     setTenantId: setSelected,
     canSwitch: user?.role === 'superadmin' || (user?.role === 'admin' && tenants.length > 1),
   };

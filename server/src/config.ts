@@ -20,10 +20,6 @@ export const config = {
   publicIp: env('PUBLIC_IP', '127.0.0.1'),
   /** Base URL browsers and payment gateways use to reach the dashboard (payment callbacks). */
   publicUrl: env('PUBLIC_URL', `https://${env('PUBLIC_HOST', 'localhost')}`).replace(/\/$/, ''),
-  admin: {
-    email: env('ENVO_ADMIN_EMAIL', 'admin@envo.local'),
-    password: process.env.ENVO_ADMIN_PASSWORD ?? '',
-  },
   ami: {
     host: env('AMI_HOST', '127.0.0.1'),
     port: Number(env('AMI_PORT', '5038')),

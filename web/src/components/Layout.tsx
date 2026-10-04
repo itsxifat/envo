@@ -489,7 +489,9 @@ export function Layout() {
         </header>
         <main id="main" ref={main} className="app-surface flex-1 overflow-y-auto print:overflow-visible">
           <div className="pb-tabbar mx-auto max-w-[1400px] px-4 pt-5 sm:px-6 sm:pt-7 lg:px-8 lg:pb-16">
-            <Outlet />
+            <ServerGate>
+              <Outlet />
+            </ServerGate>
           </div>
         </main>
       </div>
@@ -547,6 +549,51 @@ function PaletteHint({ onOpen }: { onOpen: () => void }) {
           <button type="button" className="text-[12px] text-slate-500 hover:text-slate-300" onClick={dismiss}>
             Dismiss
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Pages that work without a SIP server (account, billing, platform administration). */
+const SERVERLESS = ['/servers', '/admin', '/account', '/billing', '/system', '/users'];
+
+/**
+ * Nothing to manage yet (a fresh platform, or a customer whose package has no server): instead of
+ * empty or erroring PBX pages, explain the first step.
+ */
+function ServerGate({ children }: { children: React.ReactNode }) {
+  const { tenants, loaded } = useTenant();
+  const { user } = useAuth();
+  const { pathname } = useLocation();
+  const exempt = SERVERLESS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  if (!loaded || tenants.length > 0 || exempt || user?.role === 'agent') return <>{children}</>;
+  const platform = user?.role === 'superadmin';
+  return (
+    <div className="mx-auto max-w-xl pt-6 sm:pt-12">
+      <div className="card px-6 py-10 text-center sm:px-10">
+        <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
+          <Building2 className="size-7" />
+        </div>
+        <h1 className="mt-5 text-xl font-semibold tracking-tight text-slate-900">Create your first SIP server</h1>
+        <p className="mt-2 text-[15px] text-slate-500">
+          {platform
+            ? 'A SIP server is a complete phone system: extensions, numbers, IVRs and call routing. Create one for Enfinito, or for a customer from Business → Customers.'
+            : 'A SIP server is your phone system: extensions, numbers, IVRs and call routing. Create it to get started.'}
+        </p>
+        <div className="mt-6 flex flex-col justify-center gap-2 sm:flex-row">
+          <NavLink to="/servers">
+            <Button variant="primary" size="lg" className="w-full sm:w-auto">
+              Create a SIP server
+            </Button>
+          </NavLink>
+          {platform && (
+            <NavLink to="/admin/customers">
+              <Button size="lg" className="w-full sm:w-auto">
+                Customers
+              </Button>
+            </NavLink>
+          )}
         </div>
       </div>
     </div>

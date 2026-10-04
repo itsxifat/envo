@@ -1,306 +1,530 @@
+import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import {
-  ArrowRight,
-  Building2,
-  Check,
-  Code2,
-  Disc3,
-  Headphones,
-  ListTree,
-  Minus,
-  PhoneCall,
-  PhoneIncoming,
-  ShieldCheck,
-  Smartphone,
-  Users,
-  Wallet,
-} from 'lucide-react';
+import { ArrowRight, Check, Phone, PhoneOff, Play } from 'lucide-react';
 import { api } from '../../lib/api';
-import { IVR_TIER_LABELS, formatBdt, limitLabel } from '../../lib/format';
+import { IVR_TIER_LABELS } from '../../lib/format';
 import type { Package } from '../../lib/types';
-import { Button } from '../../components/ui';
-import { PublicLayout } from './PublicLayout';
+import { SitePage } from './site';
+import { CallDemo } from './CallDemo';
 
-/** A small, honest picture of the product: what the dashboard shows during a working day. */
-function ProductPreview() {
+const WRAP = 'mx-auto max-w-[1200px] px-5 sm:px-8';
+
+/* ------------------------------------------------------------------ product fragments */
+
+/** Pieces of the real interface, drawn small. Example data. */
+function Frame({ children }: { children: ReactNode }) {
   return (
-    <div className="relative" aria-hidden>
-      <div className="absolute -inset-x-8 -inset-y-10 rounded-[3rem] bg-gradient-to-br from-brand-200/50 via-brand-100/30 to-transparent blur-2xl" />
-      <div className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[var(--shadow-pop)]">
-        <div className="flex items-center gap-1.5 border-b border-slate-100 px-4 py-2.5">
-          <span className="size-2.5 rounded-full bg-slate-200" />
-          <span className="size-2.5 rounded-full bg-slate-200" />
-          <span className="size-2.5 rounded-full bg-slate-200" />
-          <span className="ml-3 text-[11px] text-slate-400">envo · Dashboard</span>
-        </div>
-        <div className="grid grid-cols-3 gap-2.5 p-4">
-          {[
-            ['Calls today', '148', 'text-brand-600'],
-            ['Answered', '94%', 'text-emerald-600'],
-            ['Live now', '3', 'text-violet-600'],
-          ].map(([l, v, c]) => (
-            <div key={l} className="rounded-xl border border-slate-100 p-3">
-              <div className="text-[10.5px] text-slate-500">{l}</div>
-              <div className={clsx('mt-1 text-lg font-semibold tabular-nums', c)}>{v}</div>
-            </div>
-          ))}
-        </div>
-        <div className="px-4 pb-4">
-          <div className="rounded-xl border border-slate-100">
-            {[
-              ['Hotline 09644…', 'Ringing Sales · 1001', 'bg-amber-400', 'Ringing'],
-              ['01711 23…', 'Talking to Nadia · 1002', 'bg-emerald-500', '04:12'],
-              ['01819 87…', 'In queue Support', 'bg-brand-500', '00:38'],
-            ].map(([who, what, dot, t]) => (
-              <div key={who} className="flex items-center gap-3 border-b border-slate-100 px-3 py-2.5 last:border-b-0">
-                <span className={clsx('size-2 rounded-full', dot)} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[12.5px] font-medium text-slate-800">{who}</div>
-                  <div className="truncate text-[11px] text-slate-500">{what}</div>
-                </div>
-                <span className="text-[11px] text-slate-500 tabular-nums">{t}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-      <div className="absolute -bottom-6 -left-4 hidden w-56 rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-[var(--shadow-raise)] sm:block lg:-left-10">
-        <div className="flex items-center gap-2.5">
-          <span className="flex size-9 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
-            <PhoneIncoming className="size-4" />
-          </span>
-          <div className="min-w-0">
-            <div className="text-[12.5px] font-medium text-slate-800">Incoming call</div>
-            <div className="text-[11px] text-slate-500">Answer in your browser</div>
-          </div>
-        </div>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <span className="rounded-lg bg-rose-50 py-1.5 text-center text-[11px] font-medium text-rose-600">Decline</span>
-          <span className="rounded-lg bg-emerald-500 py-1.5 text-center text-[11px] font-medium text-white">Answer</span>
-        </div>
-      </div>
+    <div className="rounded-[22px] bg-[#f3f4f6] p-3 sm:p-8" aria-hidden>
+      {children}
     </div>
   );
 }
 
-const FEATURES = [
-  { icon: PhoneCall, title: 'A phone in every browser', text: 'Make and take calls from the dashboard, on a laptop or your phone. No app to install, no desk phone required.' },
-  { icon: ListTree, title: 'IVR and call flows', text: 'Greet callers with "press 1 for sales", route by office hours and holidays, and send calls where they belong.' },
-  { icon: Users, title: 'Ring groups and queues', text: 'Ring a team at once or one by one, queue callers with music and position announcements.' },
-  { icon: Disc3, title: 'Call recording', text: 'Record incoming and outgoing calls, play them back in the browser and keep them as long as your package allows.' },
-  { icon: Building2, title: 'One account, several offices', text: 'Run separate phone systems for branches or brands, each with its own numbers and extensions.' },
-  { icon: Code2, title: 'Live monitoring and an API', text: 'See every call as it happens, and connect your website or CRM to place calls and receive call events.' },
+const CARD = 'rounded-2xl bg-white shadow-[0_1px_2px_rgb(11_13_18/0.05),0_12px_32px_-14px_rgb(11_13_18/0.16)]';
+
+function RingingFragment() {
+  return (
+    <Frame>
+      <div className="mx-auto max-w-[380px]">
+        <div className={clsx(CARD, 'p-5')}>
+          <div className="flex items-center justify-between">
+            <span className="site-label">Incoming call</span>
+            <span className="font-gmono flex items-center gap-1.5 text-[11.5px] text-[#8a8f9a]">
+              <span className="size-1.5 animate-pulse rounded-full bg-[#f5a524] motion-reduce:animate-none" /> Ringing
+            </span>
+          </div>
+          <div className="font-display mt-4 text-[26px] leading-none tracking-[-0.02em]">+880 1911 234 567</div>
+          <div className="mt-2 text-[13.5px] text-[#5b616e]">Hotline 09612 345 678 → Sales</div>
+          <div className="mt-6 grid grid-cols-2 gap-2.5 text-[14px] font-medium">
+            <span className="flex h-11 items-center justify-center gap-2 rounded-full bg-[#fbeceb] text-[#b42318]">
+              <PhoneOff className="size-4" /> Decline
+            </span>
+            <span className="flex h-11 items-center justify-center gap-2 rounded-full bg-[#12a15f] text-white">
+              <Phone className="size-4" /> Answer
+            </span>
+          </div>
+        </div>
+        <div className={clsx(CARD, 'mt-3 px-5 py-4')}>
+          <div className="site-label">Ringing together</div>
+          <ul className="mt-3 space-y-3 text-[13.5px]">
+            {[
+              ['Front desk', '101', 'This browser'],
+              ['Nadia', '102', 'Android app'],
+              ['Rafi', '103', 'Yealink desk phone'],
+            ].map(([name, ext, where]) => (
+              <li key={ext} className="flex items-center gap-3">
+                <span className="font-gmono w-8 text-[12px] text-[#8a8f9a]">{ext}</span>
+                <span className="flex-1">{name}</span>
+                <span className="text-[12.5px] text-[#8a8f9a]">{where}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </Frame>
+  );
+}
+
+function FlowFragment() {
+  const keys = [
+    ['1', 'Sales', 'Ring group · 3 phones'],
+    ['2', 'Support', 'Queue with hold music'],
+    ['0', 'Reception', 'Extension 101'],
+  ];
+  return (
+    <Frame>
+      <div className={clsx(CARD, 'mx-auto max-w-[420px] p-5 sm:p-6')}>
+        <ol className="space-y-0">
+          {[
+            ['Number', '09612 345 678', null],
+            ['Office hours', 'Sun – Thu, 9:00 – 18:00', 'Closed → voicemail'],
+            ['Menu', '“Welcome to Acme. Press 1 for sales…”', null],
+          ].map(([label, title, aside]) => (
+            <li key={label} className="relative border-l border-[#d5d9e0] pb-5 pl-5 last:pb-3">
+              <span className="absolute top-1 -left-[4.5px] size-2 rounded-full bg-[#0b0d12]" />
+              <div className="site-label">{label}</div>
+              <div className="mt-1 text-[15px] font-medium">{title}</div>
+              {aside && <div className="mt-0.5 text-[12.5px] text-[#8a8f9a]">{aside}</div>}
+            </li>
+          ))}
+        </ol>
+        <ul className="mt-1 space-y-2 pl-5">
+          {keys.map(([k, team, how]) => (
+            <li key={k} className="flex items-center gap-3 rounded-xl border border-[#eceef1] px-3 py-2.5">
+              <span className="font-gmono flex size-7 items-center justify-center rounded-lg bg-[#0b0d12] text-[13px] text-white">{k}</span>
+              <span className="text-[14px] font-medium">{team}</span>
+              <span className="ml-auto text-[12.5px] text-[#8a8f9a]">{how}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Frame>
+  );
+}
+
+const WAVE = [30, 52, 40, 68, 82, 58, 44, 72, 90, 64, 48, 36, 56, 78, 62, 40, 28, 46, 70, 84, 60, 42, 54, 74, 50, 34, 44, 66, 58, 38, 26, 40, 62, 48, 32, 22];
+
+function LogFragment() {
+  return (
+    <Frame>
+      <div className={clsx(CARD, 'mx-auto max-w-[460px] overflow-hidden')}>
+        <div className="px-5 pt-4 pb-3">
+          <div className="flex items-baseline justify-between">
+            <span className="text-[14.5px] font-medium">+880 1811 234 567 → Sales</span>
+            <span className="font-gmono text-[12px] text-[#8a8f9a]">14:02</span>
+          </div>
+          <div className="mt-0.5 text-[12.5px] text-[#8a8f9a]">Answered by Nadia · 4:37 · recorded</div>
+          <div className="mt-4 flex items-center gap-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#0b0d12] text-white">
+              <Play className="size-3.5 translate-x-px fill-current" />
+            </span>
+            <div className="flex h-9 flex-1 items-center gap-[3px]">
+              {WAVE.map((h, i) => (
+                <span key={i} className={clsx('w-full rounded-full', i < 17 ? 'bg-[#1f57eb]' : 'bg-[#d5d9e0]')} style={{ height: `${h}%` }} />
+              ))}
+            </div>
+            <span className="font-gmono shrink-0 text-[11.5px] text-[#5b616e]">2:14</span>
+          </div>
+        </div>
+        <ul className="border-t border-[#eff0f3] text-[13.5px]">
+          {[
+            ['13:48', '101 → +880 1711 234 567', '1:12', 'Outgoing', 'text-[#5b616e]'],
+            ['13:31', '+880 1611 234 567 → Support', '—', 'Missed', 'text-[#b42318]'],
+            ['13:05', '+880 1511 234 567 → Sales', '7:51', 'Answered', 'text-[#5b616e]'],
+          ].map(([t, who, d, s, tone]) => (
+            <li key={t} className="flex items-center gap-3 border-b border-[#eff0f3] px-5 py-3 last:border-b-0">
+              <span className="font-gmono w-11 text-[12px] text-[#8a8f9a]">{t}</span>
+              <span className="min-w-0 flex-1 truncate">{who}</span>
+              <span className="font-gmono hidden w-10 text-right text-[12px] text-[#8a8f9a] sm:block">{d}</span>
+              <span className={clsx('w-[68px] text-right text-[12.5px]', tone)}>{s}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Frame>
+  );
+}
+
+const ROWS = [
+  {
+    label: 'Web phone',
+    title: 'Answer in the browser, on a mobile or at a desk.',
+    text: 'Every extension gets a phone built into the dashboard. The same call can ring a laptop, an Android app and a Yealink on the desk at once — whoever is free picks up.',
+    fragment: <RingingFragment />,
+  },
+  {
+    label: 'Call flows',
+    title: 'Callers reach the right person the first time.',
+    text: 'Greet callers with your own recording, offer a menu, and send them to a ring group, a queue or a single person. Nights and weekends follow their own rules.',
+    fragment: <FlowFragment />,
+  },
+  {
+    label: 'Call log',
+    title: 'Every call on the record.',
+    text: 'See who called, who answered and how long they talked. Play recordings right in the log, and keep them as long as your package allows.',
+    fragment: <LogFragment />,
+  },
 ];
 
-const FAQ = [
-  ['Do I need a phone number from you?', 'Bring the IP phone number (09xxx) you already have from your IPTSP. You connect it once in the dashboard and calls start arriving in Envo.'],
-  ['How do I pay?', 'Pay online with bKash, Nagad, Rocket, cards or internet banking through SSLCommerz, or by bank transfer. Packages renew monthly and you get an invoice every time.'],
-  ['Can I change my package later?', 'Yes. Upgrades start right away and you pay only the difference for the rest of the month. Smaller packages start at your next renewal.'],
-  ['What phones can I use?', 'The web phone in your browser, any SIP desk phone (Yealink, Grandstream, Fanvil…) or softphone apps like Zoiper and MicroSIP.'],
-  ['What happens if I forget to renew?', 'You get a renewal invoice a week before and a few days of grace after the due date. Your settings, numbers and recordings are kept if the system pauses.'],
-  ['Who can see my calls and recordings?', 'Only the people you add to your account. Every customer runs in its own isolated phone system.'],
+const MORE = [
+  ['Ring groups', 'Ring the whole team at once, or one phone after another.'],
+  ['Queues', 'Callers wait in line with music until someone is free.'],
+  ['Office hours', 'Different routing for nights, weekends and days off.'],
+  ['Voicemail', 'Callers leave a message; you listen in the dashboard.'],
+  ['Your own greetings', 'Upload recordings for menus, hold and closed hours.'],
+  ['Conference rooms', 'One number your team and clients dial into.'],
+  ['Blocked numbers', 'Keep spam and unwanted callers out.'],
+  ['Several SIP servers', 'Separate phone systems for branches or brands.'],
+  ['API and webhooks', 'Place calls from your CRM and receive call events.'],
 ];
 
-function PricingCards() {
+/* ------------------------------------------------------------------ pricing */
+
+type Cell = ReactNode;
+const dash = <span className="text-[#c3c7cf]">—</span>;
+const yes = <Check className="mx-auto size-4 text-[#0b0d12] md:mx-0" aria-label="Included" />;
+
+function count(v: number | null): Cell {
+  if (v === null) return 'Unlimited';
+  if (v === 0) return dash;
+  return v.toLocaleString();
+}
+
+function storage(mb: number | null): string {
+  if (mb === null) return 'unlimited';
+  return mb >= 1024 ? `${(mb / 1024).toLocaleString()} GB` : `${mb} MB`;
+}
+
+function priceRows(list: Package[]): { label: string; cell: (p: Package) => Cell }[] {
+  const extras = [...new Set(list.flatMap((p) => p.display_rows.map((r) => r.label)))];
+  return [
+    { label: 'Extensions', cell: (p) => count(p.max_extensions) },
+    { label: 'Calls at the same time', cell: (p) => count(p.max_channels) },
+    { label: 'IP numbers', cell: (p) => count(p.max_dids) },
+    { label: 'SIP servers', cell: (p) => count(p.max_servers) },
+    { label: 'IVR menus', cell: (p) => count(p.max_ivrs) },
+    { label: 'IVR', cell: (p) => IVR_TIER_LABELS[p.ivr_tier] ?? p.ivr_tier },
+    { label: 'Call recording', cell: (p) => (p.recording_days ? `${p.recording_days} days · ${storage(p.recording_mb)}` : dash) },
+    { label: 'Live call monitoring', cell: (p) => (p.call_monitoring ? yes : dash) },
+    { label: 'API and webhooks', cell: (p) => (p.api_access ? yes : dash) },
+    ...extras.map((label) => ({ label, cell: (p: Package) => p.display_rows.find((r) => r.label === label)?.value ?? dash })),
+  ];
+}
+
+function Price({ p, size = 'md' }: { p: Package; size?: 'md' | 'lg' }) {
+  if (p.price_monthly === null) return <div className={clsx('font-display tracking-[-0.03em]', size === 'lg' ? 'text-[40px]' : 'text-[30px]')}>Custom</div>;
+  return (
+    <div className="flex items-baseline gap-1.5">
+      <span className={clsx('font-display tracking-[-0.03em]', size === 'lg' ? 'text-[40px]' : 'text-[30px]')}>৳{Number(p.price_monthly).toLocaleString('en-US')}</span>
+      <span className="text-[13px] text-[#8a8f9a]">/ month</span>
+    </div>
+  );
+}
+
+function PackageAction({ p, contact, short, className }: { p: Package; contact?: { email: string; phone: string }; short?: boolean; className?: string }) {
+  if (p.price_monthly !== null) {
+    return (
+      <Link to={`/signup?package=${p.slug}`} className={clsx(p.highlight ? 'site-btn' : 'site-btn-ghost', 'w-full justify-center whitespace-nowrap', className)}>
+        {short ? 'Choose' : `Choose ${p.name.replace(/ PBX$/, '')}`}
+      </Link>
+    );
+  }
+  if (contact?.email) {
+    return (
+      <a href={`mailto:${contact.email}?subject=${encodeURIComponent(`${p.name} package`)}`} className={clsx('site-btn-ghost w-full justify-center', className)}>
+        Talk to us
+      </a>
+    );
+  }
+  if (contact?.phone) {
+    return (
+      <a href={`tel:${contact.phone.replace(/\s/g, '')}`} className={clsx('site-btn-ghost w-full justify-center', className)}>
+        Call {contact.phone}
+      </a>
+    );
+  }
+  return <div className={clsx('flex h-10 items-center justify-center text-[13.5px] text-[#5b616e]', className)}>Contact Enfinito</div>;
+}
+
+function Pricing() {
   const q = useQuery({ queryKey: ['public', 'packages'], queryFn: () => api.get<Package[]>('/api/public/packages') });
   const info = useQuery({ queryKey: ['public', 'info'], queryFn: () => api.get<{ business: { name: string; email: string; phone: string } }>('/api/public/info') });
   const list = q.data ?? [];
   const contact = info.data?.business;
+  const rows = priceRows(list);
+  const [picked, setPicked] = useState<number | null>(null);
+  const current = list.find((p) => p.id === picked) ?? list.find((p) => p.highlight) ?? list[0];
+
+  if (q.isLoading) return <div className="skeleton mt-14 h-[520px] rounded-[22px]" />;
+  if (!list.length) return <p className="mt-10 text-[15px] text-[#5b616e]">Packages are being prepared. Please check back soon.</p>;
+
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-      {list.map((p) => {
-        const custom = p.price_monthly === null;
-        return (
-          <div
-            key={p.id}
-            className={clsx(
-              'relative flex flex-col rounded-3xl border bg-white p-6',
-              p.highlight ? 'border-brand-500 shadow-[0_20px_50px_-20px_rgb(31_87_235/0.45)] ring-4 ring-brand-500/10' : 'border-slate-200',
-            )}
-          >
-            {p.highlight && <span className="absolute -top-3 left-6 rounded-full bg-brand-600 px-3 py-1 text-[11.5px] font-semibold text-white">Most popular</span>}
-            <h3 className="text-[17px] font-semibold tracking-tight text-slate-900">{p.name}</h3>
-            <p className="mt-0.5 text-[13px] text-slate-500">{p.tagline}</p>
-            <div className="mt-5 flex items-baseline gap-1">
-              <span className="text-[32px] leading-none font-semibold tracking-tight text-slate-900">{custom ? 'Custom' : formatBdt(p.price_monthly)}</span>
-            </div>
-            <p className="mt-1 text-[13px] text-slate-500">{custom ? 'Talk to us' : 'per month'}</p>
-            <ul className="mt-6 space-y-2.5 text-[13.5px]">
-              <li className="flex gap-2 text-slate-700">
-                <Check className="mt-0.5 size-4 shrink-0 text-brand-600" />
-                {limitLabel(p.max_extensions)} extensions
-              </li>
-              <li className="flex gap-2 text-slate-700">
-                <Check className="mt-0.5 size-4 shrink-0 text-brand-600" />
-                {limitLabel(p.max_channels)} concurrent call{p.max_channels === 1 ? '' : 's'}
-              </li>
-              <li className="flex gap-2 text-slate-700">
-                <Check className="mt-0.5 size-4 shrink-0 text-brand-600" />
-                {p.max_dids === null ? 'Unlimited' : p.max_dids} IP number{p.max_dids === 1 ? '' : 's'}
-              </li>
-              <li className={clsx('flex gap-2', p.recording_days ? 'text-slate-700' : 'text-slate-400')}>
-                {p.recording_days ? <Check className="mt-0.5 size-4 shrink-0 text-brand-600" /> : <Minus className="mt-0.5 size-4 shrink-0" />}
-                {p.recording_days ? `Call recording, ${p.recording_days} days${p.recording_mb ? ` / ${p.recording_mb >= 1024 ? `${p.recording_mb / 1024} GB` : `${p.recording_mb} MB`}` : ''}` : 'Call recording'}
-              </li>
-              <li className="flex gap-2 text-slate-700">
-                <Check className="mt-0.5 size-4 shrink-0 text-brand-600" />
-                IVR · {IVR_TIER_LABELS[p.ivr_tier]}
-              </li>
-              <li className={clsx('flex gap-2', p.call_monitoring ? 'text-slate-700' : 'text-slate-400')}>
-                {p.call_monitoring ? <Check className="mt-0.5 size-4 shrink-0 text-brand-600" /> : <Minus className="mt-0.5 size-4 shrink-0" />}
-                Live call monitoring
-              </li>
-              <li className={clsx('flex gap-2', p.api_access ? 'text-slate-700' : 'text-slate-400')}>
-                {p.api_access ? <Check className="mt-0.5 size-4 shrink-0 text-brand-600" /> : <Minus className="mt-0.5 size-4 shrink-0" />}
-                Developer API
-              </li>
-              {p.display_rows.map((r) => (
-                <li key={r.label} className="flex gap-2 text-slate-500">
-                  <span className="mt-0.5 size-4 shrink-0" />
-                  {r.label}: {r.value}
-                </li>
+    <>
+      {/* Desktop: one table, every package side by side. */}
+      <div className="mt-14 hidden md:block">
+        <table className="w-full table-fixed border-separate border-spacing-0 text-left">
+          <thead>
+            <tr>
+              <th className="w-[21%] align-bottom" />
+              {list.map((p) => (
+                <th key={p.id} scope="col" className={clsx('px-4 pt-5 pb-6 align-top font-normal', p.highlight && 'rounded-t-[18px] bg-[#f3f5fa]')}>
+                  <div className={clsx('font-gmono h-4 text-[11px] tracking-[0.06em] uppercase', p.highlight ? 'text-[#1f57eb]' : 'text-transparent')}>{p.highlight ? 'Most chosen' : '·'}</div>
+                  <div className="font-display mt-2 text-[19px] font-medium tracking-[-0.01em]">{p.name}</div>
+                  <div className="mt-0.5 text-[13px] text-[#8a8f9a]">{p.tagline}</div>
+                  <div className="mt-5">
+                    <Price p={p} />
+                  </div>
+                  <PackageAction p={p} contact={contact} short className="mt-5" />
+                </th>
               ))}
-            </ul>
-            <div className="mt-auto pt-7">
-              {custom ? (
-                <div className="space-y-1 text-center text-[13px] text-slate-600">
-                  {contact?.phone && <div className="font-medium text-slate-900">{contact.phone}</div>}
-                  {contact?.email && <div className="break-all">{contact.email}</div>}
-                  {!contact?.phone && !contact?.email && <div>Contact Enfinito</div>}
-                </div>
-              ) : (
-                <Link to={`/signup?package=${p.slug}`}>
-                  <Button className="w-full" size="lg" variant={p.highlight ? 'primary' : 'secondary'}>
-                    Get started
-                  </Button>
-                </Link>
+            </tr>
+          </thead>
+          <tbody className="text-[14px]">
+            {rows.map((r, i) => (
+              <tr key={r.label}>
+                <th scope="row" className="border-t border-[#e7e8ec] py-3.5 pr-4 font-normal text-[#5b616e]">
+                  {r.label}
+                </th>
+                {list.map((p) => (
+                  <td key={p.id} className={clsx('border-t border-[#e7e8ec] px-4 py-3.5 tabular-nums', p.highlight && 'bg-[#f3f5fa]', p.highlight && i === rows.length - 1 && 'rounded-b-[18px]')}>
+                    {r.cell(p)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Mobile: pick a package, read its sheet. */}
+      <div className="mt-10 md:hidden">
+        <div className="-mx-5 flex gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none]" role="tablist" aria-label="Packages">
+          {list.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              role="tab"
+              aria-selected={current?.id === p.id}
+              onClick={() => setPicked(p.id)}
+              className={clsx(
+                'h-10 shrink-0 rounded-full px-4 text-[14px] whitespace-nowrap transition',
+                current?.id === p.id ? 'bg-[#0b0d12] text-white' : 'border border-[#dfe1e6] text-[#2a2e37]',
               )}
+            >
+              {p.name.replace(/ PBX$/, '')}
+            </button>
+          ))}
+        </div>
+        {current && (
+          <div className="mt-5 rounded-[22px] bg-[#f3f5fa] p-5" role="tabpanel">
+            <div className="flex items-baseline justify-between gap-3">
+              <div className="font-display text-[22px] font-medium tracking-[-0.01em]">{current.name}</div>
+              {current.highlight && <div className="font-gmono text-[11px] tracking-[0.06em] text-[#1f57eb] uppercase">Most chosen</div>}
             </div>
+            <div className="text-[13.5px] text-[#8a8f9a]">{current.tagline}</div>
+            <div className="mt-4">
+              <Price p={current} size="lg" />
+            </div>
+            <dl className="mt-5 text-[14px]">
+              {rows.map((r) => (
+                <div key={r.label} className="flex items-center justify-between gap-4 border-t border-[#e2e5ec] py-3">
+                  <dt className="text-[#5b616e]">{r.label}</dt>
+                  <dd className="text-right tabular-nums">{r.cell(current)}</dd>
+                </div>
+              ))}
+            </dl>
+            <PackageAction p={current} contact={contact} className="site-btn-lg mt-4" />
           </div>
-        );
-      })}
-      {q.isLoading && Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton h-[480px] rounded-3xl" />)}
-    </div>
+        )}
+      </div>
+    </>
   );
 }
 
+/* ------------------------------------------------------------------ page */
+
+const FAQ = [
+  ['Do I need a new phone number?', 'No. Bring the IP number (09…) you already have from your IPTSP. You enter its details once in the dashboard and calls to it start ringing in Envo.'],
+  ['Which phones work with Envo?', 'The web phone in the dashboard works on any computer or mobile browser. Any SIP desk phone (Yealink, Grandstream, Fanvil…) and softphone apps like Zoiper or MicroSIP work too.'],
+  ['How do I pay?', 'Online through SSLCommerz with bKash, Nagad, Rocket, cards or internet banking, or by bank transfer. Packages renew monthly and every payment comes with an invoice.'],
+  ['Can I change my package later?', 'Yes. A bigger package starts right away and you pay only the difference for the rest of the month. A smaller one starts at your next renewal.'],
+  ['What happens if I miss a renewal?', 'You get the invoice a week early and a few days of grace after the due date. If your system pauses, your settings, numbers and recordings are kept.'],
+  ['Who can see my calls and recordings?', 'Only the people you add to your account. Each customer runs in a separate phone system with its own extensions and logins.'],
+];
+
 export function LandingPage() {
   return (
-    <PublicLayout>
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(50rem_30rem_at_70%_-10%,rgb(31_87_235/0.12),transparent_70%)]" aria-hidden />
-        <div className="relative mx-auto grid max-w-6xl items-center gap-14 px-4 pt-10 pb-20 sm:px-6 sm:pt-16 lg:grid-cols-[1.05fr_1fr] lg:pb-28">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-50/70 px-3 py-1 text-[12.5px] font-medium text-brand-700">
-              <Headphones className="size-3.5" /> Cloud PBX for Bangladeshi businesses
-            </div>
-            <h1 className="mt-5 text-[40px] leading-[1.06] font-semibold tracking-tight text-balance text-slate-950 sm:text-[54px]">Your company's phone system, running in the cloud.</h1>
-            <p className="mt-5 max-w-xl text-[17px] leading-relaxed text-slate-600">
-              Connect your IP number, give every colleague an extension, greet callers with an IVR and answer from any browser. Set up in minutes, billed monthly in taka.
-            </p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link to="/signup">
-                <Button variant="primary" size="lg" className="w-full sm:w-auto">
-                  Start now <ArrowRight className="size-4" />
-                </Button>
-              </Link>
-              <a href="#pricing">
-                <Button size="lg" className="w-full sm:w-auto">
-                  See pricing
-                </Button>
-              </a>
-            </div>
-            <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-slate-500">
-              <span className="flex items-center gap-1.5">
-                <Wallet className="size-4 text-slate-400" /> Pay with bKash, Nagad or card
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Smartphone className="size-4 text-slate-400" /> Works on your phone
-              </span>
-              <span className="flex items-center gap-1.5">
-                <ShieldCheck className="size-4 text-slate-400" /> Your own isolated system
-              </span>
-            </div>
+    <SitePage>
+      {/* Hero */}
+      <section className={clsx(WRAP, 'grid grid-cols-1 gap-14 pt-10 pb-20 sm:pt-16 lg:grid-cols-[1.05fr_1fr] lg:items-center lg:gap-16 lg:pt-20 lg:pb-28')}>
+        <div>
+          <p className="site-label">Cloud phone system for Bangladesh</p>
+          <h1 className="font-display mt-5 text-[44px] leading-[0.98] font-semibold tracking-[-0.045em] text-balance sm:text-[64px] xl:text-[72px]">
+            Turn your 09 number into a full phone system.
+          </h1>
+          <p className="mt-6 max-w-[33rem] text-[17px] leading-[1.6] text-[#5b616e] sm:text-[18px]">
+            Envo connects the number you already have to extensions, call menus and queues — with a phone in every browser. Set up in an afternoon, paid monthly in taka.
+          </p>
+          <div className="mt-9 flex flex-wrap items-center gap-x-7 gap-y-4">
+            <Link to="/signup" className="site-btn site-btn-lg">
+              Get started <ArrowRight className="size-4" />
+            </Link>
+            <a href="#pricing" className="group flex items-center gap-1.5 text-[15px] font-medium">
+              See pricing <ArrowRight className="size-4 transition group-hover:translate-x-0.5" />
+            </a>
           </div>
-          <ProductPreview />
+          <dl className="mt-14 grid max-w-[34rem] grid-cols-3 gap-4 border-t border-[#e7e8ec] pt-6 sm:gap-5">
+            {[
+              ['From ৳499', 'a month, in taka'],
+              ['Your number', 'keep the 09 line you have'],
+              ['No hardware', 'browser, app or desk phone'],
+            ].map(([t, d]) => (
+              <div key={t}>
+                <dt className="font-display text-[15px] font-medium tracking-[-0.01em] sm:text-[19px]">{t}</dt>
+                <dd className="mt-1 text-[13px] leading-snug text-[#8a8f9a]">{d}</dd>
+              </div>
+            ))}
+          </dl>
         </div>
+        <CallDemo />
       </section>
 
-      <section id="features" className="scroll-mt-20 border-t border-slate-100 bg-slate-50/50">
-        <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
-          <h2 className="max-w-2xl text-[30px] leading-tight font-semibold tracking-tight text-balance text-slate-950 sm:text-[38px]">Everything a business phone line needs, without the hardware.</h2>
-          <div className="mt-12 grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
-            {FEATURES.map((f) => (
-              <div key={f.title}>
-                <div className="flex size-11 items-center justify-center rounded-2xl bg-white text-brand-600 shadow-[var(--shadow-card)] ring-1 ring-slate-200/80">
-                  <f.icon className="size-5" />
+      {/* Product */}
+      <section id="product" className="scroll-mt-16 border-t border-[#e7e8ec]">
+        <div className={clsx(WRAP, 'py-20 sm:py-28')}>
+          <div className="max-w-[44rem]">
+            <p className="site-label">Product</p>
+            <h2 className="site-h2 mt-4">A switchboard for the whole team, without the hardware.</h2>
+          </div>
+          <div className="mt-16 space-y-20 sm:mt-20 sm:space-y-28">
+            {ROWS.map((r, i) => (
+              <div key={r.label} className="grid grid-cols-1 items-center gap-8 lg:grid-cols-2 lg:gap-16">
+                <div className={clsx('max-w-[30rem]', i % 2 === 1 && 'lg:order-2 lg:justify-self-end')}>
+                  <p className="site-label">{r.label}</p>
+                  <h3 className="font-display mt-3 text-[26px] leading-[1.1] font-semibold tracking-[-0.025em] text-balance sm:text-[32px]">{r.title}</h3>
+                  <p className="mt-4 text-[16px] leading-[1.65] text-[#5b616e]">{r.text}</p>
                 </div>
-                <h3 className="mt-4 text-[16px] font-semibold tracking-tight text-slate-900">{f.title}</h3>
-                <p className="mt-1.5 text-[14.5px] leading-relaxed text-slate-600">{f.text}</p>
+                {r.fragment}
               </div>
             ))}
           </div>
+          <div className="mt-24 border-t border-[#0b0d12] pt-6 sm:mt-32">
+            <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-baseline">
+              <h3 className="font-display text-[22px] font-semibold tracking-[-0.02em]">Also in Envo</h3>
+              <p className="text-[14px] text-[#8a8f9a]">What you can use depends on your package.</p>
+            </div>
+            <dl className="mt-8 grid gap-x-10 gap-y-7 sm:grid-cols-2 lg:grid-cols-3">
+              {MORE.map(([t, d]) => (
+                <div key={t}>
+                  <dt className="text-[15px] font-medium">{t}</dt>
+                  <dd className="mt-1 text-[14.5px] leading-relaxed text-[#5b616e]">{d}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
-        <h2 className="text-[30px] font-semibold tracking-tight text-slate-950 sm:text-[38px]">Live in three steps</h2>
-        <ol className="mt-10 grid gap-5 md:grid-cols-3">
+      {/* Bangladesh */}
+      <section className="bg-[#0b0d12] text-white">
+        <div className={clsx(WRAP, 'grid gap-14 py-20 sm:py-28 lg:grid-cols-[1fr_1.2fr] lg:gap-20')}>
+          <div>
+            <p className="site-label !text-[#7d8494]">Made for here</p>
+            <p lang="bn" className="font-bangla mt-5 text-[40px] leading-[1.2] font-medium sm:text-[52px]">
+              আপনার ব্যবসার ফোন, এখন ক্লাউডে।
+            </p>
+            <p className="mt-4 text-[16px] text-[#9aa1b0]">Your business phone, now in the cloud.</p>
+          </div>
+          <dl className="grid gap-x-10 gap-y-10 self-end sm:grid-cols-2">
+            {[
+              ['৳499', 'Packages start here. Billed monthly in taka, with an invoice every time.'],
+              ['09', 'Bring the IP number from your IPTSP. Envo registers it and keeps it online.'],
+              ['bKash', 'Or Nagad, Rocket, cards and internet banking through SSLCommerz, or bank transfer.'],
+              ['0', 'Servers, PBX boxes or phones to buy. Start with the browser you have.'],
+            ].map(([big, d]) => (
+              <div key={big} className="border-t border-[#262a35] pt-5">
+                <dt className="font-display text-[44px] leading-none font-medium tracking-[-0.035em]">{big}</dt>
+                <dd className="mt-3 max-w-[18rem] text-[14.5px] leading-relaxed text-[#9aa1b0]">{d}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </section>
+
+      {/* Steps */}
+      <section className={clsx(WRAP, 'py-20 sm:py-28')}>
+        <p className="site-label">Getting started</p>
+        <h2 className="site-h2 mt-4 max-w-[40rem]">Live in an afternoon.</h2>
+        <ol className="mt-14 grid gap-10 md:grid-cols-3 md:gap-8">
           {[
-            ['Create your account', 'Choose a package and pay online. Your phone system and first extensions are created right away.'],
-            ['Connect your IP number', 'Enter the username and password your IPTSP gave you. Envo registers the line and shows when it is online.'],
-            ['Start taking calls', 'Open the web phone or sign in on a desk phone. Calls to your number ring your team.'],
+            ['Create your account', 'Pick a package and pay online. Your phone system and first extensions are made for you.'],
+            ['Connect your number', 'Enter the line details from your IPTSP. Envo shows the moment your number is online.'],
+            ['Take your first call', 'Open the web phone or sign in on a desk phone. Calls to your number now ring your team.'],
           ].map(([t, d], i) => (
-            <li key={t} className="rounded-3xl border border-slate-200 p-6">
-              <span className="flex size-9 items-center justify-center rounded-full bg-brand-600 text-sm font-semibold text-white">{i + 1}</span>
-              <h3 className="mt-4 font-semibold tracking-tight text-slate-900">{t}</h3>
-              <p className="mt-1.5 text-[14.5px] leading-relaxed text-slate-600">{d}</p>
+            <li key={t} className="border-t border-[#e7e8ec] pt-5">
+              <span className="font-gmono text-[13px] text-[#1f57eb]">0{i + 1}</span>
+              <h3 className="font-display mt-3 text-[21px] font-semibold tracking-[-0.02em]">{t}</h3>
+              <p className="mt-2 text-[15px] leading-relaxed text-[#5b616e]">{d}</p>
             </li>
           ))}
         </ol>
       </section>
 
-      <section id="pricing" className="scroll-mt-20 border-t border-slate-100 bg-gradient-to-b from-slate-50/70 to-white">
-        <div className="mx-auto max-w-[1360px] px-4 py-20 sm:px-6">
-          <div className="mx-auto max-w-2xl text-center">
-            <h2 className="text-[30px] font-semibold tracking-tight text-slate-950 sm:text-[38px]">Simple monthly packages</h2>
-            <p className="mt-3 text-[16px] text-slate-600">All prices in Bangladeshi taka. Upgrade or change any time.</p>
+      {/* Pricing */}
+      <section id="pricing" className="scroll-mt-16 border-t border-[#e7e8ec]">
+        <div className={clsx(WRAP, 'py-20 sm:py-28')}>
+          <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
+            <div>
+              <p className="site-label">Pricing</p>
+              <h2 className="site-h2 mt-4 max-w-[36rem]">One flat price a month.</h2>
+            </div>
+            <p className="max-w-[26rem] text-[15.5px] leading-relaxed text-[#5b616e]">
+              Prices in taka. Move to a bigger package any time and pay only the difference for the rest of the month.
+            </p>
           </div>
-          <div className="mt-12">
-            <PricingCards />
-          </div>
+          <Pricing />
         </div>
       </section>
 
-      <section id="faq" className="scroll-mt-20 mx-auto max-w-3xl px-4 py-20 sm:px-6">
-        <h2 className="text-[30px] font-semibold tracking-tight text-slate-950 sm:text-[38px]">Questions</h2>
-        <div className="mt-8 divide-y divide-slate-200 border-y border-slate-200">
-          {FAQ.map(([q, a]) => (
-            <details key={q} className="group py-5">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-[16px] font-medium text-slate-900">
-                {q}
-                <span className="text-slate-400 transition group-open:rotate-45">+</span>
-              </summary>
-              <p className="mt-3 text-[15px] leading-relaxed text-slate-600">{a}</p>
-            </details>
-          ))}
+      {/* FAQ */}
+      <section id="faq" className="scroll-mt-16 border-t border-[#e7e8ec]">
+        <div className={clsx(WRAP, 'grid gap-10 py-20 sm:py-28 lg:grid-cols-[1fr_2fr] lg:gap-16')}>
+          <div>
+            <p className="site-label">FAQ</p>
+            <h2 className="site-h2 mt-4 lg:sticky lg:top-24">Questions, answered.</h2>
+          </div>
+          <dl className="grid gap-x-12 sm:grid-cols-2">
+            {FAQ.map(([q, a]) => (
+              <div key={q} className="border-t border-[#e7e8ec] pt-5 pb-9">
+                <dt className="font-display text-[18px] leading-snug font-medium tracking-[-0.01em]">{q}</dt>
+                <dd className="mt-2.5 text-[15px] leading-relaxed text-[#5b616e]">{a}</dd>
+              </div>
+            ))}
+          </dl>
         </div>
       </section>
 
-      <section className="px-4 pb-20 sm:px-6">
-        <div className="relative mx-auto max-w-6xl overflow-hidden rounded-[2rem] bg-gradient-to-br from-brand-600 via-brand-700 to-brand-900 px-6 py-14 text-center text-white sm:px-12">
-          <div className="absolute -top-24 -right-20 size-72 rounded-full bg-white/10 blur-3xl" aria-hidden />
-          <h2 className="relative text-[28px] font-semibold tracking-tight text-balance sm:text-[36px]">Give your business a proper phone line today.</h2>
-          <p className="relative mx-auto mt-3 max-w-xl text-brand-100">Sign up, pay with bKash or card, and make your first call in minutes.</p>
-          <Link to="/signup" className="relative mt-8 inline-block">
-            <Button size="lg" className="border-0 bg-white text-brand-700 hover:bg-brand-50">
-              Create your account <ArrowRight className="size-4" />
-            </Button>
-          </Link>
+      {/* Closing */}
+      <section className="border-t border-[#e7e8ec]">
+        <div className={clsx(WRAP, 'py-24 sm:py-36')}>
+          <h2 className="font-display max-w-[56rem] text-[48px] leading-[0.95] font-semibold tracking-[-0.05em] text-balance sm:text-[88px]">
+            Ready for the next call.
+          </h2>
+          <div className="mt-10 flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+            <p className="max-w-[30rem] text-[17px] leading-relaxed text-[#5b616e]">Create an account, connect your number and answer your first call in the browser today.</p>
+            <div className="flex items-center gap-6">
+              <Link to="/signup" className="site-btn site-btn-lg">
+                Get started <ArrowRight className="size-4" />
+              </Link>
+              <Link to="/login" className="text-[15px] font-medium hover:text-[#1f57eb]">
+                Sign in
+              </Link>
+            </div>
+          </div>
         </div>
       </section>
-    </PublicLayout>
+    </SitePage>
   );
 }

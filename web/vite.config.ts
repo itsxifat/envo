@@ -12,8 +12,9 @@ export default defineConfig({
   server: {
     port: 5173,
     // Local development against `npm run dev` in ../server.
+    // ENVO_API=https://envo.enfinito.cloud previews public pages against the live API (no local stack).
     proxy: {
-      '/api': { target: 'http://127.0.0.1:4310', ws: true },
+      '/api': { target: process.env.ENVO_API ?? 'http://127.0.0.1:4310', ws: true, changeOrigin: true, secure: true },
     },
   },
 });

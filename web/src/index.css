@@ -32,6 +32,49 @@
   --shadow-button: 0 1px 2px 0 rgb(16 24 40 / 0.06), inset 0 1px 0 0 rgb(255 255 255 / 0.12);
 
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Public website type (loaded by useSiteFonts on public pages only). */
+  --font-display: "Funnel Display", "Geist", "Anek Bangla", ui-sans-serif, system-ui, sans-serif;
+  --font-geist: "Geist", "Anek Bangla", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-gmono: "Geist Mono", "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --font-bangla: "Anek Bangla", "Noto Sans Bengali", sans-serif;
+}
+
+/* ---------------------------------------------------------------- public website */
+@layer components {
+  .site {
+    font-family: var(--font-geist);
+    color: #0b0d12;
+    -webkit-font-smoothing: antialiased;
+  }
+  .site ::selection {
+    background: #d8e3fe;
+    color: #0b0d12;
+  }
+  .site-btn {
+    @apply inline-flex h-10 items-center gap-2 rounded-full bg-[#0b0d12] px-5 text-[14px] font-medium text-white transition hover:bg-[#262a33] active:scale-[0.98];
+    font-family: var(--font-geist);
+  }
+  .site-btn-ghost {
+    @apply inline-flex h-10 items-center gap-2 rounded-full border border-[#dfe1e6] px-5 text-[14px] font-medium text-[#0b0d12] transition hover:border-[#b9bdc6];
+    font-family: var(--font-geist);
+  }
+  /* After both button styles, so it sizes either. */
+  .site-btn-lg {
+    @apply h-12 px-6 text-[15px];
+  }
+  .site-label {
+    font-family: var(--font-gmono);
+    @apply text-[11.5px] tracking-[0.06em] text-[#8a8f9a] uppercase;
+  }
+  .site-h2 {
+    font-family: var(--font-display);
+    @apply text-[34px] leading-[1.05] font-semibold tracking-[-0.03em] text-balance sm:text-[46px];
+  }
+  .site-input {
+    @apply block h-12 w-full rounded-xl border border-[#dfe1e6] bg-white px-4 text-[16px] text-[#0b0d12] transition placeholder:text-[#a3a8b2] hover:border-[#c6cad2] focus:border-[#0b0d12] focus:ring-4 focus:ring-[#0b0d12]/6 focus:outline-none;
+    font-family: var(--font-geist);
+  }
 }
 
 @layer base {

@@ -730,6 +730,9 @@ export function Modal({
     if (!open) return;
     const restoreTo = document.activeElement as HTMLElement | null;
     const onKey = (e: KeyboardEvent) => {
+      // Stacked dialogs: only the top one reacts.
+      const dialogs = document.querySelectorAll('[role="dialog"]');
+      if (dialogs[dialogs.length - 1] !== panel.current) return;
       if (e.key === 'Escape') {
         onClose();
         return;

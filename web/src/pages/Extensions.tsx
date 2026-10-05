@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import clsx from 'clsx';
 import { toast } from 'sonner';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, Globe, KeyRound, Mail, Monitor, Pencil, Phone, Plus, RefreshCw, Trash2, UserPlus, Users } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Globe, KeyRound, Monitor, Pencil, Phone, Plus, Trash2, UserPlus, Users } from 'lucide-react';
 import { api, errorMessage, scoped } from '../lib/api';
 import { useList, useRemove, useSave } from '../lib/hooks';
 import { useTenant } from '../state/tenant';
@@ -10,11 +10,11 @@ import { useContactsByEndpoint, useExtStates } from '../state/live';
 import { usePhone } from '../phone/PhoneProvider';
 import type { Extension, LiveContact } from '../lib/types';
 import { ExtensionPeople, MyPhoneSetup, useNextExtensionNumber } from '../components/people';
+import { DeviceSetup } from '../components/phoneSetup';
 import {
   Badge,
   Button,
   Card,
-  CopyField,
   EmptyState,
   ErrorBlock,
   Field,
@@ -22,7 +22,6 @@ import {
   Input,
   LoadingBlock,
   Modal,
-  Notice,
   NumberInput,
   PageHeader,
   SearchInput,
@@ -242,11 +241,14 @@ export function ExtensionsPage() {
 }
 
 function ExtensionModal({ ext, onClose, onCreated }: { ext: Extension | null; onClose: () => void; onCreated: (e: Extension) => void }) {
-  const { tenantId } = useTenant();
+  const { tenantId, tenant } = useTenant();
   const [form, setForm] = useState<Form>(() => (ext ? { ...EMPTY, ...ext, voicemail_pin: '' } : { ...EMPTY }));
   // Suggest the next free number for a new extension (until the admin types their own).
   const next = useNextExtensionNumber(ext ? null : tenantId);
   const [suggested, setSuggested] = useState(false);
+  // Desk-phone password for a new extension: 10 digits by default, quick on a keypad.
+  const [pwStyle, setPwStyle] = useState<'keypad' | 'strong' | 'own'>('keypad');
+  const [ownPw, setOwnPw] = useState('');
   if (!ext && !suggested && next.data && !form.number) {
     setSuggested(true);
     setForm((f) => ({ ...f, number: next.data.number }));
@@ -257,7 +259,13 @@ function ExtensionModal({ ext, onClose, onCreated }: { ext: Extension | null; on
 
   const submit = async () => {
     const { sip_username, ...rest } = form;
-    const data = ext ? rest : { ...rest, ...(sip_username ? { sip_username } : {}) };
+    const data = ext
+      ? { ...rest, ...(sip_username && sip_username !== ext.sip_username ? { sip_username } : {}) }
+      : {
+          ...rest,
+          ...(sip_username ? { sip_username } : {}),
+          ...(pwStyle === 'own' ? { sip_password: ownPw } : { password_style: pwStyle }),
+        };
     const saved = await save.mutateAsync({ id: ext?.id, data }).catch(() => null);
     if (!saved) return;
     onClose();
@@ -274,7 +282,7 @@ function ExtensionModal({ ext, onClose, onCreated }: { ext: Extension | null; on
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" loading={save.isPending} onClick={submit} disabled={!form.number || !form.name}>
+          <Button variant="primary" loading={save.isPending} onClick={submit} disabled={!form.number || !form.name || (!ext && pwStyle === 'own' && ownPw.length < 8)}>
             {ext ? 'Save changes' : 'Create extension'}
           </Button>
         </>
@@ -301,11 +309,6 @@ function ExtensionModal({ ext, onClose, onCreated }: { ext: Extension | null; on
           <Field label="Name" hint="Shown as caller ID on internal calls">
             <Input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Front desk" autoFocus={!ext} />
           </Field>
-          {!ext && (
-            <Field label="SIP username (optional)" hint="Leave empty to use number_servername">
-              <Input value={form.sip_username ?? ''} onChange={(e) => set('sip_username', e.target.value)} placeholder="auto" />
-            </Field>
-          )}
           <Field label="Max devices" hint="Phones that may register at the same time">
             <NumberInput value={form.max_contacts} onChange={(v) => set('max_contacts', v)} min={1} max={20} />
           </Field>
@@ -315,6 +318,38 @@ function ExtensionModal({ ext, onClose, onCreated }: { ext: Extension | null; on
           <div className="space-y-4 sm:col-span-2">
             <Toggle checked={form.webrtc} onChange={(v) => set('webrtc', v)} label="Web phone" description="Allow this extension to make and take calls in the browser" />
             <Toggle checked={form.enabled} onChange={(v) => set('enabled', v)} label="Enabled" description="Disabled extensions cannot register or receive calls" />
+          </div>
+          <div className="border-t border-slate-100 pt-4 sm:col-span-2">
+            <SectionTitle>Desk phone login</SectionTitle>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field
+                label={ext ? 'SIP username' : 'SIP username (optional)'}
+                hint={ext ? 'Shorter is easier on a keypad. Phones using the old one must be updated.' : 'Empty = number_servername. Pick something short to type on a phone.'}
+              >
+                <Input
+                  value={form.sip_username ?? ''}
+                  onChange={(e) => set('sip_username', e.target.value.replace(/[^a-zA-Z0-9_.\-]/g, ''))}
+                  placeholder={ext ? '' : `${form.number || '101'}_${tenant?.slug ?? 'server'}`}
+                  className="font-mono"
+                />
+              </Field>
+              {ext ? (
+                <Field label="SIP password" hint="Change it from the key icon (Phone setup): 10 digits, strong or your own.">
+                  <Input value="••••••••••" disabled className="font-mono" />
+                </Field>
+              ) : (
+                <Field label="SIP password" hint={pwStyle === 'keypad' ? '10 random digits: quick to type on a phone keypad' : pwStyle === 'strong' ? '20 random letters and digits: for apps where you paste it' : 'At least 8 characters, not easy to guess'}>
+                  <Select value={pwStyle} onChange={(e) => setPwStyle(e.target.value as typeof pwStyle)}>
+                    <option value="keypad">Easy to type (10 digits)</option>
+                    <option value="strong">Long and strong (20 characters)</option>
+                    <option value="own">Choose my own…</option>
+                  </Select>
+                  {pwStyle === 'own' && (
+                    <Input value={ownPw} onChange={(e) => setOwnPw(e.target.value.replace(/\s/g, ''))} placeholder="Your password" className="mt-2 font-mono" autoComplete="off" />
+                  )}
+                </Field>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -409,129 +444,13 @@ function SetupModal({ ext, initialTab, onClose }: { ext: Extension; initialTab: 
   );
 }
 
-function DeviceSetup({ ext }: { ext: Extension }) {
-  const { tenantId } = useTenant();
-  const qc = useQueryClient();
-  const confirm = useConfirm();
-  const [resetting, setResetting] = useState(false);
-  const [emailTo, setEmailTo] = useState('');
-  const [sending, setSending] = useState(false);
-  const detail = useQuery({
-    queryKey: ['extension', ext.id],
-    queryFn: () => api.get<Extension>(scoped(`/api/extensions/${ext.id}`, tenantId)),
-  });
-  const p = detail.data?.provisioning;
-  if (!p) return <LoadingBlock />;
-  const defaultTo = ext.email || ext.users?.find((u) => u.email)?.email || '';
-  const summary = [
-    `Extension ${ext.number} (${ext.name})`,
-    `SIP server / domain: ${p.domain}`,
-    `Username / auth ID: ${p.username}`,
-    `Password: ${p.password}`,
-    `Port: ${p.udp_port} UDP or TCP, ${p.tls_port} TLS`,
-    `Test: dial *43 for an echo test, *97 for voicemail${p.voicemail_pin ? ` (PIN ${p.voicemail_pin})` : ''}`,
-  ].join('\n');
-  return (
-    <div className="space-y-6">
-      <div>
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <SectionTitle className="mb-0">Account</SectionTitle>
-          <Button
-            size="sm"
-            icon={<Copy className="size-3.5" />}
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(summary);
-                toast.success('All settings copied');
-              } catch {
-                toast.error('Could not copy');
-              }
-            }}
-          >
-            Copy all
-          </Button>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <CopyField label="SIP server / domain" value={p.domain} />
-          <CopyField label="Server IP" value={p.server_ip} />
-          <CopyField label="Username / Auth ID" value={p.username} />
-          <CopyField label="Password" value={p.password} secret />
-        </div>
-      </div>
-      <div>
-        <SectionTitle>Transport</SectionTitle>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <CopyField label="UDP port" value={String(p.udp_port)} />
-          <CopyField label="TCP port" value={String(p.tcp_port)} />
-          <CopyField label="TLS port" value={String(p.tls_port)} />
-        </div>
-      </div>
-      <div>
-        <SectionTitle>Send to the person setting it up</SectionTitle>
-        <form
-          className="flex flex-col gap-2 sm:flex-row"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setSending(true);
-            try {
-              const r = await api.post<{ status: 'sent' | 'skipped'; to: string }>(scoped(`/api/extensions/${ext.id}/send-setup`, tenantId), { to: emailTo || defaultTo });
-              if (r.status === 'sent') toast.success(`Phone settings sent to ${r.to}`);
-              else toast.warning('Email is not set up yet, so nothing was sent. Use "Copy all" instead.');
-            } catch (err) {
-              toast.error(errorMessage(err));
-            } finally {
-              setSending(false);
-            }
-          }}
-        >
-          <Input type="email" value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder={defaultTo || 'name@company.com'} aria-label="Email address" className="sm:flex-1" />
-          <Button type="submit" icon={<Mail className="size-4" />} loading={sending} disabled={!emailTo && !defaultTo}>
-            Email settings
-          </Button>
-        </form>
-      </div>
-      <Notice tone="info" title="Quick test">
-        After the phone shows <em>Registered</em>, dial <span className="kbd">*43</span> for an echo test, <span className="kbd">*97</span> for voicemail
-        {p.voicemail_pin && (
-          <>
-            {' '}(PIN <span className="kbd">{p.voicemail_pin}</span>)
-          </>
-        )}
-        , or any other extension number.
-      </Notice>
-      <div className="flex justify-end border-t border-slate-100 pt-4">
-        <Button
-          variant="ghost"
-          size="sm"
-          icon={<RefreshCw className="size-4" />}
-          loading={resetting}
-          onClick={async () => {
-            if (!(await confirm({ title: 'Generate a new SIP password?', message: 'Devices using the old password will stop registering until updated.', confirmLabel: 'Reset password', danger: true }))) return;
-            setResetting(true);
-            try {
-              await api.post(scoped(`/api/extensions/${ext.id}/reset-password`, tenantId));
-              await qc.invalidateQueries({ queryKey: ['extension', ext.id] });
-              toast.success('New password generated');
-            } catch (err) {
-              toast.error(errorMessage(err));
-            } finally {
-              setResetting(false);
-            }
-          }}
-        >
-          Reset SIP password
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 function BulkModal({ tenantId, onClose }: { tenantId: number; onClose: () => void }) {
   const qc = useQueryClient();
   const [start, setStart] = useState('2001');
   const [count, setCount] = useState(10);
   const [prefix, setPrefix] = useState('Extension');
   const [webrtc, setWebrtc] = useState(true);
+  const [keypad, setKeypad] = useState(true);
   const [busy, setBusy] = useState(false);
   return (
     <Modal
@@ -549,7 +468,7 @@ function BulkModal({ tenantId, onClose }: { tenantId: number; onClose: () => voi
             onClick={async () => {
               setBusy(true);
               try {
-                const r = await api.post<{ created: number }>(scoped('/api/extensions/bulk', tenantId), { start, count, name_prefix: prefix, webrtc });
+                const r = await api.post<{ created: number }>(scoped('/api/extensions/bulk', tenantId), { start, count, name_prefix: prefix, webrtc, password_style: keypad ? 'keypad' : 'strong' });
                 toast.success(`${r.created} extensions created`);
                 await qc.invalidateQueries({ queryKey: ['list', 'extensions'] });
                 onClose();
@@ -577,6 +496,9 @@ function BulkModal({ tenantId, onClose }: { tenantId: number; onClose: () => voi
         </Field>
         <div className="sm:col-span-2">
           <Toggle checked={webrtc} onChange={setWebrtc} label="Enable web phone" />
+        </div>
+        <div className="sm:col-span-2">
+          <Toggle checked={keypad} onChange={setKeypad} label="Desk-phone friendly passwords" description="10 random digits each, quick to type on a phone keypad (otherwise 20 characters)" />
         </div>
       </div>
     </Modal>

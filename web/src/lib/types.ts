@@ -150,6 +150,8 @@ export interface Extension {
     auth_username: string;
     password: string;
     voicemail_pin: string;
+    /** LAN address for phones in the server's own office (platform admins and internal servers only). */
+    office_host?: string;
   };
 }
 
@@ -441,6 +443,7 @@ export interface ApplyStatus {
 export interface Settings {
   sip_domain: string;
   public_ip: string;
+  office_sip_host: string;
   country_code: string;
   national_prefix: string;
   stun_server: string;

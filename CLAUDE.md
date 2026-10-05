@@ -78,6 +78,10 @@ labels copied from the header by `lib/tableCards.ts`) — keep tables plain with
   yourself; `POST /api/users` can `create_extension` and `invite` (7-day set-password link via
   `/reset?invite=1`, returned to the admin too). UI: `components/people.tsx`. After changing your own
   extension, refresh auth and invalidate `['webphone']`.
+- Desk phones: `components/phoneSetup.tsx` (per-brand field guide, password dialog).
+  `PUT /api/extensions/:id/password` takes `{style:'keypad'|'strong'}` or `{password}`; every SIP
+  password goes through `sipPasswordProblem` (lib/secrets.ts). `settings.office_sip_host` is the LAN
+  address for phones in Enfinito's office (shown to platform admins and internal servers only).
 - Sign-up (`routes/signup.ts`): pending account + unverified owner; login requires
   `users.email_verified_at`; one-time links are stored as sha256 hashes. Anything an admin creates
   is verified. Emails go through `lib/mailer.ts` (logged in `email_log`; console only when SMTP is

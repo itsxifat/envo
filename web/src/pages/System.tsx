@@ -169,6 +169,9 @@ export function SystemPage() {
               <Field label="Public IP">
                 <Input value={form.public_ip} onChange={(e) => setForm({ ...form, public_ip: e.target.value.trim() })} />
               </Field>
+              <Field label="Office address for desk phones" hint="Server's LAN IP, for phones in the same office (e.g. 192.168.20.237)">
+                <Input value={form.office_sip_host ?? ''} onChange={(e) => setForm({ ...form, office_sip_host: e.target.value.trim() })} placeholder="Not set" />
+              </Field>
               <Field label="STUN server" hint="For browsers behind NAT">
                 <Input value={form.stun_server} onChange={(e) => setForm({ ...form, stun_server: e.target.value.trim() })} />
               </Field>

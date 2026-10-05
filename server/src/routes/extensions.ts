@@ -5,7 +5,7 @@ import { many, one, exec, tx, insertParts, updateSet } from '../db.js';
 import { requireRole, tenantOf, assertTenantAccess } from '../auth.js';
 import { HttpError, badRequest, conflict, forbidden, intParam, notFound } from '../lib/http.js';
 import { assertNumberFree, audit, forwardTarget, internalNumber, name, optionalPhone } from '../lib/validate.js';
-import { randomPassword, randomPin } from '../lib/secrets.js';
+import { keypadPassword, randomPassword, randomPin, sipPasswordProblem } from '../lib/secrets.js';
 import { scheduleApply, syncExtensionState, clearExtensionState } from '../asterisk/apply.js';
 import type { Extension } from '../asterisk/model.js';
 import { getSettings } from '../settings.js';
@@ -32,15 +32,35 @@ const extensionSchema = z.object({
   enabled: z.boolean().default(true),
 });
 
+const sipUsername = z
+  .string()
+  .trim()
+  .regex(/^[a-zA-Z0-9_.\-]{3,40}$/, 'use 3-40 letters, digits, _ . -')
+  .refine((v) => !v.endsWith('_web') && !v.startsWith('trunk_'), 'this username is reserved');
+
 const createSchema = extensionSchema.extend({
-  sip_username: z
-    .string()
-    .trim()
-    .regex(/^[a-zA-Z0-9_.\-]{3,40}$/, 'use 3-40 letters, digits, _ . -')
-    .refine((v) => !v.endsWith('_web') && !v.startsWith('trunk_'), 'this username is reserved')
-    .optional(),
-  sip_password: z.string().min(8).max(64).regex(/^[\x21-\x7E]+$/, 'printable ASCII without spaces').optional(),
+  sip_username: sipUsername.optional(),
+  sip_password: z.string().optional(),
+  /** strong: 20 random letters/digits; keypad: 10 random digits, quick to type on a desk phone. */
+  password_style: z.enum(['strong', 'keypad']).default('strong'),
 });
+
+const updateSchema = extensionSchema.extend({ sip_username: sipUsername.optional() });
+
+/** The SIP password to store: the admin's own (checked) or a generated one. */
+function sipPassword(input: { sip_password?: string; password_style?: 'strong' | 'keypad' }, ctx: { username: string; number: string }): string {
+  if (input.sip_password) {
+    const problem = sipPasswordProblem(input.sip_password, ctx);
+    if (problem) throw badRequest(`SIP password: ${problem}`);
+    return input.sip_password;
+  }
+  return input.password_style === 'keypad' ? keypadPassword() : randomPassword();
+}
+
+async function assertUsernameFree(username: string, exceptId?: number): Promise<void> {
+  const row = await one<{ id: number }>('SELECT id FROM extensions WHERE lower(sip_username) = lower($1)', [username]);
+  if (row && row.id !== exceptId) throw conflict(`SIP username ${username} is already in use`);
+}
 
 const PUBLIC_COLUMNS =
   'id, tenant_id, number, name, sip_username, webrtc, max_contacts, codecs, outbound_cid, allow_outbound, voicemail, email, recording, ring_timeout, dnd, forward_always, forward_busy, forward_noanswer, enabled, created_at, updated_at';
@@ -131,11 +151,13 @@ extensionRouter.get('/:id', async (req, res) => {
   const user = req.user!;
   if (user.role === 'agent' && user.extensionId !== ext.id) throw forbidden();
   const settings = await getSettings();
+  const internal = !!(await one('SELECT 1 FROM tenants t JOIN accounts a ON a.id = t.account_id WHERE t.id = $1 AND a.internal', [ext.tenant_id]));
   res.json({
     ...ext,
     provisioning: {
       domain: settings.sip_domain,
       server_ip: settings.public_ip,
+      office_host: user.role === 'superadmin' || internal ? settings.office_sip_host : '',
       udp_port: 5060,
       tcp_port: 5060,
       tls_port: 5061,
@@ -149,18 +171,16 @@ extensionRouter.get('/:id', async (req, res) => {
 
 extensionRouter.post('/', requireRole('superadmin', 'admin'), async (req, res) => {
   const tenantId = tenantOf(req)!;
-  const data = createSchema.parse(req.body);
+  const { password_style, ...data } = createSchema.parse(req.body);
   const tenant = await assertCapacity(tenantId, 1);
   await assertNumberFree(tenantId, data.number);
-  const sipUsername = data.sip_username ?? `${data.number}_${tenant.slug}`;
-  if (await one('SELECT 1 FROM extensions WHERE sip_username = $1', [sipUsername])) {
-    throw conflict(`SIP username ${sipUsername} is already in use`);
-  }
+  const username = data.sip_username ?? `${data.number}_${tenant.slug}`;
+  await assertUsernameFree(username);
   const row = {
     ...data,
     tenant_id: tenantId,
-    sip_username: sipUsername,
-    sip_password: data.sip_password ?? randomPassword(),
+    sip_username: username,
+    sip_password: sipPassword({ sip_password: data.sip_password, password_style }, { username, number: data.number }),
     voicemail_pin: data.voicemail_pin || randomPin(),
   };
   const { cols, placeholders, values } = insertParts(row);
@@ -177,6 +197,7 @@ const bulkSchema = z.object({
   name_prefix: z.string().trim().max(40).default('Extension'),
   webrtc: z.boolean().default(true),
   voicemail: z.boolean().default(true),
+  password_style: z.enum(['strong', 'keypad']).default('strong'),
 });
 
 extensionRouter.post('/bulk', requireRole('superadmin', 'admin'), async (req, res) => {
@@ -193,7 +214,7 @@ extensionRouter.post('/bulk', requireRole('superadmin', 'admin'), async (req, re
       const { rows } = await db.query(
         `INSERT INTO extensions (tenant_id, number, name, sip_username, sip_password, voicemail_pin, webrtc, voicemail)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-        [tenantId, n, `${data.name_prefix} ${n}`.trim(), `${n}_${tenant.slug}`, randomPassword(), randomPin(), data.webrtc, data.voicemail],
+        [tenantId, n, `${data.name_prefix} ${n}`.trim(), `${n}_${tenant.slug}`, data.password_style === 'keypad' ? keypadPassword() : randomPassword(), randomPin(), data.webrtc, data.voicemail],
       );
       out.push(rows[0]);
     }
@@ -206,13 +227,17 @@ extensionRouter.post('/bulk', requireRole('superadmin', 'admin'), async (req, re
 
 extensionRouter.put('/:id', requireRole('superadmin', 'admin'), async (req, res) => {
   const existing = await loadExtension(req);
-  const data = extensionSchema.parse(req.body);
+  const { sip_username: newUsername, ...data } = updateSchema.parse(req.body);
+  // Advanced: a shorter username for typing on desk phones. Phones using the old one must be updated.
+  const renamed = newUsername !== undefined && newUsername !== existing.sip_username;
+  if (renamed) await assertUsernameFree(newUsername, existing.id);
   if (data.number !== existing.number) {
     await assertNumberFree(existing.tenant_id, data.number, { table: 'extensions', id: existing.id });
     await clearExtensionState(existing.tenant_id, existing.number);
   }
   const { clause, values } = updateSet({
     ...data,
+    ...(renamed ? { sip_username: newUsername } : {}),
     voicemail_pin: data.voicemail_pin || existing.voicemail_pin || randomPin(),
     updated_at: new Date(),
   });
@@ -273,6 +298,25 @@ extensionRouter.post('/:id/send-setup', requireRole('superadmin', 'admin'), asyn
   if (status === 'failed') throw new HttpError(502, 'The email could not be sent. Check the email settings, or copy the settings instead.');
   await audit(req, 'send_setup', 'extension', ext.id, `${ext.number} to ${address}`, ext.tenant_id);
   res.json({ status, to: address });
+});
+
+const passwordSchema = z.union([
+  z.object({ style: z.enum(['strong', 'keypad']) }),
+  z.object({ password: z.string().min(1) }),
+]);
+
+/** Sets the desk-phone password: the admin's own, or a new strong or keypad-friendly one. */
+extensionRouter.put('/:id/password', requireRole('superadmin', 'admin'), async (req, res) => {
+  const existing = await loadExtension(req);
+  const body = passwordSchema.parse(req.body);
+  const password = sipPassword('password' in body ? { sip_password: body.password } : { password_style: body.style }, {
+    username: existing.sip_username,
+    number: existing.number,
+  });
+  await exec('UPDATE extensions SET sip_password = $1, updated_at = now() WHERE id = $2', [password, existing.id]);
+  await audit(req, 'change_password', 'extension', existing.id, existing.number, existing.tenant_id);
+  scheduleApply();
+  res.json({ sip_password: password });
 });
 
 extensionRouter.post('/:id/reset-password', requireRole('superadmin', 'admin'), async (req, res) => {

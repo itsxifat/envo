@@ -6,6 +6,11 @@ export interface Settings {
   sip_domain: string;
   /** Public IPv4 address advertised in SIP/SDP. */
   public_ip: string;
+  /**
+   * Address desk phones inside the server's own office use (its LAN IP), when the router does not
+   * hairpin SIP to the public address. Shown in phone setup to platform admins and internal users.
+   */
+  office_sip_host: string;
   /** Country calling code without "+", used to match DIDs in either national or international form. */
   country_code: string;
   /** National trunk prefix (e.g. "0" in Bangladesh). */
@@ -18,6 +23,7 @@ export function defaultSettings(): Settings {
   return {
     sip_domain: config.sipDomain,
     public_ip: config.publicIp,
+    office_sip_host: '',
     country_code: '880',
     national_prefix: '0',
     stun_server: 'stun:stun.l.google.com:19302',

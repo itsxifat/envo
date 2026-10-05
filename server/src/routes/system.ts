@@ -71,6 +71,7 @@ systemRouter.get('/settings', requireRole('superadmin', 'admin'), async (_req, r
 const settingsSchema = z.object({
   sip_domain: z.string().trim().min(3).max(253).regex(/^[a-zA-Z0-9.\-]+$/),
   public_ip: z.string().trim().regex(/^\d{1,3}(\.\d{1,3}){3}$/),
+  office_sip_host: z.string().trim().max(253).regex(/^[a-zA-Z0-9.\-]*$/),
   country_code: z.string().trim().regex(/^[0-9]{0,4}$/),
   national_prefix: z.string().trim().regex(/^[0-9]{0,3}$/),
   stun_server: z.string().trim().regex(/^(stun|turn)s?:[a-zA-Z0-9.\-]+(:\d+)?$/).or(z.literal('')),

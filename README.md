@@ -97,9 +97,14 @@ with three extensions is created for them and the owner's web phone works right 
 
 ## Connecting things
 
-**An IP phone or softphone** — Extensions → key icon on the extension → enter the server, username
-and password in the phone (Zoiper, MicroSIP, Linphone, Grandstream, Yealink…). Then dial `*43` to
-check audio. TLS + SRTP works on port 5061.
+**An IP phone or softphone** — Extensions → key icon on the extension → pick the phone (Yealink,
+Grandstream, Fanvil, Cisco/Linksys SPA, Zoiper, MicroSIP, Linphone or "other"): the guide lists
+each field in that phone's own words and what goes in it. Easiest is the phone's own web page (its IP
+address is in the phone's Status menu). "Change password" sets a 10-digit keypad-friendly password,
+a long one, or your own (weak ones are refused); the SIP username can be shortened in the extension's
+settings. Phones inside the office use the server's LAN address — set it once in *System → Network
+→ Office address for desk phones* (192.168.20.237) and the guide offers "In the office / Anywhere
+else". Then dial `*43` to check audio. TLS + SRTP works on port 5061.
 
 **Your provider's SIP trunk / IP phone number**
 1. SIP trunks → Add trunk: server host, port, and either *Register* (username + password — the usual

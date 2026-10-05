@@ -6,10 +6,8 @@ import { ArrowRight, Check, Phone, PhoneOff, Play } from 'lucide-react';
 import { api } from '../../lib/api';
 import { IVR_TIER_LABELS } from '../../lib/format';
 import type { Package } from '../../lib/types';
-import { SitePage } from './site';
-import { CallDemo } from './CallDemo';
-
-const WRAP = 'mx-auto max-w-[1200px] px-5 sm:px-8';
+import { SitePage, WRAP } from './site';
+import { LiveBoard } from './LiveBoard';
 
 /* ------------------------------------------------------------------ product fragments */
 
@@ -358,41 +356,50 @@ export function LandingPage() {
   return (
     <SitePage>
       {/* Hero */}
-      <section className={clsx(WRAP, 'grid grid-cols-1 gap-14 pt-10 pb-20 sm:pt-16 lg:grid-cols-[1.05fr_1fr] lg:items-center lg:gap-16 lg:pt-20 lg:pb-28')}>
-        <div>
-          <p className="site-label">Cloud phone system for Bangladesh</p>
-          <h1 className="font-display mt-5 text-[44px] leading-[0.98] font-semibold tracking-[-0.045em] text-balance sm:text-[64px] xl:text-[72px]">
-            Turn your 09 number into a full phone system.
-          </h1>
-          <p className="mt-6 max-w-[33rem] text-[17px] leading-[1.6] text-[#5b616e] sm:text-[18px]">
-            Envo connects the number you already have to extensions, call menus and queues — with a phone in every browser. Set up in an afternoon, paid monthly in taka.
-          </p>
-          <div className="mt-9 flex flex-wrap items-center gap-x-7 gap-y-4">
-            <Link to="/signup" className="site-btn site-btn-lg">
-              Get started <ArrowRight className="size-4" />
-            </Link>
-            <a href="#pricing" className="group flex items-center gap-1.5 text-[15px] font-medium">
-              See pricing <ArrowRight className="size-4 transition group-hover:translate-x-0.5" />
-            </a>
+      <section className="relative">
+        <div className={clsx(WRAP, 'grid grid-cols-1 gap-8 pt-12 sm:pt-20 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] lg:items-end lg:gap-16 lg:pt-24')}>
+          <div>
+            <p className="site-label">Cloud phone system for Bangladesh</p>
+            <h1 className="font-display mt-5 text-[44px] leading-[0.98] font-semibold tracking-[-0.045em] text-balance sm:text-[64px] xl:text-[80px]">
+              Turn your 09 number into a full phone system.
+            </h1>
           </div>
-          <dl className="mt-14 grid max-w-[34rem] grid-cols-3 gap-4 border-t border-[#e7e8ec] pt-6 sm:gap-5">
-            {[
-              ['From ৳499', 'a month, in taka'],
-              ['Your number', 'keep the 09 line you have'],
-              ['No hardware', 'browser, app or desk phone'],
-            ].map(([t, d]) => (
-              <div key={t}>
-                <dt className="font-display text-[15px] font-medium tracking-[-0.01em] sm:text-[19px]">{t}</dt>
-                <dd className="mt-1 text-[13px] leading-snug text-[#8a8f9a]">{d}</dd>
-              </div>
-            ))}
-          </dl>
+          <div className="lg:pb-2">
+            <p className="max-w-[30rem] text-[17px] leading-[1.6] text-[#5b616e] sm:text-[18px]">
+              Envo connects the number you already have to extensions, call menus and queues — with a phone in every browser. Set up in an afternoon, paid monthly in taka.
+            </p>
+            <div className="mt-8 flex flex-wrap items-center gap-x-7 gap-y-4">
+              <Link to="/signup" className="site-btn site-btn-lg">
+                Get started <ArrowRight className="size-4" />
+              </Link>
+              <a href="#pricing" className="group flex items-center gap-1.5 text-[15px] font-medium">
+                See pricing <ArrowRight className="size-4 transition group-hover:translate-x-0.5" />
+              </a>
+            </div>
+          </div>
         </div>
-        <CallDemo />
+
+        {/* The product at work, on a band that runs the full width of the screen. */}
+        <div className="relative mt-14 sm:mt-20">
+          <div className="absolute inset-x-0 top-[30%] bottom-0 bg-[#f4f5f7]" aria-hidden />
+          <div className="relative mx-auto w-full max-w-[1440px] px-5 sm:px-8 xl:px-12">
+            <LiveBoard />
+          </div>
+          <div className={clsx(WRAP, 'relative py-12 sm:py-16')}>
+            <div className="flex flex-col items-center gap-x-10 gap-y-5 text-center lg:flex-row lg:justify-between lg:text-left">
+              <p className="site-label shrink-0">Works with the phones you have</p>
+              <ul className="font-display flex flex-wrap items-center justify-center gap-x-9 gap-y-3 text-[19px] font-medium tracking-[-0.01em] text-[#9aa0ab] sm:text-[21px]">
+                {['Any browser', 'Android & iPhone', 'Yealink', 'Grandstream', 'Fanvil', 'Zoiper', 'MicroSIP'].map((n) => (
+                  <li key={n}>{n}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
       </section>
 
       {/* Product */}
-      <section id="product" className="scroll-mt-16 border-t border-[#e7e8ec]">
+      <section id="product" className="scroll-mt-16">
         <div className={clsx(WRAP, 'py-20 sm:py-28')}>
           <div className="max-w-[44rem]">
             <p className="site-label">Product</p>

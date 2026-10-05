@@ -2,7 +2,7 @@ import { useState, type InputHTMLAttributes, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import clsx from 'clsx';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
-import { useSiteFonts, Wordmark } from './site';
+import { useSiteFonts, Wordmark, WRAP } from './site';
 
 /**
  * The frame of sign-in, sign-up and the email pages: wordmark, one large headline, the form.
@@ -24,13 +24,13 @@ export function AuthShell({
   useSiteFonts();
   return (
     <div className="site flex min-h-full flex-col bg-white">
-      <header className="mx-auto flex h-[68px] w-full max-w-[1200px] items-center justify-between gap-4 px-5 sm:px-8">
+      <header className={clsx(WRAP, 'flex h-[68px] items-center justify-between gap-4')}>
         <Link to="/" aria-label="Envo home">
           <Wordmark />
         </Link>
         {top && <div className="text-right text-[14px] text-[#5b616e]">{top}</div>}
       </header>
-      <main className={clsx('mx-auto w-full flex-1 px-5 pt-[6vh] pb-20 sm:px-8', aside ? 'max-w-[1200px]' : 'max-w-[464px]')}>
+      <main className={clsx('mx-auto w-full flex-1 px-5 pt-[6vh] pb-20 sm:px-8', aside ? 'max-w-[1360px] xl:px-12' : 'max-w-[464px]')}>
         <div className={clsx(aside && 'grid gap-16 lg:grid-cols-[minmax(0,440px)_minmax(0,1fr)] lg:gap-20 xl:gap-28')}>
           <div className={clsx(aside && 'w-full max-w-[440px]')}>
             <h1 className="font-display text-[40px] leading-[1.02] font-semibold tracking-[-0.04em] text-balance sm:text-[48px]">{title}</h1>
@@ -40,7 +40,7 @@ export function AuthShell({
           {aside && <div className="hidden lg:block">{aside}</div>}
         </div>
       </main>
-      <footer className="mx-auto flex w-full max-w-[1200px] justify-between gap-4 px-5 py-6 text-[12.5px] text-[#8a8f9a] sm:px-8">
+      <footer className={clsx(WRAP, 'flex justify-between gap-4 py-6 text-[12.5px] text-[#8a8f9a]')}>
         <span>© {new Date().getFullYear()} Enfinito</span>
         <span className="font-gmono">envo.enfinito.cloud</span>
       </footer>

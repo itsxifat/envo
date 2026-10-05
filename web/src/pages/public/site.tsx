@@ -4,6 +4,9 @@ import { useAuth } from '../../state/auth';
 import clsx from 'clsx';
 import { ArrowUpRight, Menu, X } from 'lucide-react';
 
+/** The website's content width: wide screens get more room, phones a 20px gutter. */
+export const WRAP = 'mx-auto w-full max-w-[1360px] px-5 sm:px-8 xl:px-12';
+
 /**
  * The public website's own type: Funnel Display for headlines, Geist for text, Geist Mono for
  * numbers and labels, Anek Bangla for Bangla. Loaded only on public pages, so the dashboard stays lean.
@@ -58,7 +61,7 @@ export function SiteHeader() {
   ];
   return (
     <header className={clsx('sticky top-0 z-40 border-b transition-colors', scrolled ? 'border-[#e7e8ec] bg-white/90 backdrop-blur-md' : 'border-transparent bg-white')}>
-      <div className="mx-auto flex h-[60px] max-w-[1200px] items-center gap-8 px-5 sm:px-8">
+      <div className={clsx(WRAP, 'flex h-[60px] items-center gap-8')}>
         <Link to="/" aria-label="Envo home">
           <Wordmark />
         </Link>
@@ -120,7 +123,7 @@ export function SiteFooter() {
   const section = useSectionHref();
   return (
     <footer className="border-t border-[#e7e8ec] bg-white">
-      <div className="mx-auto max-w-[1200px] px-5 pt-14 pb-10 sm:px-8">
+      <div className={clsx(WRAP, 'pt-14 pb-10')}>
         <div className="grid gap-10 sm:grid-cols-[1.4fr_1fr_1fr]">
           <div>
             <Wordmark />

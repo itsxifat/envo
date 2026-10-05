@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Link } from 'react-router';
+import { Link, useLocation } from 'react-router';
+import { useAuth } from '../../state/auth';
 import clsx from 'clsx';
 import { ArrowUpRight, Menu, X } from 'lucide-react';
 
@@ -32,7 +33,16 @@ export function Wordmark({ className, dark }: { className?: string; dark?: boole
   );
 }
 
+/** Section links: scroll in place on the home page, otherwise go to it. */
+function useSectionHref(): (id: string) => string {
+  const { pathname } = useLocation();
+  const onHome = pathname === '/' || pathname === '/home';
+  return (id) => (onHome ? `#${id}` : `/#${id}`);
+}
+
 export function SiteHeader() {
+  const { user } = useAuth();
+  const section = useSectionHref();
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
@@ -42,9 +52,9 @@ export function SiteHeader() {
     return () => window.removeEventListener('scroll', on);
   }, []);
   const links = [
-    { href: '/#product', label: 'Product' },
-    { href: '/#pricing', label: 'Pricing' },
-    { href: '/#faq', label: 'FAQ' },
+    { href: section('product'), label: 'Product' },
+    { href: section('pricing'), label: 'Pricing' },
+    { href: section('faq'), label: 'FAQ' },
   ];
   return (
     <header className={clsx('sticky top-0 z-40 border-b transition-colors', scrolled ? 'border-[#e7e8ec] bg-white/90 backdrop-blur-md' : 'border-transparent bg-white')}>
@@ -60,12 +70,20 @@ export function SiteHeader() {
           ))}
         </nav>
         <div className="ml-auto hidden items-center gap-5 md:flex">
-          <Link to="/login" className="font-geist text-[14px] text-[#0b0d12] hover:text-[#1f57eb]">
-            Sign in
-          </Link>
-          <Link to="/signup" className="site-btn">
-            Get started
-          </Link>
+          {user ? (
+            <Link to="/" className="site-btn">
+              Open dashboard
+            </Link>
+          ) : (
+            <>
+              <Link to="/login" className="font-geist text-[14px] text-[#0b0d12] hover:text-[#1f57eb]">
+                Sign in
+              </Link>
+              <Link to="/signup" className="site-btn">
+                Get started
+              </Link>
+            </>
+          )}
         </div>
         <button type="button" className="ml-auto -mr-2 p-2 text-[#0b0d12] md:hidden" onClick={() => setOpen(!open)} aria-label={open ? 'Close menu' : 'Open menu'} aria-expanded={open}>
           {open ? <X className="size-6" /> : <Menu className="size-6" />}
@@ -78,14 +96,20 @@ export function SiteHeader() {
               {l.label}
             </a>
           ))}
-          <div className="mt-5 grid grid-cols-2 gap-3">
-            <Link to="/login" onClick={() => setOpen(false)} className="site-btn-ghost justify-center">
-              Sign in
+          {user ? (
+            <Link to="/" onClick={() => setOpen(false)} className="site-btn mt-5 w-full justify-center">
+              Open dashboard
             </Link>
-            <Link to="/signup" onClick={() => setOpen(false)} className="site-btn justify-center">
-              Get started
-            </Link>
-          </div>
+          ) : (
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <Link to="/login" onClick={() => setOpen(false)} className="site-btn-ghost justify-center">
+                Sign in
+              </Link>
+              <Link to="/signup" onClick={() => setOpen(false)} className="site-btn justify-center">
+                Get started
+              </Link>
+            </div>
+          )}
         </div>
       )}
     </header>
@@ -93,6 +117,7 @@ export function SiteHeader() {
 }
 
 export function SiteFooter() {
+  const section = useSectionHref();
   return (
     <footer className="border-t border-[#e7e8ec] bg-white">
       <div className="mx-auto max-w-[1200px] px-5 pt-14 pb-10 sm:px-8">
@@ -103,13 +128,13 @@ export function SiteFooter() {
           </div>
           <div className="font-geist space-y-2.5 text-[14px]">
             <div className="site-label mb-3">Envo</div>
-            <a href="/#product" className="block text-[#2a2e37] hover:text-[#1f57eb]">
+            <a href={section('product')} className="block text-[#2a2e37] hover:text-[#1f57eb]">
               Product
             </a>
-            <a href="/#pricing" className="block text-[#2a2e37] hover:text-[#1f57eb]">
+            <a href={section('pricing')} className="block text-[#2a2e37] hover:text-[#1f57eb]">
               Pricing
             </a>
-            <a href="/#faq" className="block text-[#2a2e37] hover:text-[#1f57eb]">
+            <a href={section('faq')} className="block text-[#2a2e37] hover:text-[#1f57eb]">
               FAQ
             </a>
           </div>

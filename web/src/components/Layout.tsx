@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import clsx from 'clsx';
 import {
   AudioLines,
@@ -7,6 +7,7 @@ import {
   Check,
   ChevronDown,
   Command,
+  Globe,
   Hash,
   History,
   KeyRound,
@@ -324,6 +325,7 @@ function LiveCallsPill() {
 
 function UserMenu() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [pwOpen, setPwOpen] = useState(false);
   if (!user) return null;
   const roleLabel = user.role === 'superadmin' ? 'Platform admin' : user.isOwner ? 'Owner' : user.role === 'admin' ? 'Admin' : 'Agent';
@@ -333,6 +335,7 @@ function UserMenu() {
         items={[
           { label: user.email, disabled: true, icon: <span className="size-4" /> },
           { label: 'Change password', icon: <KeyRound className="size-4" />, onSelect: () => setPwOpen(true), separatorBefore: true },
+          { label: 'View website', icon: <Globe className="size-4" />, onSelect: () => navigate('/home') },
           { label: 'Sign out', icon: <LogOut className="size-4" />, danger: true, onSelect: () => void logout(), separatorBefore: true },
         ]}
         trigger={({ open, onClick, ref }) => (

@@ -55,6 +55,7 @@ export function App() {
     return (
       <Routes>
         <Route path="/" element={<LandingPage />} />
+        <Route path="/home" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/check-email" element={<CheckEmailPage />} />
@@ -74,6 +75,8 @@ export function App() {
       <LiveProvider>
         <PhoneProvider>
           <Routes>
+            {/* Signed in, "/" is the dashboard: the website stays reachable here. */}
+            <Route path="home" element={<LandingPage />} />
             <Route element={<Layout />}>
               <Route index element={<DashboardPage />} />
               <Route path="live" element={<RequireRole roles={ADMIN}><LiveCallsPage /></RequireRole>} />

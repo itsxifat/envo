@@ -29,6 +29,10 @@ import type { Extension } from '../lib/types';
 import { formatDateTime, formatDuration } from '../lib/format';
 import { useExtStates } from '../state/live';
 import { usePhone, type CallQuality, type RegState } from './PhoneProvider';
+import { Link } from 'react-router';
+import { useAuth } from '../state/auth';
+import { useTenant } from '../state/tenant';
+import { useLinkExtension, useNextExtensionNumber } from '../components/people';
 
 const KEYS: [string, string][] = [
   ['1', ''], ['2', 'ABC'], ['3', 'DEF'],
@@ -326,6 +330,8 @@ export function Softphone() {
             </div>
           </div>
 
+          {!config.enabled && !call && <NotConnected />}
+
           {settingsOpen ? (
             <DeviceSettings onClose={() => setSettingsOpen(false)} />
           ) : call ? (
@@ -515,7 +521,7 @@ export function Softphone() {
         onClick={() => setPanelOpen(!panelOpen)}
         className={clsx(
           'relative hidden size-14 items-center justify-center rounded-full text-white shadow-xl transition hover:scale-105 active:scale-95 lg:flex',
-          ringing ? 'ring-pulse bg-emerald-500' : call ? 'bg-rose-500' : 'bg-gradient-to-br from-brand-500 to-brand-700 shadow-[0_10px_24px_-8px_rgb(31_87_235/0.7)]',
+          ringing ? 'ring-pulse bg-emerald-500' : call ? 'bg-rose-500' : 'bg-ink-950 shadow-[0_12px_28px_-10px_rgb(11_13_18/0.7)] ring-1 ring-white/10 hover:bg-ink-800',
         )}
         aria-label={panelOpen ? 'Hide web phone' : 'Show web phone'}
         aria-expanded={panelOpen}
@@ -614,6 +620,40 @@ function Contacts({ tenantId, self, onDial }: { tenantId: number; self: string; 
         })}
         {!list.length && <p className="py-6 text-center text-sm text-slate-500">No extensions{q && ' match that search'}</p>}
       </div>
+    </div>
+  );
+}
+
+/** The phone has no extension behind it: admins can make or pick one right here. */
+function NotConnected() {
+  const { user } = useAuth();
+  const { tenantId } = useTenant();
+  const link = useLinkExtension();
+  const admin = !!user && user.role !== 'agent';
+  const unlinked = !!user && !user.extensionId;
+  const next = useNextExtensionNumber(admin && unlinked ? tenantId : null);
+  if (!user || !unlinked) return null;
+  return (
+    <div className="mx-5 mt-2 mb-3 rounded-2xl bg-white/[0.06] p-4 ring-1 ring-white/10">
+      <p className="text-sm font-semibold text-white">Connect your web phone</p>
+      <p className="mt-1 text-xs text-slate-400">
+        {admin ? 'Your login has no extension yet. Make one and you can call from here right away.' : 'Ask an administrator to give your login an extension.'}
+      </p>
+      {admin && tenantId && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={link.isPending}
+            onClick={() => link.mutate({ userId: user.id, body: { create: true, tenant_id: tenantId } })}
+            className="rounded-full bg-white px-3.5 py-1.5 text-[13px] font-medium text-ink-950 transition hover:bg-slate-200 disabled:opacity-60"
+          >
+            {link.isPending ? 'Connecting…' : next.data ? `Create extension ${next.data.number}` : 'Create my extension'}
+          </button>
+          <Link to="/extensions" className="rounded-full px-3 py-1.5 text-[13px] text-slate-300 transition hover:bg-white/10 hover:text-white">
+            Pick one
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

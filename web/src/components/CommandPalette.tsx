@@ -303,14 +303,14 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 
   return createPortal(
     <div
-      className="animate-fade-in fixed inset-0 z-[80] flex items-start justify-center bg-slate-900/40 px-4 pt-[12vh] backdrop-blur-[3px]"
+      className="animate-fade-in fixed inset-0 z-[80] flex items-start justify-center bg-[#0b0d12]/40 px-4 pt-[12vh] backdrop-blur-sm"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        className="animate-slide-up w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-[var(--shadow-pop)] ring-1 ring-slate-900/10"
+        className="animate-slide-up w-full max-w-xl overflow-hidden rounded-[20px] bg-white shadow-[var(--shadow-pop)] ring-1 ring-black/[0.07]"
         onKeyDown={(e) => {
           if (e.key === 'Escape') onClose();
           if (e.key === 'ArrowDown') {
@@ -327,7 +327,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           }
         }}
       >
-        <div className="flex items-center gap-3 border-b border-slate-100 px-4">
+        <div className="flex items-center gap-3 border-b border-black/[0.06] px-4">
           <Search className="size-4.5 shrink-0 text-slate-400" />
           <input
             autoFocus

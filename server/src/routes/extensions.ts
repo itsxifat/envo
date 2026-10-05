@@ -3,12 +3,14 @@ import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { many, one, exec, tx, insertParts, updateSet } from '../db.js';
 import { requireRole, tenantOf, assertTenantAccess } from '../auth.js';
-import { badRequest, conflict, forbidden, intParam, notFound } from '../lib/http.js';
+import { HttpError, badRequest, conflict, forbidden, intParam, notFound } from '../lib/http.js';
 import { assertNumberFree, audit, forwardTarget, internalNumber, name, optionalPhone } from '../lib/validate.js';
 import { randomPassword, randomPin } from '../lib/secrets.js';
 import { scheduleApply, syncExtensionState, clearExtensionState } from '../asterisk/apply.js';
 import type { Extension } from '../asterisk/model.js';
 import { getSettings } from '../settings.js';
+import { sendMail } from '../lib/mailer.js';
+import { emails } from '../lib/emails.js';
 
 const extensionSchema = z.object({
   number: internalNumber,
@@ -63,11 +65,64 @@ async function assertCapacity(tenantId: number, adding: number): Promise<{ slug:
   return t;
 }
 
+/**
+ * The next free internal number of a SIP server: one after its highest extension (same width), or
+ * 101 for an empty server. Skips numbers taken by ring groups, queues, IVRs and conference rooms.
+ */
+export async function nextExtensionNumber(tenantId: number): Promise<string> {
+  const used = new Set(
+    (
+      await many<{ number: string | null }>(
+        `SELECT number FROM extensions WHERE tenant_id = $1 UNION SELECT number FROM ring_groups WHERE tenant_id = $1
+         UNION SELECT number FROM queues WHERE tenant_id = $1 UNION SELECT number FROM ivrs WHERE tenant_id = $1
+         UNION SELECT number FROM conferences WHERE tenant_id = $1`,
+        [tenantId],
+      )
+    ).map((r) => r.number),
+  );
+  const exts = (await many<{ number: string }>('SELECT number FROM extensions WHERE tenant_id = $1', [tenantId])).map((r) => r.number).filter((n) => /^\d+$/.test(n));
+  const highest = exts.reduce<string | null>((a, n) => (a === null || Number(n) > Number(a) ? n : a), null);
+  const width = highest?.length ?? 3;
+  for (let n = highest ? Number(highest) + 1 : 101; String(n).length <= 8; n++) {
+    const candidate = String(n).padStart(width, '0');
+    if (!used.has(candidate)) return candidate;
+  }
+  throw badRequest('There is no free extension number left in this SIP server');
+}
+
+/** Creates an extension with the next free number (or the given one) and strong random secrets. */
+export async function createExtension(tenantId: number, input: { number?: string; name: string; email?: string }): Promise<Extension> {
+  const tenant = await assertCapacity(tenantId, 1);
+  const number = input.number ?? (await nextExtensionNumber(tenantId));
+  await assertNumberFree(tenantId, number);
+  const sipUsername = `${number}_${tenant.slug}`;
+  if (await one('SELECT 1 FROM extensions WHERE sip_username = $1', [sipUsername])) throw conflict(`SIP username ${sipUsername} is already in use`);
+  const ext = await one<Extension>(
+    `INSERT INTO extensions (tenant_id, number, name, sip_username, sip_password, voicemail_pin, email)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    [tenantId, number, input.name.slice(0, 60), sipUsername, randomPassword(), randomPin(), input.email ?? ''],
+  );
+  scheduleApply();
+  void syncExtensionState(ext!).catch(() => undefined);
+  return ext!;
+}
+
 export const extensionRouter = Router();
 
 extensionRouter.get('/', async (req, res) => {
   const tenantId = tenantOf(req);
-  res.json(await many(`SELECT ${PUBLIC_COLUMNS} FROM extensions WHERE tenant_id = $1 ORDER BY number`, [tenantId]));
+  // Admins also see who uses each extension (the logins linked to it).
+  const users =
+    req.user!.role === 'agent'
+      ? ''
+      : `, COALESCE((SELECT json_agg(json_build_object('id', u.id, 'name', u.name, 'email', u.email, 'role', u.role) ORDER BY u.id)
+                       FROM users u WHERE u.extension_id = e.id), '[]') AS users`;
+  res.json(await many(`SELECT ${PUBLIC_COLUMNS}${users} FROM extensions e WHERE tenant_id = $1 ORDER BY length(number), number`, [tenantId]));
+});
+
+/** The number "Add extension" suggests. */
+extensionRouter.get('/next-number', requireRole('superadmin', 'admin'), async (req, res) => {
+  res.json({ number: await nextExtensionNumber(tenantOf(req)!) });
 });
 
 /** Full details including SIP credentials and phone provisioning values. */
@@ -193,6 +248,31 @@ extensionRouter.patch('/:id/state', async (req, res) => {
   ]);
   await syncExtensionState(ext!);
   res.json(ext);
+});
+
+/** Emails the phone settings to the person using the extension (or any address). */
+extensionRouter.post('/:id/send-setup', requireRole('superadmin', 'admin'), async (req, res) => {
+  const ext = await loadExtension(req);
+  const { to } = z.object({ to: z.union([z.literal(''), z.email()]).default('') }).parse(req.body ?? {});
+  const linked = await one<{ email: string }>('SELECT email FROM users WHERE extension_id = $1 ORDER BY id LIMIT 1', [ext.id]);
+  const address = (to || ext.email || linked?.email || '').toLowerCase();
+  if (!address) throw badRequest('Enter the email address to send the phone settings to');
+  const settings = await getSettings();
+  const status = await sendMail(
+    emails.phoneSetup(address, {
+      name: ext.name,
+      number: ext.number,
+      domain: settings.sip_domain,
+      username: ext.sip_username,
+      password: ext.sip_password,
+      udp: 5060,
+      tls: 5061,
+      voicemailPin: ext.voicemail ? ext.voicemail_pin : '',
+    }),
+  );
+  if (status === 'failed') throw new HttpError(502, 'The email could not be sent. Check the email settings, or copy the settings instead.');
+  await audit(req, 'send_setup', 'extension', ext.id, `${ext.number} to ${address}`, ext.tenant_id);
+  res.json({ status, to: address });
 });
 
 extensionRouter.post('/:id/reset-password', requireRole('superadmin', 'admin'), async (req, res) => {

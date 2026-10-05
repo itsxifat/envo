@@ -73,6 +73,11 @@ labels copied from the header by `lib/tableCards.ts`) — keep tables plain with
   browser returns by cross-site POST without the SameSite=Strict cookie, so the callback answers with
   a page that hops back same-site. Billing and SMTP settings live in their own `settings` rows and
   are never returned with passwords; `getSettings()` only returns known public keys.
+- People and phones: a login calls from `users.extension_id` (web phone, voicemail, "my calls").
+  `PUT /api/users/:id/extension` links one (or `{create:true}` makes the next free number), also for
+  yourself; `POST /api/users` can `create_extension` and `invite` (7-day set-password link via
+  `/reset?invite=1`, returned to the admin too). UI: `components/people.tsx`. After changing your own
+  extension, refresh auth and invalidate `['webphone']`.
 - Sign-up (`routes/signup.ts`): pending account + unverified owner; login requires
   `users.email_verified_at`; one-time links are stored as sha256 hashes. Anything an admin creates
   is verified. Emails go through `lib/mailer.ts` (logged in `email_log`; console only when SMTP is

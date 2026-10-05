@@ -51,6 +51,43 @@ export const emails = {
       'This link works for 1 hour. If you did not ask for it, your password stays as it is.',
     ),
 
+  invite: (to: string, name: string, inviter: string, company: string, url: string, extension: string | null) =>
+    mail(
+      to,
+      `${inviter} invited you to ${company} on Envo`,
+      `Hi ${name}, your phone is ready`,
+      [
+        `${esc(inviter)} added you to <strong>${esc(company)}</strong> on Envo, the company phone system.`,
+        extension
+          ? `Your extension is <strong>${esc(extension)}</strong>. Choose a password and you can make and take calls straight from your browser.`
+          : 'Choose a password to sign in.',
+      ],
+      { label: 'Choose my password', url },
+      'This link works for 7 days and only once. Ask your administrator for a new one if it expires.',
+    ),
+
+  phoneSetup: (
+    to: string,
+    p: { name: string; number: string; domain: string; username: string; password: string; udp: number; tls: number; voicemailPin: string },
+  ) =>
+    mail(
+      to,
+      `Phone setup for extension ${p.number}`,
+      `Set up extension ${p.number}`,
+      [
+        `Hi ${esc(p.name)}, enter these settings in your IP phone or softphone app (Zoiper, MicroSIP, Linphone, Grandstream, Yealink…):`,
+        [
+          `SIP server / domain: <strong>${esc(p.domain)}</strong>`,
+          `Username / auth ID: <strong>${esc(p.username)}</strong>`,
+          `Password: <strong style="font-family:monospace">${esc(p.password)}</strong>`,
+          `Port: <strong>${p.udp}</strong> (UDP or TCP), or <strong>${p.tls}</strong> for TLS`,
+        ].join('<br>'),
+        `When the phone shows <em>Registered</em>, dial <strong>*43</strong> for an audio test and <strong>*97</strong> for voicemail${p.voicemailPin ? ` (PIN ${esc(p.voicemailPin)})` : ''}.`,
+        'Keep this email private: anyone with these details can make calls as you.',
+      ],
+      { label: 'Open Envo', url: config.publicUrl },
+    ),
+
   invoiceIssued: (to: string, account: string, number: string, description: string, amount: string, due: string) =>
     mail(
       to,

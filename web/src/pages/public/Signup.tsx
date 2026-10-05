@@ -332,16 +332,22 @@ export function ResetPasswordPage() {
   const navigate = useNavigate();
   const { refresh } = useAuth();
   const [password, setPassword] = useState('');
+  // Invitations from an administrator use the same one-time link.
+  const invite = params.get('invite') === '1';
   const reset = useMutation({
     mutationFn: () => api.post('/api/public/reset-password', { token: params.get('token') ?? '', password }),
     onSuccess: async () => {
       await refresh();
-      toast.success('Password changed');
+      toast.success(invite ? 'Welcome to Envo' : 'Password changed');
       navigate('/', { replace: true });
     },
   });
   return (
-    <AuthShell title="Choose a new password." top={<TextLink to="/login">Sign in</TextLink>}>
+    <AuthShell
+      title={invite ? 'Welcome. Choose your password.' : 'Choose a new password.'}
+      lede={invite ? 'You were invited to a company phone system on Envo. Set a password and your web phone is ready.' : undefined}
+      top={<TextLink to="/login">Sign in</TextLink>}
+    >
       <form
         className="space-y-5"
         onSubmit={(e) => {
@@ -349,7 +355,7 @@ export function ResetPasswordPage() {
           reset.mutate();
         }}
       >
-        <SiteField label="New password" hint="At least 8 characters.">
+        <SiteField label={invite ? 'Password' : 'New password'} hint="At least 8 characters.">
           <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" minLength={8} maxLength={128} required autoFocus />
         </SiteField>
         <FormError>{reset.error ? errorMessage(reset.error) : null}</FormError>

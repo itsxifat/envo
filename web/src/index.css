@@ -1,8 +1,24 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-sans: "Geist", "Anek Bangla", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /*
+   * Neutral greys. Pages use slate-* everywhere; remapping the scale here takes the blue tint out of
+   * all of them at once, so the dashboard matches the website's ink-and-white look.
+   */
+  --color-slate-50: #fafafa;
+  --color-slate-100: #f4f4f5;
+  --color-slate-200: #e6e6e9;
+  --color-slate-300: #d5d5da;
+  --color-slate-400: #a0a1a9;
+  --color-slate-500: #6f717b;
+  --color-slate-600: #51535c;
+  --color-slate-700: #3d3f47;
+  --color-slate-800: #26282e;
+  --color-slate-900: #17181c;
+  --color-slate-950: #0b0d12;
 
   /* Brand: the blue of Enfinito's pricing material. Everything themed goes through brand-*. */
   --color-brand-50: #eff4ff;
@@ -17,19 +33,21 @@
   --color-brand-900: #1a3684;
   --color-brand-950: #152351;
 
-  --color-ink-950: #0a0f1c;
-  --color-ink-900: #111827;
-  --color-ink-800: #1c2536;
-  --color-ink-700: #2a3549;
+  /* Ink: the website's near-black, used for primary actions and dark surfaces. */
+  --color-ink-950: #0b0d12;
+  --color-ink-900: #15171d;
+  --color-ink-800: #23262e;
+  --color-ink-700: #33363f;
 
-  /* App canvas behind cards: a neutral, slightly warm grey (not the blue-ish slate-50). */
-  --color-canvas: #f5f6f8;
+  /* App canvas: the sidebar sits on it, the content panel floats above it. */
+  --color-canvas: #f4f4f5;
 
   /* Elevation: hairline contact shadow + very soft ambient. Cards rely mostly on their border. */
-  --shadow-card: 0 1px 2px 0 rgb(16 24 40 / 0.04);
-  --shadow-raise: 0 2px 4px -2px rgb(16 24 40 / 0.06), 0 12px 24px -6px rgb(16 24 40 / 0.1);
-  --shadow-pop: 0 8px 16px -6px rgb(16 24 40 / 0.1), 0 24px 48px -12px rgb(16 24 40 / 0.22);
-  --shadow-button: 0 1px 2px 0 rgb(16 24 40 / 0.06), inset 0 1px 0 0 rgb(255 255 255 / 0.12);
+  --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+  --shadow-raise: 0 2px 4px -2px rgb(0 0 0 / 0.05), 0 12px 24px -6px rgb(0 0 0 / 0.09);
+  --shadow-pop: 0 8px 16px -6px rgb(0 0 0 / 0.08), 0 24px 48px -12px rgb(0 0 0 / 0.2);
+  --shadow-button: 0 1px 2px 0 rgb(0 0 0 / 0.08), inset 0 1px 0 0 rgb(255 255 255 / 0.1);
+  --shadow-panel: 0 1px 2px 0 rgb(0 0 0 / 0.03), 0 1px 1px -1px rgb(0 0 0 / 0.02);
 
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
 
@@ -125,14 +143,13 @@
   }
   body {
     @apply bg-canvas text-slate-800 antialiased;
-    font-feature-settings: "cv11", "ss01", "ss03";
     -webkit-tap-highlight-color: transparent;
     text-rendering: optimizeLegibility;
   }
   h1,
   h2,
   h3 {
-    letter-spacing: -0.018em;
+    letter-spacing: -0.02em;
   }
   ::selection {
     @apply bg-brand-200 text-brand-950;
@@ -175,10 +192,10 @@
 @layer components {
   /* 16px text on phones so iOS doesn't zoom into focused fields; 14px from sm up. */
   .input {
-    @apply block h-10 w-full rounded-[10px] border border-slate-300/90 bg-white px-3 text-base text-slate-900 shadow-xs
+    @apply block h-10 w-full rounded-[10px] border border-slate-200 bg-white px-3 text-base text-slate-900 shadow-[0_1px_1px_rgb(0_0_0/0.03)]
       placeholder:text-slate-400 transition sm:h-9.5 sm:text-sm
-      hover:border-slate-400/80
-      focus:border-brand-500 focus:ring-4 focus:ring-brand-500/12 focus:outline-none
+      hover:border-slate-300
+      focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 focus:outline-none
       disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500;
   }
   textarea.input {
@@ -191,27 +208,31 @@
     @apply mb-1.5 block text-[13px] font-medium text-slate-700;
   }
   .card {
-    @apply rounded-2xl border border-slate-200/70 bg-white;
+    @apply rounded-2xl border border-black/[0.07] bg-white;
     box-shadow: var(--shadow-card);
   }
-  /* Content surface behind the app: a faint brand wash at the top. */
+  /* Content surface: plain on phones; from lg up it is the white inset panel itself. */
   .app-surface {
-    background-image: radial-gradient(70rem 20rem at 50% -10rem, rgb(31 87 235 / 0.06), transparent 70%);
+    @apply bg-canvas lg:bg-white;
+  }
+  /* Small mono caps: section labels, table headings, stat labels (the website's label style). */
+  .eyebrow {
+    @apply font-mono text-[10.5px] font-medium tracking-[0.07em] text-slate-400 uppercase;
   }
   .table-base {
     @apply w-full text-left text-sm;
   }
   .table-base thead th {
-    @apply border-b border-slate-200/80 bg-slate-50/70 px-4 py-2.5 text-[11.5px] font-medium tracking-wide text-slate-500;
+    @apply border-b border-black/[0.07] bg-transparent px-4 py-2.5 font-mono text-[10.5px] font-medium tracking-[0.06em] whitespace-nowrap text-slate-400 uppercase;
   }
   .table-base tbody td {
-    @apply border-b border-slate-100 px-4 py-3.5 align-middle;
+    @apply border-b border-black/[0.05] px-4 py-3.5 align-middle;
   }
   .table-base tbody tr:last-child td {
     @apply border-b-0;
   }
   .table-base tbody tr {
-    @apply transition-colors hover:bg-slate-50/60;
+    @apply transition-colors hover:bg-slate-50/70;
   }
 
   /*
@@ -281,13 +302,13 @@
   }
   /* Sticky header for long tables inside a scroll container. */
   .table-sticky thead th {
-    @apply sticky top-0 z-10 bg-slate-50 backdrop-blur;
+    @apply sticky top-0 z-10 bg-white/90 backdrop-blur;
   }
   .table-compact tbody td {
     @apply py-2;
   }
   .kbd {
-    @apply inline-flex h-5 min-w-5 items-center justify-center rounded border border-slate-200 bg-slate-50 px-1.5 font-mono text-[11px] text-slate-600;
+    @apply inline-flex h-5 min-w-5 items-center justify-center rounded-md border border-slate-200 bg-white px-1.5 font-mono text-[11px] text-slate-500 shadow-[0_1px_0_rgb(0_0_0/0.04)];
   }
   .kbd-dark {
     @apply inline-flex h-5 min-w-5 items-center justify-center rounded border border-white/10 bg-white/10 px-1.5 font-mono text-[11px] text-slate-300;

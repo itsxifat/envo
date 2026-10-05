@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import clsx from 'clsx';
 import {
-  AudioLines,
   Building2,
   Check,
   ChevronDown,
@@ -36,21 +35,24 @@ import { usePhone } from '../phone/PhoneProvider';
 import { Button, Field, Input, LiveBars, Menu, Modal, Tooltip } from './ui';
 import { CommandPalette, useCommandPalette } from './CommandPalette';
 
+/** The website's mark: an ink tile with blue signal bars. */
 export function LogoMark({ className }: { className?: string }) {
   return (
-    <div className={clsx('flex size-9 shrink-0 items-center justify-center rounded-[11px] bg-gradient-to-br from-brand-500 to-brand-700 shadow-[0_2px_8px_-2px_rgb(31_87_235/0.55),inset_0_1px_0_rgb(255_255_255/0.2)]', className)}>
-      <AudioLines className="size-5 text-white" />
+    <div className={clsx('flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-ink-950 shadow-[0_1px_2px_rgb(0_0_0/0.2),inset_0_1px_0_rgb(255_255_255/0.08)]', className)}>
+      <svg viewBox="0 0 24 24" className="size-6" aria-hidden>
+        <path d="M7 9.5v5M10.3 7v10M13.7 9v6M17 11v2" strokeWidth="2" strokeLinecap="round" fill="none" className="stroke-brand-500" />
+      </svg>
     </div>
   );
 }
 
 function Logo({ company }: { company: string }) {
   return (
-    <div className="flex items-center gap-3 px-5 pt-5 pb-4">
-      <LogoMark />
+    <div className="flex items-center gap-2.5 px-4 pt-4 pb-4 lg:pt-5">
+      <LogoMark className="size-8 [&>svg]:size-[22px]" />
       <div className="min-w-0">
-        <div className="text-[15.5px] leading-tight font-semibold tracking-tight text-slate-900">Envo</div>
-        <div className="truncate text-[11.5px] text-slate-500">{company === 'Envo' ? 'Cloud PBX' : company}</div>
+        <div className="font-display text-[19px] leading-none font-semibold tracking-[-0.02em] text-slate-950">envo</div>
+        <div className="mt-1 truncate text-[11.5px] leading-none text-slate-500">{company === 'Envo' ? 'Cloud PBX' : company}</div>
       </div>
     </div>
   );
@@ -60,15 +62,15 @@ function PbxStatus() {
   const live = useLive();
   const connected = live.connected && live.asterisk?.connected;
   return (
-    <div className="m-3 rounded-xl bg-slate-50 px-3.5 py-3 ring-1 ring-slate-200/70">
-      <div className="flex items-center gap-2 text-[12.5px] font-medium">
-        <span className="relative flex size-2">
-          {connected && <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-60" />}
-          <span className={clsx('relative inline-flex size-2 rounded-full', connected ? 'bg-emerald-500' : 'bg-rose-500')} />
-        </span>
-        <span className="text-slate-700">{connected ? 'PBX online' : live.connected ? 'PBX offline' : 'Reconnecting…'}</span>
+    <div className="mx-3 mb-3 flex items-center gap-2.5 rounded-xl bg-white/70 px-3 py-2.5 ring-1 ring-black/[0.05]">
+      <span className="relative flex size-2 shrink-0">
+        {connected && <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-60" />}
+        <span className={clsx('relative inline-flex size-2 rounded-full', connected ? 'bg-emerald-500' : 'bg-rose-500')} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="text-[12.5px] leading-tight font-medium text-slate-800">{connected ? 'PBX online' : live.connected ? 'PBX offline' : 'Reconnecting…'}</div>
+        {live.asterisk?.version && <div className="mt-0.5 truncate font-mono text-[10.5px] leading-tight text-slate-400">{live.asterisk.version}</div>}
       </div>
-      {live.asterisk?.version && <div className="mt-0.5 truncate pl-4 text-[11px] text-slate-400">{live.asterisk.version}</div>}
     </div>
   );
 }
@@ -76,14 +78,14 @@ function PbxStatus() {
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { user, plan, company } = useAuth();
   return (
-    <div className="flex h-full flex-col border-r border-slate-200/80 bg-white">
+    <div className="flex h-full flex-col bg-canvas">
       <Logo company={company} />
-      <nav className="flex-1 space-y-5 overflow-y-auto px-3 pt-1 pb-4" aria-label="Main">
+      <nav className="flex-1 space-y-5 overflow-y-auto px-2.5 pt-1 pb-4" aria-label="Main">
         {(user ? visibleNav(user, plan) : []).map((group) => {
           const items = group.items;
           return (
             <div key={group.title}>
-              <div className="mb-1 px-3 text-[11px] font-medium text-slate-400">{group.title}</div>
+              <div className="mb-1.5 px-2.5 font-mono text-[10.5px] font-medium tracking-[0.08em] text-slate-400 uppercase">{group.title}</div>
               <div className="space-y-px">
                 {items.map((item) => (
                   <NavLink
@@ -93,14 +95,16 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                     onClick={onNavigate}
                     className={({ isActive }) =>
                       clsx(
-                        'group flex items-center gap-3 rounded-[10px] px-3 py-2 text-[13.5px] font-medium transition duration-150 lg:py-[7px]',
-                        isActive ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900',
+                        'group flex items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-[13.5px] font-medium transition duration-150 lg:py-[7px]',
+                        isActive
+                          ? 'bg-white text-slate-950 shadow-[0_1px_2px_rgb(0_0_0/0.06)] ring-1 ring-black/[0.05]'
+                          : 'text-slate-600 hover:bg-black/[0.04] hover:text-slate-950',
                       )
                     }
                   >
                     {({ isActive }) => (
                       <>
-                        <item.icon className={clsx('size-[18px] shrink-0 transition', isActive ? 'text-brand-600' : 'text-slate-400 group-hover:text-slate-600')} />
+                        <item.icon className={clsx('size-[17px] shrink-0 transition', isActive ? 'text-brand-600' : 'text-slate-400 group-hover:text-slate-700')} />
                         <span className="truncate">{item.label}</span>
                       </>
                     )}
@@ -134,14 +138,14 @@ function TabBar({ onMore }: { onMore: () => void }) {
       key={t.to}
       to={t.to}
       end={t.to === '/'}
-      className={({ isActive }) => clsx('flex flex-1 flex-col items-center gap-1 pt-2 pb-1.5 text-[10.5px] font-medium transition', isActive ? 'text-brand-600' : 'text-slate-500 active:text-slate-800')}
+      className={({ isActive }) => clsx('flex flex-1 flex-col items-center gap-1 pt-2 pb-1.5 text-[10.5px] font-medium transition', isActive ? 'text-brand-600' : 'text-slate-500 active:text-slate-900')}
     >
       <t.icon className="size-[22px]" />
       {t.label}
     </NavLink>
   );
   return (
-    <nav className="safe-bottom fixed inset-x-0 bottom-0 z-30 print:hidden border-t border-slate-200/80 bg-white/92 backdrop-blur-xl lg:hidden" aria-label="Quick navigation">
+    <nav className="safe-bottom fixed inset-x-0 bottom-0 z-30 border-t border-black/[0.06] bg-white/90 backdrop-blur-xl lg:hidden print:hidden" aria-label="Quick navigation">
       <div className="mx-auto flex max-w-md items-stretch px-2">
         {tab(tabs[0]!)}
         {tab(tabs[1]!)}
@@ -153,8 +157,8 @@ function TabBar({ onMore }: { onMore: () => void }) {
               aria-label={phone.panelOpen ? 'Hide web phone' : 'Open web phone'}
               aria-expanded={phone.panelOpen}
               className={clsx(
-                'relative -mt-5 flex size-14 items-center justify-center rounded-full text-white shadow-[0_8px_20px_-6px_rgb(31_87_235/0.6)] ring-4 ring-white transition active:scale-95',
-                ringing ? 'ring-pulse bg-emerald-500' : inCall ? 'bg-rose-500' : 'bg-gradient-to-br from-brand-500 to-brand-700',
+                'relative -mt-5 flex size-14 items-center justify-center rounded-full text-white shadow-[0_8px_20px_-6px_rgb(11_13_18/0.55)] ring-4 ring-white transition active:scale-95',
+                ringing ? 'ring-pulse bg-emerald-500' : inCall ? 'bg-rose-500' : 'bg-ink-950',
               )}
             >
               {ringing ? <PhoneIncoming className="size-6 animate-bounce" /> : <Phone className="size-6" />}
@@ -164,7 +168,7 @@ function TabBar({ onMore }: { onMore: () => void }) {
           )}
         </div>
         {tab(tabs[2]!)}
-        <button type="button" onClick={onMore} className="flex flex-1 flex-col items-center gap-1 pt-2 pb-1.5 text-[10.5px] font-medium text-slate-500 transition active:text-slate-800">
+        <button type="button" onClick={onMore} className="flex flex-1 flex-col items-center gap-1 pt-2 pb-1.5 text-[10.5px] font-medium text-slate-500 transition active:text-slate-900">
           <MenuIcon className="size-[22px]" />
           More
         </button>
@@ -208,8 +212,8 @@ function ApplyIndicator() {
         </button>
       </Tooltip>
       {open && (
-        <div className="animate-pop-in absolute right-0 z-30 mt-2 w-80 rounded-xl bg-white p-4 text-sm shadow-[var(--shadow-pop)] ring-1 ring-slate-200">
-          <div className="font-semibold text-slate-900">Asterisk configuration</div>
+        <div className="animate-pop-in absolute right-0 z-30 mt-2 w-80 rounded-2xl bg-white p-4 text-sm shadow-[var(--shadow-pop)] ring-1 ring-black/[0.07]">
+          <div className="font-semibold text-slate-950">Asterisk configuration</div>
           <p className="mt-1 text-xs text-slate-500">
             Every change you save is written to Asterisk and hot-reloaded automatically. Last applied {timeAgo(apply.lastAppliedAt)}.
           </p>
@@ -221,9 +225,9 @@ function ApplyIndicator() {
               </dd>
             </div>
           </dl>
-          {apply.error && <p className="mt-2 rounded-lg bg-rose-50 px-2 py-1.5 text-xs text-rose-700">{apply.error}</p>}
+          {apply.error && <p className="mt-2 rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs text-rose-700">{apply.error}</p>}
           {apply.warnings.map((w) => (
-            <p key={w} className="mt-2 rounded-lg bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+            <p key={w} className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
               {w}
             </p>
           ))}
@@ -290,8 +294,8 @@ function TenantSwitcher() {
           aria-haspopup="menu"
           aria-expanded={open}
           className={clsx(
-            'flex h-9 max-w-[170px] items-center gap-2 rounded-[10px] border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-800 shadow-xs transition hover:border-slate-300 hover:bg-slate-50 sm:max-w-none',
-            open && 'border-brand-500 ring-4 ring-brand-500/12',
+            'flex h-9 max-w-[170px] items-center gap-2 rounded-full border border-slate-200 bg-white pr-2.5 pl-3 text-sm font-medium text-slate-900 shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition hover:border-slate-300 hover:bg-slate-50 sm:max-w-none',
+            open && 'border-brand-500 ring-4 ring-brand-500/10',
           )}
         >
           <Building2 className="size-4 shrink-0 text-slate-400 max-sm:hidden" />
@@ -345,14 +349,14 @@ function UserMenu() {
             onClick={onClick}
             aria-haspopup="menu"
             aria-expanded={open}
-            className={clsx('flex items-center gap-2.5 rounded-xl py-1 pr-1 pl-1 transition hover:bg-slate-100 md:pr-2', open && 'bg-slate-100')}
+            className={clsx('flex items-center gap-2.5 rounded-full py-1 pr-1 pl-1 transition hover:bg-black/[0.04] md:pr-2.5', open && 'bg-black/[0.04]')}
             aria-label="Account menu"
           >
-            <div className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-800 text-xs font-semibold text-white ring-2 ring-white">
+            <div className="flex size-8 items-center justify-center rounded-full bg-ink-950 text-xs font-semibold text-white ring-2 ring-white">
               {user.name.slice(0, 1).toUpperCase()}
             </div>
             <div className="hidden text-left md:block">
-              <div className="text-[13px] leading-tight font-medium text-slate-800">{user.name}</div>
+              <div className="text-[13px] leading-tight font-medium text-slate-900">{user.name}</div>
               <div className="text-[11px] leading-tight text-slate-500">{roleLabel}</div>
             </div>
             <ChevronDown className={clsx('hidden size-4 text-slate-400 transition md:block', open && 'rotate-180')} />
@@ -421,7 +425,7 @@ function PaletteTrigger({ onOpen }: { onOpen: () => void }) {
       <button
         type="button"
         onClick={onOpen}
-        className="hidden h-9 w-64 items-center gap-2 rounded-[10px] border border-slate-200 bg-slate-50/80 px-3 text-left text-sm text-slate-400 transition hover:border-slate-300 hover:bg-white hover:text-slate-500 md:flex xl:w-80"
+        className="hidden h-9 w-64 items-center gap-2 rounded-full bg-slate-100/80 pr-1.5 pl-3.5 text-left text-sm text-slate-500 transition hover:bg-slate-200/60 hover:text-slate-700 md:flex xl:w-80"
       >
         <Search className="size-4 shrink-0" />
         <span className="flex-1 truncate">Search or jump to…</span>
@@ -430,7 +434,7 @@ function PaletteTrigger({ onOpen }: { onOpen: () => void }) {
           <kbd className="kbd">K</kbd>
         </span>
       </button>
-      <button type="button" onClick={onOpen} aria-label="Search" className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 md:hidden">
+      <button type="button" onClick={onOpen} aria-label="Search" className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 md:hidden">
         <Search className="size-[21px]" />
       </button>
     </>
@@ -449,23 +453,23 @@ export function Layout() {
   }, [location.pathname]);
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full bg-canvas">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-[90] focus:rounded-lg focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-brand-700 focus:shadow-lg"
       >
         Skip to content
       </a>
-      <aside className="hidden w-[260px] shrink-0 lg:block print:hidden">
+      <aside className="hidden w-[248px] shrink-0 lg:block print:hidden">
         <Sidebar />
       </aside>
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="animate-fade-in absolute inset-0 bg-slate-900/45 backdrop-blur-[3px]" onClick={() => setMobileOpen(false)} />
+          <div className="animate-fade-in absolute inset-0 bg-[#0b0d12]/40 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
           <aside className="animate-drawer absolute inset-y-0 left-0 w-[min(18rem,85vw)] shadow-2xl">
             <button
               type="button"
-              className="absolute top-5 right-3 z-10 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+              className="absolute top-4 right-3 z-10 rounded-full p-1.5 text-slate-400 transition hover:bg-black/[0.05] hover:text-slate-700"
               onClick={() => setMobileOpen(false)}
               aria-label="Close menu"
             >
@@ -475,28 +479,30 @@ export function Layout() {
           </aside>
         </div>
       )}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex h-14 print:hidden shrink-0 items-center justify-between gap-2 border-b border-slate-200/70 bg-white/88 px-3 backdrop-blur-xl sm:gap-3 sm:px-6 lg:h-16">
-          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-            <NavLink to="/" className="lg:hidden" aria-label="Dashboard">
-              <LogoMark className="size-8 rounded-[10px] [&>svg]:size-[18px]" />
-            </NavLink>
-            <TenantSwitcher />
-            <PaletteTrigger onOpen={() => palette.setOpen(true)} />
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
-            <LiveCallsPill />
-            <ApplyIndicator />
-            <UserMenu />
-          </div>
-        </header>
-        <main id="main" ref={main} className="app-surface flex-1 overflow-y-auto print:overflow-visible">
-          <div className="pb-tabbar mx-auto max-w-[1400px] px-4 pt-5 sm:px-6 sm:pt-7 lg:px-8 lg:pb-16">
-            <ServerGate>
-              <Outlet />
-            </ServerGate>
-          </div>
-        </main>
+      <div className="flex min-w-0 flex-1 flex-col lg:py-2 lg:pr-2 print:p-0">
+        <div className="flex min-h-0 flex-1 flex-col lg:overflow-hidden lg:rounded-2xl lg:border lg:border-black/[0.07] lg:bg-white lg:shadow-[var(--shadow-panel)] print:overflow-visible print:border-0 print:shadow-none">
+          <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-black/[0.06] bg-white/90 px-3 backdrop-blur-xl sm:gap-3 sm:px-6 lg:h-[60px] print:hidden">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+              <NavLink to="/" className="lg:hidden" aria-label="Dashboard">
+                <LogoMark className="size-8 [&>svg]:size-[22px]" />
+              </NavLink>
+              <TenantSwitcher />
+              <PaletteTrigger onOpen={() => palette.setOpen(true)} />
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
+              <LiveCallsPill />
+              <ApplyIndicator />
+              <UserMenu />
+            </div>
+          </header>
+          <main id="main" ref={main} className="app-surface flex-1 overflow-y-auto print:overflow-visible">
+            <div className="pb-tabbar mx-auto max-w-[1400px] px-4 pt-5 sm:px-6 sm:pt-7 lg:px-10 lg:pt-9 lg:pb-16">
+              <ServerGate>
+                <Outlet />
+              </ServerGate>
+            </div>
+          </main>
+        </div>
       </div>
       <TabBar onMore={() => setMobileOpen(true)} />
       <Softphone />
@@ -575,10 +581,10 @@ function ServerGate({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto max-w-xl pt-6 sm:pt-12">
       <div className="card px-6 py-10 text-center sm:px-10">
-        <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
+        <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-white text-brand-600 shadow-[var(--shadow-card)] ring-1 ring-black/[0.07]">
           <Building2 className="size-7" />
         </div>
-        <h1 className="mt-5 text-xl font-semibold tracking-tight text-slate-900">Create your first SIP server</h1>
+        <h1 className="font-display mt-5 text-[26px] leading-tight font-semibold tracking-[-0.03em] text-slate-950">Create your first SIP server</h1>
         <p className="mt-2 text-[15px] text-slate-500">
           {platform
             ? 'A SIP server is a complete phone system: extensions, numbers, IVRs and call routing. Create one for Enfinito, or for a customer from Business → Customers.'

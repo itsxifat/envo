@@ -2,13 +2,14 @@ import { useMemo, useState } from 'react';
 import clsx from 'clsx';
 import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Globe, KeyRound, Monitor, Pencil, Phone, Plus, RefreshCw, Trash2, Users } from 'lucide-react';
+import { Copy, Globe, KeyRound, Mail, Monitor, Pencil, Phone, Plus, RefreshCw, Trash2, UserPlus, Users } from 'lucide-react';
 import { api, errorMessage, scoped } from '../lib/api';
 import { useList, useRemove, useSave } from '../lib/hooks';
 import { useTenant } from '../state/tenant';
 import { useContactsByEndpoint, useExtStates } from '../state/live';
 import { usePhone } from '../phone/PhoneProvider';
 import type { Extension, LiveContact } from '../lib/types';
+import { ExtensionPeople, MyPhoneSetup, useNextExtensionNumber } from '../components/people';
 import {
   Badge,
   Button,
@@ -21,6 +22,7 @@ import {
   Input,
   LoadingBlock,
   Modal,
+  Notice,
   NumberInput,
   PageHeader,
   SearchInput,
@@ -77,7 +79,7 @@ export function ExtensionsPage() {
   const confirm = useConfirm();
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState<Extension | 'new' | null>(null);
-  const [creds, setCreds] = useState<Extension | null>(null);
+  const [setup, setSetup] = useState<{ ext: Extension; tab: SetupTab } | null>(null);
   const [bulk, setBulk] = useState(false);
 
   const rows = useMemo(
@@ -104,6 +106,8 @@ export function ExtensionsPage() {
         }
       />
 
+      <MyPhoneSetup className="mb-4 sm:mb-6" />
+
       <Card>
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
           <SearchInput value={q} onChange={setQ} placeholder="Search number, name or username" />
@@ -126,10 +130,11 @@ export function ExtensionsPage() {
                 <tr>
                   <th className="w-24">Ext</th>
                   <th>Name</th>
+                  <th>Used by</th>
                   <th>Devices</th>
                   <th>Status</th>
                   <th>Features</th>
-                  <th className="w-40" />
+                  <th className="w-48" />
                 </tr>
               </thead>
               <tbody>
@@ -146,6 +151,28 @@ export function ExtensionsPage() {
                         <div className="font-medium text-slate-900">{e.name}</div>
                         <div className="font-mono text-xs text-slate-500">{e.sip_username}</div>
                       </td>
+                      <td>
+                        {e.users?.length ? (
+                          <button type="button" onClick={() => setSetup({ ext: e, tab: 'people' })} className="flex max-w-56 items-center gap-2 text-left" title="Who uses this extension">
+                            <span className="flex -space-x-1.5">
+                              {e.users.slice(0, 3).map((u) => (
+                                <span key={u.id} className="flex size-6 items-center justify-center rounded-full bg-slate-900 text-[10px] font-semibold text-white ring-2 ring-white">
+                                  {u.name.slice(0, 1).toUpperCase()}
+                                </span>
+                              ))}
+                            </span>
+                            <span className="truncate text-sm text-slate-700">{e.users.map((u) => u.name).join(', ')}</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setSetup({ ext: e, tab: 'people' })}
+                            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-500 transition hover:border-brand-400 hover:text-brand-700"
+                          >
+                            <UserPlus className="size-3.5" /> Assign
+                          </button>
+                        )}
+                      </td>
                       <td className="max-w-80">
                         {devices.length ? (
                           <div className="space-y-1">
@@ -160,7 +187,7 @@ export function ExtensionsPage() {
                           <span className="text-xs text-slate-400">No device registered</span>
                         )}
                       </td>
-                      <td>{!e.enabled ? <Badge>Disabled</Badge> : badge ? <Badge tone={badge.tone}>{badge.label}</Badge> : <Badge>Offline</Badge>}</td>
+                      <td>{!e.enabled ? <Badge>Disabled</Badge> : badge ? <Badge tone={badge.tone} dot>{badge.label}</Badge> : <Badge dot>Offline</Badge>}</td>
                       <td>
                         <div className="flex flex-wrap gap-1">
                           {e.dnd && <Badge tone="red">DND</Badge>}
@@ -176,7 +203,10 @@ export function ExtensionsPage() {
                           <IconButton label={`Call ${e.number}`} tone="brand" onClick={() => phone.dial(e.number)}>
                             <Phone className="size-4" />
                           </IconButton>
-                          <IconButton label="SIP credentials" onClick={() => setCreds(e)}>
+                          <IconButton label="People" onClick={() => setSetup({ ext: e, tab: 'people' })}>
+                            <UserPlus className="size-4" />
+                          </IconButton>
+                          <IconButton label="Phone setup (SIP details)" onClick={() => setSetup({ ext: e, tab: 'device' })}>
                             <KeyRound className="size-4" />
                           </IconButton>
                           <IconButton label="Edit" onClick={() => setEditing(e)}>
@@ -204,15 +234,23 @@ export function ExtensionsPage() {
         )}
       </Card>
 
-      {editing && <ExtensionModal ext={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onCreated={(e) => setCreds(e)} />}
-      {creds && <CredentialsModal ext={creds} onClose={() => setCreds(null)} />}
+      {editing && <ExtensionModal ext={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onCreated={(e) => setSetup({ ext: e, tab: 'people' })} />}
+      {setup && <SetupModal ext={setup.ext} initialTab={setup.tab} onClose={() => setSetup(null)} />}
       {bulk && tenantId && <BulkModal tenantId={tenantId} onClose={() => setBulk(false)} />}
     </div>
   );
 }
 
 function ExtensionModal({ ext, onClose, onCreated }: { ext: Extension | null; onClose: () => void; onCreated: (e: Extension) => void }) {
+  const { tenantId } = useTenant();
   const [form, setForm] = useState<Form>(() => (ext ? { ...EMPTY, ...ext, voicemail_pin: '' } : { ...EMPTY }));
+  // Suggest the next free number for a new extension (until the admin types their own).
+  const next = useNextExtensionNumber(ext ? null : tenantId);
+  const [suggested, setSuggested] = useState(false);
+  if (!ext && !suggested && next.data && !form.number) {
+    setSuggested(true);
+    setForm((f) => ({ ...f, number: next.data.number }));
+  }
   const [tab, setTab] = useState<'general' | 'calls' | 'voicemail' | 'forwarding'>('general');
   const save = useSave<Extension>('extensions', { created: 'Extension created', updated: 'Extension saved' });
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }));
@@ -258,10 +296,10 @@ function ExtensionModal({ ext, onClose, onCreated }: { ext: Extension | null; on
       {tab === 'general' && (
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Extension number" hint="2-8 digits, dialed internally">
-            <Input value={form.number} onChange={(e) => set('number', e.target.value.replace(/\D/g, ''))} placeholder="1001" autoFocus={!ext} />
+            <Input value={form.number} onChange={(e) => set('number', e.target.value.replace(/\D/g, ''))} placeholder="101" />
           </Field>
           <Field label="Name" hint="Shown as caller ID on internal calls">
-            <Input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Front desk" />
+            <Input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Front desk" autoFocus={!ext} />
           </Field>
           {!ext && (
             <Field label="SIP username (optional)" hint="Leave empty to use number_servername">
@@ -338,87 +376,153 @@ function ExtensionModal({ ext, onClose, onCreated }: { ext: Extension | null; on
   );
 }
 
-function CredentialsModal({ ext, onClose }: { ext: Extension; onClose: () => void }) {
-  const { tenantId } = useTenant();
-  const qc = useQueryClient();
-  const confirm = useConfirm();
-  const [resetting, setResetting] = useState(false);
-  const detail = useQuery({
-    queryKey: ['extension', ext.id],
-    queryFn: () => api.get<Extension>(scoped(`/api/extensions/${ext.id}`, tenantId)),
-  });
-  const p = detail.data?.provisioning;
+type SetupTab = 'people' | 'device';
+
+/** Everything needed to put an extension to use: who calls from it, and the settings for a desk phone or app. */
+function SetupModal({ ext, initialTab, onClose }: { ext: Extension; initialTab: SetupTab; onClose: () => void }) {
+  const [tab, setTab] = useState<SetupTab>(initialTab);
   return (
     <Modal
       open
       onClose={onClose}
       size="lg"
-      title={`SIP credentials · ${ext.number} ${ext.name}`}
-      description="Enter these in an IP phone or softphone (Zoiper, MicroSIP, Linphone, Grandstream, Yealink…)"
+      title={ext.name === `Extension ${ext.number}` ? ext.name : `Extension ${ext.number} · ${ext.name}`}
+      description={tab === 'people' ? 'People who call from it with the web phone' : 'Settings for an IP phone or softphone app'}
       footer={
-        <>
+        <Button variant="primary" onClick={onClose}>
+          Done
+        </Button>
+      }
+    >
+      <div className="mb-5">
+        <Tabs
+          value={tab}
+          onChange={setTab}
+          tabs={[
+            { value: 'people', label: 'People' },
+            { value: 'device', label: 'Desk phone or app' },
+          ]}
+        />
+      </div>
+      {tab === 'people' ? <ExtensionPeople ext={ext} /> : <DeviceSetup ext={ext} />}
+    </Modal>
+  );
+}
+
+function DeviceSetup({ ext }: { ext: Extension }) {
+  const { tenantId } = useTenant();
+  const qc = useQueryClient();
+  const confirm = useConfirm();
+  const [resetting, setResetting] = useState(false);
+  const [emailTo, setEmailTo] = useState('');
+  const [sending, setSending] = useState(false);
+  const detail = useQuery({
+    queryKey: ['extension', ext.id],
+    queryFn: () => api.get<Extension>(scoped(`/api/extensions/${ext.id}`, tenantId)),
+  });
+  const p = detail.data?.provisioning;
+  if (!p) return <LoadingBlock />;
+  const defaultTo = ext.email || ext.users?.find((u) => u.email)?.email || '';
+  const summary = [
+    `Extension ${ext.number} (${ext.name})`,
+    `SIP server / domain: ${p.domain}`,
+    `Username / auth ID: ${p.username}`,
+    `Password: ${p.password}`,
+    `Port: ${p.udp_port} UDP or TCP, ${p.tls_port} TLS`,
+    `Test: dial *43 for an echo test, *97 for voicemail${p.voicemail_pin ? ` (PIN ${p.voicemail_pin})` : ''}`,
+  ].join('\n');
+  return (
+    <div className="space-y-6">
+      <div>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <SectionTitle className="mb-0">Account</SectionTitle>
           <Button
-            variant="ghost"
-            icon={<RefreshCw className="size-4" />}
-            loading={resetting}
+            size="sm"
+            icon={<Copy className="size-3.5" />}
             onClick={async () => {
-              if (!(await confirm({ title: 'Generate a new SIP password?', message: 'Devices using the old password will stop registering until updated.', confirmLabel: 'Reset password', danger: true }))) return;
-              setResetting(true);
               try {
-                await api.post(scoped(`/api/extensions/${ext.id}/reset-password`, tenantId));
-                await qc.invalidateQueries({ queryKey: ['extension', ext.id] });
-                toast.success('New password generated');
-              } catch (err) {
-                toast.error(errorMessage(err));
-              } finally {
-                setResetting(false);
+                await navigator.clipboard.writeText(summary);
+                toast.success('All settings copied');
+              } catch {
+                toast.error('Could not copy');
               }
             }}
           >
-            Reset password
+            Copy all
           </Button>
-          <Button variant="primary" onClick={onClose}>
-            Done
-          </Button>
-        </>
-      }
-    >
-      {!p ? (
-        <LoadingBlock />
-      ) : (
-        <div className="space-y-6">
-          <div>
-            <SectionTitle>Account</SectionTitle>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <CopyField label="SIP server / domain" value={p.domain} />
-              <CopyField label="Server IP" value={p.server_ip} />
-              <CopyField label="Username / Auth ID" value={p.username} />
-              <CopyField label="Password" value={p.password} secret />
-            </div>
-          </div>
-          <div>
-            <SectionTitle>Transport</SectionTitle>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <CopyField label="UDP port" value={String(p.udp_port)} />
-              <CopyField label="TCP port" value={String(p.tcp_port)} />
-              <CopyField label="TLS port" value={String(p.tls_port)} />
-            </div>
-          </div>
-          <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-200">
-            <p className="font-medium text-slate-800">Quick test</p>
-            <p className="mt-1">
-              After the phone shows <em>Registered</em>, dial <span className="kbd">*43</span> for an echo test, <span className="kbd">*97</span> for voicemail
-              {p.voicemail_pin && (
-                <>
-                  {' '}(PIN <span className="kbd">{p.voicemail_pin}</span>)
-                </>
-              )}
-              , or any other extension number.
-            </p>
-          </div>
         </div>
-      )}
-    </Modal>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <CopyField label="SIP server / domain" value={p.domain} />
+          <CopyField label="Server IP" value={p.server_ip} />
+          <CopyField label="Username / Auth ID" value={p.username} />
+          <CopyField label="Password" value={p.password} secret />
+        </div>
+      </div>
+      <div>
+        <SectionTitle>Transport</SectionTitle>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <CopyField label="UDP port" value={String(p.udp_port)} />
+          <CopyField label="TCP port" value={String(p.tcp_port)} />
+          <CopyField label="TLS port" value={String(p.tls_port)} />
+        </div>
+      </div>
+      <div>
+        <SectionTitle>Send to the person setting it up</SectionTitle>
+        <form
+          className="flex flex-col gap-2 sm:flex-row"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setSending(true);
+            try {
+              const r = await api.post<{ status: 'sent' | 'skipped'; to: string }>(scoped(`/api/extensions/${ext.id}/send-setup`, tenantId), { to: emailTo || defaultTo });
+              if (r.status === 'sent') toast.success(`Phone settings sent to ${r.to}`);
+              else toast.warning('Email is not set up yet, so nothing was sent. Use "Copy all" instead.');
+            } catch (err) {
+              toast.error(errorMessage(err));
+            } finally {
+              setSending(false);
+            }
+          }}
+        >
+          <Input type="email" value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder={defaultTo || 'name@company.com'} aria-label="Email address" className="sm:flex-1" />
+          <Button type="submit" icon={<Mail className="size-4" />} loading={sending} disabled={!emailTo && !defaultTo}>
+            Email settings
+          </Button>
+        </form>
+      </div>
+      <Notice tone="info" title="Quick test">
+        After the phone shows <em>Registered</em>, dial <span className="kbd">*43</span> for an echo test, <span className="kbd">*97</span> for voicemail
+        {p.voicemail_pin && (
+          <>
+            {' '}(PIN <span className="kbd">{p.voicemail_pin}</span>)
+          </>
+        )}
+        , or any other extension number.
+      </Notice>
+      <div className="flex justify-end border-t border-slate-100 pt-4">
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<RefreshCw className="size-4" />}
+          loading={resetting}
+          onClick={async () => {
+            if (!(await confirm({ title: 'Generate a new SIP password?', message: 'Devices using the old password will stop registering until updated.', confirmLabel: 'Reset password', danger: true }))) return;
+            setResetting(true);
+            try {
+              await api.post(scoped(`/api/extensions/${ext.id}/reset-password`, tenantId));
+              await qc.invalidateQueries({ queryKey: ['extension', ext.id] });
+              toast.success('New password generated');
+            } catch (err) {
+              toast.error(errorMessage(err));
+            } finally {
+              setResetting(false);
+            }
+          }}
+        >
+          Reset SIP password
+        </Button>
+      </div>
+    </div>
   );
 }
 

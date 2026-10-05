@@ -31,6 +31,7 @@ import { formatDuration, parseCallerId, timeAgo } from '../lib/format';
 import type { CallRow, Trunk } from '../lib/types';
 import { Badge, Button, Card, CardHeader, EmptyState, ListSkeleton, PageHeader, Stat, StatSkeleton, StatusDot, Trend } from '../components/ui';
 import { HourlyChart, type HourPoint } from '../components/HourlyChart';
+import { MyPhoneSetup } from '../components/people';
 
 interface Summary {
   extensions: { total: number; online: number };
@@ -139,7 +140,7 @@ export function DashboardPage() {
   const steps = [
     { done: (s?.trunks.total ?? 0) > 0, label: 'Connect a SIP trunk (your IP phone provider)', to: '/trunks' },
     { done: (s?.numbers ?? 0) > 0, label: 'Add a phone number and choose where it rings', to: '/numbers' },
-    { done: (s?.extensions.online ?? 0) > 0, label: 'Register an IP phone or softphone to an extension', to: '/extensions' },
+    { done: (s?.extensions.online ?? 0) > 0, label: 'Get a phone online: the web phone, a desk phone or an app', to: '/extensions' },
     { done: phone.reg === 'registered', label: 'Open the web phone and dial *43 to test audio', to: null },
   ];
   const doneCount = steps.filter((x) => x.done).length;
@@ -214,6 +215,8 @@ export function DashboardPage() {
           </>
         }
       />
+
+      <MyPhoneSetup className="mb-4 sm:mb-6" />
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         {stats.isLoading && !stats.data ? (
@@ -312,16 +315,16 @@ export function DashboardPage() {
 
       {showSetup && (
         <Card className="mt-4 overflow-hidden sm:mt-6">
-          <div className="relative flex flex-wrap items-center justify-between gap-4 overflow-hidden bg-gradient-to-br from-brand-600 via-brand-700 to-brand-900 px-4 py-5 text-white sm:px-6">
+          <div className="relative flex flex-wrap items-center justify-between gap-4 overflow-hidden bg-ink-950 px-4 py-5 text-white sm:px-6">
             <div>
-              <h3 className="font-semibold">Get this SIP server taking calls</h3>
-              <p className="mt-0.5 text-sm text-brand-100">
+              <h3 className="font-display text-lg font-semibold tracking-tight">Get this SIP server taking calls</h3>
+              <p className="mt-0.5 text-sm text-slate-400">
                 {doneCount} of {steps.length} steps done
               </p>
             </div>
             <div className="flex items-center gap-3">
               <div className="h-2 w-40 overflow-hidden rounded-full bg-white/15 sm:w-48">
-                <div className="h-full rounded-full bg-white transition-all duration-700" style={{ width: `${(doneCount / steps.length) * 100}%` }} />
+                <div className="h-full rounded-full bg-brand-500 transition-all duration-700" style={{ width: `${(doneCount / steps.length) * 100}%` }} />
               </div>
               <span className="text-sm font-semibold tabular-nums text-white">{Math.round((doneCount / steps.length) * 100)}%</span>
             </div>
@@ -483,7 +486,7 @@ export function DashboardPage() {
               <CardHeader title="Quick actions" />
               <div className="grid grid-cols-2 gap-2 p-3">
                 {[
-                  { to: '/extensions', label: 'Add extension', icon: UserPlus },
+                  { to: '/users?add=1', label: 'Add a person', icon: UserPlus },
                   { to: '/numbers', label: 'Add number', icon: Hash },
                   { to: '/ivrs', label: 'Build an IVR', icon: PhoneIncoming },
                   { to: '/developers', label: 'API & embed', icon: Code2 },

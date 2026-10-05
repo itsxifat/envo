@@ -1,13 +1,12 @@
-import crypto from 'node:crypto';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
-import type pg from 'pg';
 import { exec, one, tx } from '../db.js';
 import { hashPassword, issueSession } from '../auth.js';
 import { HttpError, badRequest, conflict } from '../lib/http.js';
 import { sendMail } from '../lib/mailer.js';
 import { emails } from '../lib/emails.js';
 import { closeSetup, needsSetup, setupTokenValid } from '../setup.js';
+import { issueToken, useToken } from '../lib/tokens.js';
 
 /** Public self-service: sign up, confirm email, reset password. No session needed. */
 export const signupRouter = Router();
@@ -30,32 +29,6 @@ setInterval(() => {
 
 function guard(req: Request, action: string, max: number, windowMs: number): void {
   if (limited(`${action}|${req.ip}`, max, windowMs)) throw new HttpError(429, 'Too many attempts. Try again a little later.');
-}
-
-// --------------------------------------------------------------------------------- one-time links
-const sha256 = (v: string) => crypto.createHash('sha256').update(v).digest('hex');
-
-async function issueToken(db: pg.PoolClient | null, userId: number, kind: 'verify' | 'reset', ttlMs: number): Promise<string> {
-  const token = crypto.randomBytes(32).toString('base64url');
-  const run = async (q: (sql: string, params: unknown[]) => Promise<unknown>) => {
-    // Only the newest link of a kind works.
-    await q('UPDATE email_tokens SET used_at = now() WHERE user_id = $1 AND kind = $2 AND used_at IS NULL', [userId, kind]);
-    await q('INSERT INTO email_tokens (user_id, kind, token_hash, expires_at) VALUES ($1, $2, $3, $4)', [userId, kind, sha256(token), new Date(Date.now() + ttlMs)]);
-  };
-  if (db) await run((sql, params) => db.query(sql, params as unknown[]));
-  else await run((sql, params) => exec(sql, params));
-  return token;
-}
-
-/** Uses a link once; returns its user or null when unknown, used or expired. */
-async function useToken(token: string, kind: 'verify' | 'reset'): Promise<number | null> {
-  const row = await one<{ user_id: number }>(
-    `UPDATE email_tokens SET used_at = now()
-      WHERE token_hash = $1 AND kind = $2 AND used_at IS NULL AND expires_at > now()
-      RETURNING user_id`,
-    [sha256(token), kind],
-  );
-  return row?.user_id ?? null;
 }
 
 const VERIFY_TTL = 48 * 3600_000;

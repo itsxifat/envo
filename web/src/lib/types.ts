@@ -138,6 +138,8 @@ export interface Extension {
   forward_busy: string;
   forward_noanswer: string;
   enabled: boolean;
+  /** Logins that call from this extension (admins only). */
+  users?: ExtensionUser[];
   provisioning?: {
     domain: string;
     server_ip: string;
@@ -309,6 +311,25 @@ export interface TimeCondition {
   nomatch_dest_target: string;
 }
 
+export interface ExtensionUser {
+  id: number;
+  name: string;
+  email?: string;
+  role?: Role;
+}
+
+/** An extension an admin can hand out, from any SIP server of the account. */
+export interface AssignableExtension {
+  id: number;
+  number: string;
+  name: string;
+  tenant_id: number;
+  tenant_name: string;
+  account_id: number;
+  account_name: string;
+  users: ExtensionUser[];
+}
+
 export interface AppUser {
   id: number;
   email: string;
@@ -319,6 +340,7 @@ export interface AppUser {
   enabled: boolean;
   last_login_at: string | null;
   extension_number?: string | null;
+  extension_tenant_name?: string | null;
   tenant_name?: string | null;
   account_id?: number | null;
   account_name?: string | null;

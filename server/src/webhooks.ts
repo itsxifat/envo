@@ -5,6 +5,7 @@ import { ami } from './asterisk/pbx.js';
 import type { AmiMessage } from './asterisk/ami.js';
 import { endpointOfChannel, live, tenantOf } from './asterisk/live.js';
 import { resolvePublicUrl } from './lib/net.js';
+import { recordingAvailable } from './lib/recordingFiles.js';
 
 export type CallEvent = 'call.started' | 'call.answered' | 'call.ended';
 export const CALL_EVENTS: CallEvent[] = ['call.started', 'call.answered', 'call.ended'];
@@ -211,6 +212,8 @@ async function announceStart(linkedid: string): Promise<void> {
 }
 
 async function announceEnd(call: TrackedCall): Promise<void> {
+  // Same choice of recording as groupedCallsSql: only answered legs have audio.
+  const recorded = "ORDER BY (recordingfile <> '' AND disposition = 'ANSWERED') DESC, (recordingfile <> '') DESC, id";
   const row = await one<{
     direction: string;
     did: string;
@@ -221,6 +224,7 @@ async function announceEnd(call: TrackedCall): Promise<void> {
     duration: number;
     disposition: string;
     record_id: number;
+    recording_file: string;
     has_recording: boolean;
   }>(
     `SELECT (array_agg(direction) FILTER (WHERE direction <> ''))[1] AS direction,
@@ -230,13 +234,15 @@ async function announceEnd(call: TrackedCall): Promise<void> {
             (array_agg(src ORDER BY (uniqueid = linkedid) DESC, id))[1] AS src,
             max(billsec) AS billsec, max(duration) AS duration,
             (array_agg(disposition ORDER BY (disposition = 'ANSWERED') DESC, id))[1] AS disposition,
-            (array_agg(id ORDER BY (recordingfile <> '') DESC, id))[1] AS record_id,
-            bool_or(recordingfile <> '') AS has_recording
+            (array_agg(id ${recorded}))[1] AS record_id,
+            (array_agg(recordingfile ${recorded}))[1] AS recording_file,
+            bool_or(recordingfile <> '' AND disposition = 'ANSWERED') AS has_recording
        FROM cdr WHERE linkedid = $1`,
     [call.linkedid],
   ).catch(() => null);
 
-  const recordingUrl = row?.has_recording ? `https://${config.publicHost}/api/v1/recordings/${row.record_id}` : null;
+  const recordingUrl =
+    row?.has_recording && (await recordingAvailable(row.recording_file)) ? `https://${config.publicHost}/api/v1/recordings/${row.record_id}` : null;
   await dispatch(call.tenantId, 'call.ended', {
     ...payloadFor(call, 'call.ended', {
       endedAt: new Date().toISOString(),

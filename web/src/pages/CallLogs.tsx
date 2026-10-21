@@ -7,9 +7,10 @@ import { api, errorMessage, scoped } from '../lib/api';
 import { useTenant } from '../state/tenant';
 import { useIsAdmin } from '../state/auth';
 import { usePhone } from '../phone/PhoneProvider';
-import { formatDateTime, formatDuration, parseCallerId } from '../lib/format';
+import { endpointLabel, formatDateTime, formatDuration, parseCallerId } from '../lib/format';
 import type { CallRow } from '../lib/types';
 import { Badge, Button, Card, EmptyState, ErrorBlock, IconButton, LoadingBlock, PageHeader, SearchInput, Select, Tabs, useConfirm } from '../components/ui';
+import { CallsNav } from '../components/CallsNav';
 
 const RANGES = {
   today: 'Today',
@@ -41,17 +42,6 @@ interface Leg {
   has_recording: boolean;
 }
 
-function endpointLabel(channel: string): string {
-  // Ring group / queue member legs: Local/<ext>@t<id>-qm-xxxx;1
-  const local = /^Local\/([^@]+)@/.exec(channel);
-  if (local) return local[1]!;
-  const m = /^PJSIP\/(.+)-[0-9a-f]{8}$/.exec(channel);
-  if (!m) return channel.split('-')[0] ?? channel;
-  const ep = m[1]!;
-  if (ep.startsWith('trunk_')) return `Trunk #${ep.slice(6)}`;
-  return ep.endsWith('_web') ? `${ep.slice(0, -4).split('_')[0]} (web)` : ep.split('_')[0]!;
-}
-
 export function CallLogsPage() {
   const { tenantId } = useTenant();
   const phone = usePhone();
@@ -77,7 +67,7 @@ export function CallLogsPage() {
 
   return (
     <div>
-      <PageHeader title="Call logs" icon={<History className="size-5" />} description="Every call, with recordings when enabled" />
+      <PageHeader title="Call logs" icon={<History className="size-5" />} description="Every call, with recordings when enabled" actions={<CallsNav />} />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Tabs value={range} onChange={(v) => { setRange(v); setPage(1); }} tabs={Object.entries(RANGES).map(([value, label]) => ({ value: value as Range, label }))} />

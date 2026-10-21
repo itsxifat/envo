@@ -1,9 +1,9 @@
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { many, one } from '../db.js';
 import { config } from '../config.js';
 import { HttpError } from '../lib/http.js';
 import type { AccountStatus } from '../auth.js';
+import { listFiles } from '../lib/recordingFiles.js';
 
 /** Countable limits. null = unlimited, 0 = not included. */
 export const LIMIT_KEYS = ['max_servers', 'max_dids', 'max_extensions', 'max_channels', 'max_ivrs', 'recording_mb'] as const;
@@ -214,23 +214,7 @@ export async function getUsage(accountId: number, opts: { recordings?: boolean }
 export async function recordingBytes(accountId: number): Promise<number> {
   const tenants = await many<{ id: number }>('SELECT id FROM tenants WHERE account_id = $1', [accountId]);
   let total = 0;
-  for (const t of tenants) total += await dirSize(path.join(config.paths.monitorDir, `t${t.id}`));
-  return total;
-}
-
-async function dirSize(dir: string): Promise<number> {
-  let entries;
-  try {
-    entries = await fs.readdir(dir, { withFileTypes: true });
-  } catch {
-    return 0;
-  }
-  let total = 0;
-  for (const e of entries) {
-    const p = path.join(dir, e.name);
-    if (e.isDirectory()) total += await dirSize(p);
-    else if (e.isFile()) total += (await fs.stat(p).catch(() => ({ size: 0 }))).size;
-  }
+  for (const t of tenants) for (const f of await listFiles(path.join(config.paths.monitorDir, `t${t.id}`))) total += f.size;
   return total;
 }
 

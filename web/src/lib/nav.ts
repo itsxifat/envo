@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react';
 import {
   Activity,
+  AudioLines,
   BadgeDollarSign,
   Briefcase,
   CreditCard,
@@ -55,6 +56,7 @@ export const NAV: NavGroup[] = [
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, keywords: 'home overview stats' },
       { to: '/live', label: 'Live calls', icon: Activity, roles: ['superadmin', 'admin'], feature: 'call_monitoring', keywords: 'active channels monitor spy whisper barge' },
       { to: '/calls', label: 'Call logs', icon: History, keywords: 'cdr history recordings' },
+      { to: '/recordings', label: 'Recordings', icon: AudioLines, keywords: 'call recordings audio listen play download retention days left storage' },
       { to: '/voicemail', label: 'Voicemail', icon: Voicemail, keywords: 'messages inbox' },
     ],
   },

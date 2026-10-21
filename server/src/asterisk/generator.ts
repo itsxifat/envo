@@ -700,6 +700,7 @@ export function generate(model: Model): GeneratedConfig {
         'Wait(0.5)',
       ];
       if (/^[0-9]{1,10}$/.test(c.pin)) apps.push(`Authenticate(${c.pin})`);
+      apps.push('GosubIf($["${ENVO_RECOUT}" = "1" | "${ENVO_REC}" = "1"]?envo-record,s,1)');
       apps.push(`Set(CONFBRIDGE(bridge,max_members)=${Math.min(Math.max(c.max_members, 2), 200)})`);
       apps.push('Set(CONFBRIDGE(user,music_on_hold_when_empty)=yes)');
       if (c.announce_join) apps.push('Set(CONFBRIDGE(user,announce_user_count)=yes)');

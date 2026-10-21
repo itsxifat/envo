@@ -19,7 +19,7 @@ const EMPTY: Form = {
   max_channels: 0,
   max_extensions: 0,
   outbound_cid: '',
-  recording: 'off',
+  recording: 'all',
   timezone: 'Asia/Dhaka',
   language: 'en',
   quick: true,
@@ -230,7 +230,7 @@ function ServerModal({ tenant, onClose }: { tenant: Tenant | null; onClose: () =
             <option value="off">Off</option>
             <option value="inbound">Incoming calls</option>
             <option value="outbound">Outgoing calls</option>
-            <option value="all">All calls</option>
+            <option value="all">All calls (incoming, outgoing and internal)</option>
           </Select>
         </Field>
         <Field label="Timezone" hint="Used by time conditions and reports">

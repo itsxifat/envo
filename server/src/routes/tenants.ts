@@ -27,7 +27,7 @@ const tenantSchema = z.object({
   max_channels: z.number().int().min(0).max(10000).default(0),
   max_extensions: z.number().int().min(0).max(100000).default(0),
   outbound_cid: optionalPhone,
-  recording: z.enum(['off', 'inbound', 'outbound', 'all']).default('off'),
+  recording: z.enum(['off', 'inbound', 'outbound', 'all']).default('all'),
   timezone: z.string().trim().regex(TIMEZONE_RE, 'invalid timezone').default('Asia/Dhaka'),
   language: z.string().trim().regex(/^[a-z]{2}(_[A-Z]{2})?$/).default('en'),
 });
@@ -122,8 +122,8 @@ tenantRouter.post('/', requireRole('superadmin', 'admin'), async (req, res) => {
 tenantRouter.put('/:id', requireRole('superadmin', 'admin'), async (req, res) => {
   const id = intParam(req.params.id);
   if (!canAccessTenant(req.user!, id)) throw forbidden();
-  const existing = await one<{ slug: string; max_channels: number; max_extensions: number; enabled: boolean; account_id: number }>(
-    'SELECT slug, max_channels, max_extensions, enabled, account_id FROM tenants WHERE id = $1',
+  const existing = await one<{ slug: string; max_channels: number; max_extensions: number; enabled: boolean; account_id: number; recording: string }>(
+    'SELECT slug, max_channels, max_extensions, enabled, account_id, recording FROM tenants WHERE id = $1',
     [id],
   );
   if (!existing) throw notFound('SIP server');
@@ -135,7 +135,8 @@ tenantRouter.put('/:id', requireRole('superadmin', 'admin'), async (req, res) =>
     rest.max_channels = existing.max_channels;
     rest.max_extensions = existing.max_extensions;
     rest.enabled = existing.enabled;
-    if (rest.recording !== 'off' && (await getAccountPlan(existing.account_id)).limits.recording_days === 0) {
+    // Saving other settings keeps the stored choice even when the package lacks recording.
+    if (rest.recording !== 'off' && rest.recording !== existing.recording && (await getAccountPlan(existing.account_id)).limits.recording_days === 0) {
       throw badRequest('Call recording is not part of your package');
     }
   }

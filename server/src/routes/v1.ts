@@ -7,7 +7,7 @@ import { many, one } from '../db.js';
 import { config } from '../config.js';
 import { badRequest, notFound } from '../lib/http.js';
 import { apiKeyAuth, requireScope } from '../lib/apikey.js';
-import { groupedCallsSql, hangupCall, liveCalls, originateCall } from '../services/calls.js';
+import { groupedCallsSql, hangupCall, liveCalls, originateCall, withPlayableRecordings } from '../services/calls.js';
 import { live } from '../asterisk/live.js';
 import { webEndpoint } from '../asterisk/model.js';
 import { getSettings } from '../settings.js';
@@ -93,7 +93,7 @@ v1Router.get('/calls', requireScope('read'), async (req, res) => {
     one<{ count: number }>(`SELECT count(*) AS count FROM (${sql}) g`, params),
   ]);
   res.json({
-    calls: rows.map(serializeCall),
+    calls: (await withPlayableRecordings(rows)).map(serializeCall),
     total: total?.count ?? 0,
     page: f.page,
     limit: f.limit,
@@ -105,7 +105,7 @@ v1Router.get('/calls/:id', requireScope('read'), async (req, res) => {
   const sql = groupedCallsSql("channel NOT LIKE 'Local/%' AND accountcode = $1 AND linkedid = $2");
   const row = await one<Record<string, unknown>>(sql, [`t${req.apiKey!.tenant_id}`, id]);
   if (!row) throw notFound('Call');
-  res.json(serializeCall(row));
+  res.json(serializeCall((await withPlayableRecordings([row]))[0]!));
 });
 
 /** Click-to-call: rings the extension, then dials the customer. */

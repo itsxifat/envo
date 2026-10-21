@@ -6,7 +6,7 @@ import { many, one } from '../db.js';
 import { tenantOf } from '../auth.js';
 import { forbidden, intParam, notFound } from '../lib/http.js';
 import { config } from '../config.js';
-import { groupedCallsSql } from '../services/calls.js';
+import { groupedCallsSql, withPlayableRecordings } from '../services/calls.js';
 
 const querySchema = z.object({
   from: z.iso.datetime({ offset: true }).optional(),
@@ -23,10 +23,13 @@ interface Scope {
   params: unknown[];
 }
 
-/** WHERE clause restricting CDR rows to what the user may see. */
-async function scope(req: Request, startIndex: number): Promise<Scope> {
+/**
+ * WHERE clause restricting CDR rows to what the user may see. Legs of Local channels (ring group and
+ * queue members, click-to-call) are left out unless asked for.
+ */
+export async function callScope(req: Request, startIndex: number, opts: { localLegs?: boolean } = {}): Promise<Scope> {
   const user = req.user!;
-  const clauses: string[] = ["channel NOT LIKE 'Local/%'"];
+  const clauses: string[] = opts.localLegs ? [] : ["channel NOT LIKE 'Local/%'"];
   const params: unknown[] = [];
   // Called right after a push: the placeholder of the value just added.
   const next = () => `$${startIndex + params.length - 1}`;
@@ -50,7 +53,7 @@ async function scope(req: Request, startIndex: number): Promise<Scope> {
     const b = next();
     clauses.push(`(src = ${n} OR dst = ${n} OR channel LIKE ${a} OR channel LIKE ${b} OR dstchannel LIKE ${a} OR dstchannel LIKE ${b})`);
   }
-  return { sql: clauses.join(' AND '), params };
+  return { sql: clauses.length ? clauses.join(' AND ') : 'true', params };
 }
 
 export const callRouter = Router();
@@ -65,7 +68,7 @@ callRouter.get('/', async (req, res) => {
   };
   add('calldate >= ?', f.from ?? new Date(Date.now() - 30 * 86400_000).toISOString());
   if (f.to) add('calldate < ?', f.to);
-  const s = await scope(req, params.length + 1);
+  const s = await callScope(req, params.length + 1);
   params.push(...s.params);
   where.push(s.sql);
   const base = where.join(' AND ');
@@ -91,12 +94,12 @@ callRouter.get('/', async (req, res) => {
     many(`${grouped} ORDER BY calldate DESC LIMIT ${f.limit} OFFSET ${offset}`, params),
     one<{ count: number }>(`SELECT count(*) AS count FROM (${grouped}) g`, params),
   ]);
-  res.json({ rows, total: total?.count ?? 0, page: f.page, limit: f.limit });
+  res.json({ rows: await withPlayableRecordings(rows), total: total?.count ?? 0, page: f.page, limit: f.limit });
 });
 
 callRouter.get('/stats', async (req, res) => {
   const tz = await timezoneOf(req);
-  const s = await scope(req, 2);
+  const s = await callScope(req, 2);
   const params = [tz, ...s.params];
   const rows = await many<{ bucket: string; answered: boolean; direction: string | null; billsec: number; today: boolean }>(
     `WITH calls AS (
@@ -170,13 +173,15 @@ callRouter.get('/stats', async (req, res) => {
 
 callRouter.get('/call/:linkedid', async (req, res) => {
   const linkedid = z.string().regex(/^[0-9.]+$/).parse(req.params.linkedid);
-  const s = await scope(req, 2);
+  const s = await callScope(req, 2);
   res.json(
-    await many(
-      `SELECT id, calldate, clid, src, dst, channel, dstchannel, lastapp, duration, billsec, disposition, direction, did,
-              recordingfile <> '' AS has_recording
-         FROM cdr WHERE linkedid = $1 AND ${s.sql} ORDER BY calldate, id`,
-      [linkedid, ...s.params],
+    await withPlayableRecordings(
+      await many(
+        `SELECT id, calldate, clid, src, dst, channel, dstchannel, lastapp, duration, billsec, disposition, direction, did,
+                recordingfile <> '' AND disposition = 'ANSWERED' AS has_recording, recordingfile AS recording_file
+           FROM cdr WHERE linkedid = $1 AND ${s.sql} ORDER BY calldate, id`,
+        [linkedid, ...s.params],
+      ),
     ),
   );
 });
@@ -184,7 +189,7 @@ callRouter.get('/call/:linkedid', async (req, res) => {
 const RECORDING_RE = /^t\d+\/\d{4}\/\d{2}\/\d{2}\/[0-9A-Za-z._-]+\.wav$/;
 
 callRouter.get('/:id/recording', async (req, res) => {
-  const s = await scope(req, 2);
+  const s = await callScope(req, 2);
   const row = await one<{ recordingfile: string; calldate: string }>(
     `SELECT recordingfile, calldate FROM cdr WHERE id = $1 AND ${s.sql}`,
     [intParam(req.params.id), ...s.params],
@@ -195,7 +200,7 @@ callRouter.get('/:id/recording', async (req, res) => {
     throw notFound('Recording file');
   });
   if (req.query.download) res.attachment(`call-${path.basename(row.recordingfile)}`);
-  res.sendFile(file);
+  res.sendFile(file, { dotfiles: 'allow' });
 });
 
 async function timezoneOf(req: Request): Promise<string> {

@@ -1,4 +1,5 @@
 import { one } from '../db.js';
+import { recordingAvailable } from '../lib/recordingFiles.js';
 import { badRequest, notFound } from '../lib/http.js';
 import { ami } from '../asterisk/pbx.js';
 import { live } from '../asterisk/live.js';
@@ -11,6 +12,7 @@ import { effectiveRecording } from '../asterisk/generator.js';
  */
 export function groupedCallsSql(where: string, having = ''): string {
   const first = 'ORDER BY (uniqueid = linkedid) DESC, calldate, id';
+  const recorded = "ORDER BY (recordingfile <> '' AND disposition = 'ANSWERED') DESC, (recordingfile <> '') DESC, id";
   return `
     SELECT linkedid,
       min(calldate) AS calldate,
@@ -24,12 +26,29 @@ export function groupedCallsSql(where: string, having = ''): string {
       (array_agg(dstchannel ORDER BY (disposition = 'ANSWERED') DESC, calldate, id))[1] AS answered_channel,
       max(duration) AS duration,
       max(billsec) AS billsec,
-      (array_agg(id ORDER BY (recordingfile <> '') DESC, id))[1] AS record_id,
-      bool_or(recordingfile <> '') AS has_recording,
+      (array_agg(id ${recorded}))[1] AS record_id,
+      (array_agg(recordingfile ${recorded}))[1] AS recording_file,
+      -- Recording starts before the phones ring, but audio is only written once someone answers.
+      bool_or(recordingfile <> '' AND disposition = 'ANSWERED') AS has_recording,
       (array_agg(accountcode ORDER BY calldate, id) FILTER (WHERE accountcode <> ''))[1] AS accountcode,
       count(*) AS legs
     FROM cdr WHERE ${where}
     GROUP BY linkedid ${having}`;
+}
+
+/**
+ * Rows of groupedCallsSql (or single CDR legs selecting recording_file) offer a recording only when its
+ * file can be played: answered calls that never reached anyone (ring group -> voicemail) have none.
+ */
+export async function withPlayableRecordings<T extends { has_recording?: unknown; recording_file?: unknown }>(
+  rows: T[],
+): Promise<Array<Omit<T, 'recording_file'> & { has_recording: boolean }>> {
+  return Promise.all(
+    rows.map(async ({ recording_file, ...row }) => ({
+      ...row,
+      has_recording: !!row.has_recording && typeof recording_file === 'string' && (await recordingAvailable(recording_file)),
+    })),
+  );
 }
 
 /** Active calls of one SIP server, grouped into one entry per call. */

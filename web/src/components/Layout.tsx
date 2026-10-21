@@ -133,12 +133,19 @@ function TabBar({ onMore }: { onMore: () => void }) {
     { to: '/calls', label: 'Calls', icon: History },
     admin ? { to: '/extensions', label: 'Extensions', icon: Users } : { to: '/voicemail', label: 'Voicemail', icon: VoicemailIcon },
   ];
+  // Recordings live next to the call logs, under the same tab.
+  const { pathname } = useLocation();
   const tab = (t: (typeof tabs)[number]) => (
     <NavLink
       key={t.to}
       to={t.to}
       end={t.to === '/'}
-      className={({ isActive }) => clsx('flex flex-1 flex-col items-center gap-1 pt-2 pb-1.5 text-[10.5px] font-medium transition', isActive ? 'text-brand-600' : 'text-slate-500 active:text-slate-900')}
+      className={({ isActive }) =>
+        clsx(
+          'flex flex-1 flex-col items-center gap-1 pt-2 pb-1.5 text-[10.5px] font-medium transition',
+          isActive || (t.to === '/calls' && pathname.startsWith('/recordings')) ? 'text-brand-600' : 'text-slate-500 active:text-slate-900',
+        )
+      }
     >
       <t.icon className="size-[22px]" />
       {t.label}

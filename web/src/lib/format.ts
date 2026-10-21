@@ -86,3 +86,37 @@ export const ACCOUNT_STATUS: Record<string, { label: string; tone: 'green' | 'am
   suspended: { label: 'Suspended', tone: 'red' },
   closed: { label: 'Closed', tone: 'gray' },
 };
+
+/** 1536 -> "1.5 KB", 5242880 -> "5 MB". */
+export function formatBytes(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let v = bytes / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v >= 100 || Number.isInteger(v) ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
+}
+
+/** Total talk time for summaries: "45 min", "3 h 20 min". */
+export function formatTotalTime(totalSec: number): string {
+  const min = Math.round(totalSec / 60);
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  return min % 60 ? `${h} h ${min % 60} min` : `${h} h`;
+}
+
+/** Who a channel belongs to: "101", "101 (web)", "Trunk #3"; ring group legs show the member. */
+export function endpointLabel(channel: string): string {
+  // Ring group / queue member legs: Local/<ext>@t<id>-qm-xxxx;1
+  const local = /^Local\/([^@]+)@/.exec(channel);
+  if (local) return local[1]!;
+  const m = /^PJSIP\/(.+)-[0-9a-f]{8}$/.exec(channel);
+  if (!m) return channel.split('-')[0] ?? channel;
+  const ep = m[1]!;
+  if (ep.startsWith('trunk_')) return `Trunk #${ep.slice(6)}`;
+  return ep.endsWith('_web') ? `${ep.slice(0, -4).split('_')[0]} (web)` : ep.split('_')[0]!;
+}

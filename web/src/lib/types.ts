@@ -531,3 +531,43 @@ export interface BillingOverview {
   pending_reviews: number;
   by_month: { month: string; amount: string; payments: number }[];
 }
+
+/** One call recording (GET /api/recordings). */
+export interface RecordingItem {
+  id: number;
+  linkedid: string;
+  calldate: string;
+  clid: string;
+  src: string;
+  dst: string;
+  did: string | null;
+  direction: 'inbound' | 'outbound' | 'internal' | null;
+  answered_channel: string;
+  billsec: number;
+  /** The file is on the server and can be played. */
+  available: boolean;
+  size: number | null;
+  recorded_at: string | null;
+  /** When retention removes it; null when kept until deleted (or unavailable). */
+  expires_at: string | null;
+  kept_until_deleted: boolean;
+}
+
+export interface RecordingSummary {
+  tenant: { id: number; name: string } | null;
+  policy?: Recording;
+  /** The package includes call recording. */
+  included?: boolean;
+  usable?: boolean;
+  internal?: boolean;
+  accountId?: number;
+  /** Days recordings are kept; null = until deleted. */
+  retentionDays?: number | null;
+  soonDays?: number;
+  stored?: { files: number; bytes: number; oldest: string | null; expiringSoon: number } | null;
+  storage?: { usedBytes: number; quotaBytes: number | null } | null;
+  exceptions?: {
+    extensions: { number: string; name: string; recording: string }[];
+    numbers: { number: string; recording: string }[];
+  } | null;
+}

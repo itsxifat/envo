@@ -29,6 +29,7 @@ import {
 import { soundRouter } from './routes/sounds.js';
 import { userRouter } from './routes/users.js';
 import { callRouter } from './routes/calls.js';
+import { recordingRouter } from './routes/recordings.js';
 import { voicemailRouter } from './routes/voicemail.js';
 import { liveRouter } from './routes/live.js';
 import { systemRouter } from './routes/system.js';
@@ -120,6 +121,7 @@ async function main(): Promise<void> {
   app.use('/api/sounds', soundRouter);
   app.use('/api/users', userRouter);
   app.use('/api/calls', callRouter);
+  app.use('/api/recordings', recordingRouter);
   app.use('/api/voicemail', voicemailRouter);
   app.use('/api/live', liveRouter);
   app.use('/api/system', systemRouter);

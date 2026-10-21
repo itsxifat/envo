@@ -13,6 +13,7 @@ import { CheckEmailPage, ForgotPasswordPage, ResetPasswordPage, SetupPage, Signu
 import { DashboardPage } from './pages/Dashboard';
 import { LiveCallsPage } from './pages/LiveCalls';
 import { CallLogsPage } from './pages/CallLogs';
+import { RecordingsPage } from './pages/Recordings';
 import { VoicemailPage } from './pages/Voicemail';
 import { ExtensionsPage } from './pages/Extensions';
 import { NumbersPage } from './pages/Numbers';
@@ -81,6 +82,7 @@ export function App() {
               <Route index element={<DashboardPage />} />
               <Route path="live" element={<RequireRole roles={ADMIN}><LiveCallsPage /></RequireRole>} />
               <Route path="calls" element={<CallLogsPage />} />
+              <Route path="recordings" element={<RecordingsPage />} />
               <Route path="voicemail" element={<VoicemailPage />} />
               <Route path="extensions" element={<RequireRole roles={ADMIN}><ExtensionsPage /></RequireRole>} />
               <Route path="numbers" element={<RequireRole roles={ADMIN}><NumbersPage /></RequireRole>} />

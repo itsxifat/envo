@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, Clock, CreditCard, Landmark, Play } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Clock, CreditCard, Landmark, Play, XCircle } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api';
 import type { BillingSettings } from '../../lib/types';
-import { Button, Card, CardHeader, ErrorBlock, Field, Input, LoadingBlock, Notice, NumberInput, PageHeader, Textarea, Toggle } from '../../components/ui';
+import { Badge, Button, Card, CardHeader, CopyField, ErrorBlock, Field, Input, LoadingBlock, Notice, NumberInput, PageHeader, Textarea, Toggle } from '../../components/ui';
 
 export function BillingSettingsPage() {
   const qc = useQueryClient();
@@ -23,6 +23,10 @@ export function BillingSettingsPage() {
     },
     onError: (err) => toast.error(errorMessage(err)),
   });
+  const check = useMutation({
+    mutationFn: (secret_key: string) => api.post<{ ok: boolean; message: string; mode: 'test' | 'live' | null }>('/api/admin/billing/settings/enfinito-pay/check', { secret_key }),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
   const clock = useMutation({
     mutationFn: () => api.post<Record<string, number>>('/api/admin/billing/run-clock'),
     onSuccess: (r) => {
@@ -35,6 +39,10 @@ export function BillingSettingsPage() {
   if (q.isLoading || !form) return q.error ? <ErrorBlock error={q.error} /> : <LoadingBlock />;
   const s = form.sslcommerz;
   const setS = (patch: Partial<BillingSettings['sslcommerz']>) => setForm({ ...form, sslcommerz: { ...s, ...patch } });
+  const e = form.enfinito_pay;
+  const setE = (patch: Partial<BillingSettings['enfinito_pay']>) => setForm({ ...form, enfinito_pay: { ...e, ...patch } });
+  const typedMode = e.secret_key.startsWith('sk_live_') ? 'live' : e.secret_key.startsWith('sk_test_') ? 'test' : null;
+  const mode = typedMode ?? (e.has_secret_key ? e.key_mode : null);
 
   return (
     <>
@@ -53,8 +61,46 @@ export function BillingSettingsPage() {
       />
       <div className="grid gap-4 sm:gap-6 xl:grid-cols-2">
         <Card className="overflow-hidden">
+          <CardHeader
+            title="Enfinito Pay"
+            description="bKash, Nagad, Rocket, cards and internet banking on pay.enfinito.com"
+            actions={mode && <Badge tone={mode === 'live' ? 'green' : 'amber'}>{mode === 'live' ? 'Live' : 'Test mode'}</Badge>}
+          />
+          <div className="space-y-4 p-4 sm:p-5">
+            <Toggle checked={e.enabled} onChange={(v) => setE({ enabled: v })} label="Take online payments through Enfinito Pay" description="While this is on, it is used instead of SSLCommerz" />
+            {e.enabled && mode === 'live' && <Notice tone="warn">Live key: customers are charged for real.</Notice>}
+            {e.enabled && mode === 'test' && <Notice tone="info">Test key: payments run against the sandbox and no real money moves.</Notice>}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Secret key" hint={e.has_secret_key ? 'Saved; leave empty to keep it' : 'From the Enfinito Pay admin: sk_test_… or sk_live_…'}>
+                <Input type="password" value={e.secret_key} onChange={(ev) => setE({ secret_key: ev.target.value.trim() })} placeholder={e.has_secret_key ? '••••••••' : 'sk_live_…'} autoComplete="new-password" />
+              </Field>
+              <Field label="Webhook signing secret" hint={e.has_webhook_secret ? 'Saved; leave empty to keep it' : 'whsec_…, shown with the webhook settings'}>
+                <Input type="password" value={e.webhook_secret} onChange={(ev) => setE({ webhook_secret: ev.target.value.trim() })} placeholder={e.has_webhook_secret ? '••••••••' : 'whsec_…'} autoComplete="new-password" />
+              </Field>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button size="sm" loading={check.isPending} disabled={!e.secret_key && !e.has_secret_key} onClick={() => check.mutate(e.secret_key)}>
+                Check the key
+              </Button>
+              {check.data && (
+                <span className={check.data.ok ? 'flex items-center gap-1.5 text-[13px] text-emerald-700' : 'flex items-center gap-1.5 text-[13px] text-rose-700'}>
+                  {check.data.ok ? <CheckCircle2 className="size-4" /> : <XCircle className="size-4" />}
+                  {check.data.ok ? `The key works (${check.data.mode === 'live' ? 'live' : 'test mode'})` : check.data.message}
+                </span>
+              )}
+            </div>
+            <div className="space-y-3 rounded-xl bg-slate-50 p-3.5">
+              <p className="text-[13px] text-slate-600">In the Enfinito Pay admin, give the Envo product these two:</p>
+              <CopyField label="Webhook URL" value={e.webhook_url ?? `${window.location.origin}/api/public/enfinito-pay/webhook`} />
+              <CopyField label="Return domain" value={e.return_domain ?? window.location.host} />
+            </div>
+          </div>
+        </Card>
+
+        <Card className="overflow-hidden">
           <CardHeader title="SSLCommerz" description="Cards, bKash, Nagad, Rocket and internet banking on one payment page" />
           <div className="space-y-4 p-4 sm:p-5">
+            {e.enabled && <Notice tone="info">Not used while Enfinito Pay is on.</Notice>}
             <Toggle checked={s.enabled} onChange={(v) => setS({ enabled: v })} label="Accept online payments" />
             <Toggle checked={s.sandbox} onChange={(v) => setS({ sandbox: v })} label="Sandbox (test mode)" description="No real money moves. Turn off with your live store ID." />
             {s.sandbox && s.store_id === 'testbox' && <Notice tone="info">You are using SSLCommerz's public test store. Test card: 4111 1111 1111 1111, 12/26, CVV 111, OTP 111111.</Notice>}

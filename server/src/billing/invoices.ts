@@ -6,6 +6,8 @@ import { HttpError, badRequest, notFound } from '../lib/http.js';
 import { scheduleApply } from '../asterisk/apply.js';
 import { getUsage, invalidatePlans } from './plan.js';
 import { createSession, queryTransaction, validate, type Validation } from './sslcommerz.js';
+import { bdMobile, cancelCheckout, createCheckout, retrieveCheckout, type CheckoutSession, type WebhookEvent } from './enfinitoPay.js';
+import { getBillingSettings, onlineGateway } from './settings.js';
 import { provisionFirstServer } from './provision.js';
 import { notifyPaymentReceived } from './notify.js';
 
@@ -32,7 +34,7 @@ export interface Payment {
   id: number;
   invoice_id: number;
   account_id: number;
-  method: 'sslcommerz' | 'manual';
+  method: 'sslcommerz' | 'manual' | 'enfinito_pay';
   status: 'initiated' | 'pending_review' | 'succeeded' | 'failed' | 'cancelled' | 'refunded';
   amount: string;
   tran_id: string | null;
@@ -259,9 +261,10 @@ async function payableInvoice(invoiceId: number, accountId: number | null): Prom
   return invoice;
 }
 
-/** Starts a card / mobile-banking payment; returns the SSLCommerz page to send the browser to. */
+/** Starts a card / mobile-banking payment; returns the payment page to send the browser to. */
 export async function startOnlinePayment(invoiceId: number, accountId: number): Promise<{ url: string }> {
   const invoice = await payableInvoice(invoiceId, accountId);
+  if (onlineGateway(await getBillingSettings()) === 'enfinito_pay') return startEnfinitoPayment(invoice, accountId);
   const account = await one<{ name: string; email: string; phone: string; address: string }>('SELECT name, email, phone, address FROM accounts WHERE id = $1', [accountId]);
   const tranId = `ENV${invoice.id}X${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
   const payment = await one<Payment>(
@@ -289,6 +292,152 @@ export async function startOnlinePayment(invoiceId: number, accountId: number): 
 }
 
 export type GatewayOutcome = { invoiceId: number | null; status: 'paid' | 'review' | 'failed' | 'cancelled' | 'unknown' };
+
+// ---------------------------------------------------------------------------------- Enfinito Pay
+const STILL_PAYABLE = new Set(['open', 'processing', 'failed']);
+
+/**
+ * Opens a checkout on pay.enfinito.com. An invoice has one open checkout at a time: a fresh one is
+ * reused, an older one is closed first, so the same invoice can never be paid twice.
+ */
+async function startEnfinitoPayment(invoice: Invoice, accountId: number): Promise<{ url: string }> {
+  const open = await many<Payment>(
+    "SELECT * FROM payments WHERE invoice_id = $1 AND method = 'enfinito_pay' AND status = 'initiated' AND tran_id IS NOT NULL ORDER BY id DESC",
+    [invoice.id],
+  );
+  for (const p of open) {
+    const session = await retrieveCheckout(p.tran_id!).catch(() => null);
+    if (!session) continue;
+    if (session.status === 'paid') {
+      await settleCheckout(p.id, session, 'start');
+      throw badRequest('This invoice is already paid');
+    }
+    const fresh = STILL_PAYABLE.has(session.status) && new Date(session.expires_at).getTime() > Date.now() + 10 * 60_000;
+    if (fresh && Math.abs(session.amount_total - Number(invoice.amount)) < 0.01) return { url: session.url };
+    if (!STILL_PAYABLE.has(session.status)) {
+      await settleCheckout(p.id, session, 'start');
+      continue;
+    }
+    const closed = await cancelCheckout(session.id).catch(() => null);
+    if (!closed) {
+      // It may have been paid this very moment: look again rather than open a second checkout.
+      const now = await retrieveCheckout(session.id).catch(() => null);
+      if (now) await settleCheckout(p.id, now, 'start');
+      if (now?.status === 'paid') throw badRequest('This invoice is already paid');
+      throw new HttpError(503, 'The previous payment page is still open. Please try again in a minute.');
+    }
+    await settleCheckout(p.id, closed, 'start');
+  }
+
+  const account = await one<{ name: string; email: string; phone: string; address: string }>('SELECT name, email, phone, address FROM accounts WHERE id = $1', [accountId]);
+  const payment = (await one<Payment>(
+    `INSERT INTO payments (invoice_id, account_id, method, status, amount) VALUES ($1, $2, 'enfinito_pay', 'initiated', $3) RETURNING *`,
+    [invoice.id, accountId, invoice.amount],
+  ))!;
+  // Paid or not, the browser comes back to us; we ask Enfinito Pay before showing the result.
+  const back = `${config.publicUrl}/api/public/enfinito-pay/return?payment=${payment.id}`;
+  try {
+    const session = await createCheckout(
+      {
+        reference: invoice.number,
+        items: [{ name: invoice.description.slice(0, 200), amount: Number(invoice.amount) }],
+        customer: {
+          name: account?.name.slice(0, 100) || undefined,
+          email: account?.email || undefined,
+          phone: bdMobile(account?.phone ?? ''),
+          address: account?.address.slice(0, 200) || undefined,
+        },
+        success_url: back,
+        cancel_url: back,
+        metadata: { invoice_id: String(invoice.id), payment_id: String(payment.id), account_id: String(accountId) },
+      },
+      `envo-payment-${payment.id}`,
+    );
+    await one("UPDATE payments SET tran_id = $1, raw = jsonb_build_object('livemode', $2::boolean), updated_at = now() WHERE id = $3", [session.id, session.livemode, payment.id]);
+    return { url: session.url };
+  } catch (err) {
+    await one("UPDATE payments SET status = 'failed', note = $1, updated_at = now() WHERE id = $2", [(err as Error).message.slice(0, 300), payment.id]);
+    throw err;
+  }
+}
+
+/**
+ * Applies what Enfinito Pay says about a checkout, from its signed webhook or asked directly. Paid in
+ * full, in BDT, for an open invoice: the invoice is paid (once). Anything unusual (another amount,
+ * an invoice already paid or cancelled) waits for an admin instead of being applied.
+ */
+async function settleCheckout(paymentId: number, session: CheckoutSession, via: string): Promise<GatewayOutcome> {
+  const r = await tx(async (db) => {
+    const p = (await db.query<Payment>('SELECT * FROM payments WHERE id = $1 FOR UPDATE', [paymentId])).rows[0];
+    if (!p || p.method !== 'enfinito_pay' || p.tran_id !== session.id) return { status: 'unknown' as const, invoiceId: null, accountId: null };
+    const result = (status: GatewayOutcome['status']) => ({ status, invoiceId: p.invoice_id, accountId: p.account_id });
+    const raw = JSON.stringify({ checkout: session, [`${via}_at`]: new Date().toISOString() });
+
+    if (session.status === 'paid') {
+      if (p.status === 'succeeded') return result('paid');
+      if (p.status === 'refunded' || p.status === 'pending_review') return result('review');
+      const invoice = (await db.query<Invoice>('SELECT * FROM invoices WHERE id = $1 FOR UPDATE', [p.invoice_id])).rows[0];
+      const problem =
+        Math.abs(session.amount_total - Number(p.amount)) >= 0.01 || (session.currency ?? 'BDT') !== 'BDT'
+          ? `Enfinito Pay reported ${session.amount_total} ${session.currency}, the invoice is ${p.amount} BDT`
+          : invoice?.status === 'paid'
+            ? 'Paid twice: the invoice was already paid, so refund this payment'
+            : invoice?.status === 'void'
+              ? 'Paid after the invoice was cancelled: refund it or re-open the invoice'
+              : null;
+      await db.query(
+        `UPDATE payments SET status = $1, bank_tran_id = $2, card_type = $3, note = COALESCE($4, note), raw = raw || $5::jsonb, updated_at = now() WHERE id = $6`,
+        [problem ? 'pending_review' : 'succeeded', session.payment?.transaction_id ?? null, session.payment?.method ?? null, problem, raw, p.id],
+      );
+      if (problem) return result('review');
+      await markInvoicePaid(p.invoice_id, db);
+      return result('paid');
+    }
+    if (session.status === 'refunded') {
+      if (p.status === 'succeeded') {
+        await db.query("UPDATE payments SET status = 'refunded', note = 'Refunded at Enfinito Pay', raw = raw || $1::jsonb, updated_at = now() WHERE id = $2", [raw, p.id]);
+      }
+      return result('unknown');
+    }
+    if ((session.status === 'expired' || session.status === 'cancelled') && p.status === 'initiated') {
+      await db.query("UPDATE payments SET status = 'cancelled', raw = raw || $1::jsonb, updated_at = now() WHERE id = $2", [raw, p.id]);
+      return result('cancelled');
+    }
+    // Open, processing, or a failed attempt the customer can retry until the checkout expires.
+    if (p.status === 'succeeded') return result('paid');
+    return result(session.status === 'failed' ? 'failed' : session.status === 'cancelled' || session.status === 'expired' ? 'cancelled' : 'unknown');
+  });
+  if (r.status === 'paid' && r.accountId) {
+    invalidatePlans(r.accountId);
+    scheduleApply();
+  }
+  return { invoiceId: r.invoiceId, status: r.status };
+}
+
+/** A webhook from Enfinito Pay whose signature the route already checked. Repeats are harmless. */
+export async function handleEnfinitoEvent(event: WebhookEvent): Promise<void> {
+  const session = event?.data;
+  if (!session?.id) return;
+  const p = await one<Payment>("SELECT * FROM payments WHERE tran_id = $1 AND method = 'enfinito_pay'", [session.id]);
+  if (!p) {
+    console.warn(`[enfinito-pay] ${event.type} for unknown checkout ${session.id}`);
+    return;
+  }
+  await settleCheckout(p.id, session, 'webhook');
+}
+
+/**
+ * The customer's browser came back from the checkout. The link itself is public, so only the real
+ * checkout id leads to a lookup, and the result always comes from Enfinito Pay, never the browser.
+ */
+export async function returnFromCheckout(paymentId: number, sessionId: string): Promise<GatewayOutcome> {
+  const p = Number.isInteger(paymentId) ? await one<Payment>("SELECT * FROM payments WHERE id = $1 AND method = 'enfinito_pay'", [paymentId]) : null;
+  if (!p || !p.tran_id || p.tran_id !== sessionId) return { invoiceId: null, status: 'unknown' };
+  if (p.status === 'succeeded') return { invoiceId: p.invoice_id, status: 'paid' };
+  const session = await retrieveCheckout(p.tran_id).catch(() => null);
+  if (!session) return { invoiceId: p.invoice_id, status: 'unknown' };
+  return settleCheckout(p.id, session, 'return');
+}
 
 /**
  * Settles a gateway payment from what SSLCommerz says (asked directly, never trusting the browser):
@@ -344,7 +493,7 @@ export async function handleGatewayCallback(kind: 'success' | 'fail' | 'cancel' 
   return { invoiceId: payment.invoice_id, status: payment.status === 'succeeded' ? 'paid' : 'unknown' };
 }
 
-/** Payments whose browser never came back: ask SSLCommerz by transaction id. */
+/** Payments whose browser never came back: ask the gateway about each one. */
 export async function reconcileOnlinePayments(): Promise<number> {
   const stuck = await many<Payment>(
     `SELECT * FROM payments WHERE method = 'sslcommerz' AND status = 'initiated'
@@ -360,6 +509,17 @@ export async function reconcileOnlinePayments(): Promise<number> {
     } else if (found.some((v) => ['FAILED', 'CANCELLED', 'EXPIRED'].includes(v.status))) {
       await one("UPDATE payments SET status = 'failed', updated_at = now() WHERE id = $1 AND status = 'initiated'", [p.id]);
     }
+  }
+  // Enfinito Pay checkouts whose webhook never arrived (or was refused): ask for each one.
+  const checkouts = await many<Payment>(
+    `SELECT * FROM payments WHERE method = 'enfinito_pay' AND status = 'initiated' AND tran_id IS NOT NULL
+      AND created_at < now() - interval '10 minutes' AND created_at > now() - interval '3 days' ORDER BY id LIMIT 50`,
+  );
+  for (const p of checkouts) {
+    const session = await retrieveCheckout(p.tran_id!).catch(() => null);
+    if (!session) continue;
+    const r = await settleCheckout(p.id, session, 'reconcile');
+    if (r.status === 'paid' || r.status === 'review') settled++;
   }
   return settled;
 }

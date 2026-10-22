@@ -2,6 +2,14 @@ import { exec, one } from '../db.js';
 
 /** Billing configuration (platform admins only): kept apart from the general settings customers can read. */
 export interface BillingSettings {
+  /** Enfinito Pay (pay.enfinito.com). When on, it takes online payments instead of SSLCommerz. */
+  enfinito_pay: {
+    enabled: boolean;
+    /** sk_test_… (sandbox, no real money) or sk_live_…. */
+    secret_key: string;
+    /** whsec_…: signs the webhooks Enfinito Pay sends us. */
+    webhook_secret: string;
+  };
   sslcommerz: {
     enabled: boolean;
     /** Sandbox (sandbox.sslcommerz.com) or live (securepay.sslcommerz.com). */
@@ -23,6 +31,7 @@ export interface BillingSettings {
 }
 
 export const DEFAULT_BILLING: BillingSettings = {
+  enfinito_pay: { enabled: false, secret_key: '', webhook_secret: '' },
   sslcommerz: { enabled: false, sandbox: true, store_id: '', store_passwd: '' },
   manual: {
     enabled: true,
@@ -42,6 +51,7 @@ export async function getBillingSettings(): Promise<BillingSettings> {
   cache = {
     ...DEFAULT_BILLING,
     ...v,
+    enfinito_pay: { ...DEFAULT_BILLING.enfinito_pay, ...(v.enfinito_pay ?? {}) },
     sslcommerz: { ...DEFAULT_BILLING.sslcommerz, ...(v.sslcommerz ?? {}) },
     manual: { ...DEFAULT_BILLING.manual, ...(v.manual ?? {}) },
     business: { ...DEFAULT_BILLING.business, ...(v.business ?? {}) },
@@ -59,11 +69,20 @@ export async function updateBillingSettings(next: BillingSettings): Promise<Bill
   return getBillingSettings();
 }
 
+/** The gateway that takes online payments: Enfinito Pay when it is set up, else SSLCommerz, else none. */
+export function onlineGateway(s: BillingSettings): 'enfinito_pay' | 'sslcommerz' | null {
+  if (s.enfinito_pay.enabled && s.enfinito_pay.secret_key) return 'enfinito_pay';
+  if (s.sslcommerz.enabled && s.sslcommerz.store_id && s.sslcommerz.store_passwd) return 'sslcommerz';
+  return null;
+}
+
 /** What customers may know about how to pay: never the gateway credentials. */
-export async function publicPaymentOptions(): Promise<{ online: boolean; manual: boolean; manualInstructions: string }> {
+export async function publicPaymentOptions(): Promise<{ online: boolean; gateway: 'enfinito_pay' | 'sslcommerz' | null; manual: boolean; manualInstructions: string }> {
   const s = await getBillingSettings();
+  const gateway = onlineGateway(s);
   return {
-    online: s.sslcommerz.enabled && !!s.sslcommerz.store_id && !!s.sslcommerz.store_passwd,
+    online: gateway !== null,
+    gateway,
     manual: s.manual.enabled,
     manualInstructions: s.manual.instructions,
   };

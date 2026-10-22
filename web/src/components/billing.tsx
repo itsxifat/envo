@@ -119,7 +119,7 @@ const CHANNELS = [
   { value: 'other', label: 'Other' },
 ];
 
-/** Pay one invoice: online through SSLCommerz, or report a bKash / bank transfer. */
+/** Pay one invoice: online (Enfinito Pay or SSLCommerz), or report a bKash / bank transfer. */
 export function PayDialog({ invoice, onClose }: { invoice: Invoice; onClose: () => void }) {
   const qc = useQueryClient();
   const options = useQuery({ queryKey: ['account', 'billing', 'options'], queryFn: () => api.get<PaymentOptions>('/api/account/billing/options') });
@@ -177,7 +177,9 @@ export function PayDialog({ invoice, onClose }: { invoice: Invoice; onClose: () 
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block font-medium text-slate-900">{online.isPending ? 'Opening the secure payment page…' : 'Pay online'}</span>
-                <span className="block text-[13px] text-slate-500">bKash, Nagad, Rocket, cards or internet banking through SSLCommerz</span>
+                <span className="block text-[13px] text-slate-500">
+                  bKash, Nagad, Rocket, cards or internet banking {o.gateway === 'enfinito_pay' ? 'on Enfinito Pay' : 'through SSLCommerz'}
+                </span>
               </span>
             </button>
           )}

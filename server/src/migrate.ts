@@ -7,6 +7,7 @@ import m005 from '../migrations/005_accounts_packages.sql';
 import m006 from '../migrations/006_billing.sql';
 import m007 from '../migrations/007_signup_email.sql';
 import m008 from '../migrations/008_record_all_calls.sql';
+import m009 from '../migrations/009_enfinito_pay.sql';
 
 // Ordered list; append new migrations, never edit applied ones.
 const migrations: Array<[string, string]> = [
@@ -18,6 +19,7 @@ const migrations: Array<[string, string]> = [
   ['006_billing', m006],
   ['007_signup_email', m007],
   ['008_record_all_calls', m008],
+  ['009_enfinito_pay', m009],
 ];
 
 /** Applies pending migrations; returns the versions applied in this run. */

@@ -503,6 +503,8 @@ export interface PaymentRow {
 
 export interface PaymentOptions {
   online: boolean;
+  /** Which gateway takes online payments. */
+  gateway: 'enfinito_pay' | 'sslcommerz' | null;
   manual: boolean;
   manualInstructions: string;
 }
@@ -513,6 +515,17 @@ export type CheckoutResult =
   | { action: 'applied'; message: string };
 
 export interface BillingSettings {
+  enfinito_pay: {
+    enabled: boolean;
+    /** Write-only: empty keeps the saved one. */
+    secret_key: string;
+    webhook_secret: string;
+    has_secret_key?: boolean;
+    has_webhook_secret?: boolean;
+    key_mode?: 'test' | 'live' | null;
+    webhook_url?: string;
+    return_domain?: string;
+  };
   sslcommerz: { enabled: boolean; sandbox: boolean; store_id: string; store_passwd: string; has_passwd?: boolean };
   manual: { enabled: boolean; instructions: string };
   grace_days: number;

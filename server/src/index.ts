@@ -44,7 +44,7 @@ import { adminConsoleRouter } from './routes/adminConsole.js';
 import { setupRouter } from './routes/setup.js';
 import { startRetention } from './billing/retention.js';
 import { startBillingClock } from './billing/jobs.js';
-import { adminBillingRouter, billingRouter, gatewayRouter } from './routes/billing.js';
+import { adminBillingRouter, billingRouter, enfinitoPayRouter, gatewayRouter } from './routes/billing.js';
 import { signupRouter } from './routes/signup.js';
 
 /** Keeps Postgres in sync when a phone changes DND / call forwarding with a feature code. */
@@ -85,6 +85,8 @@ async function main(): Promise<void> {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 'loopback');
+  // Before the JSON parser: Enfinito Pay signs the raw body of its webhooks.
+  app.use('/api/public/enfinito-pay', enfinitoPayRouter);
   app.use(express.json({ limit: '1mb' }));
   app.use('/api', (_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');

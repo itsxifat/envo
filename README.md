@@ -86,8 +86,10 @@ with three extensions is created for them and the owner's web phone works right 
 
 ### Before selling for real
 
-1. **Payment settings** (Sales → Payment settings): your live SSLCommerz store ID and password,
-   sandbox off. Test with the sandbox store `testbox` first (card 4111 1111 1111 1111, 12/26, 111).
+1. **Payment settings** (Payments in /admin): the Enfinito Pay secret key and webhook signing
+   secret (`sk_test_…` first, then `sk_live_…`), and in the Enfinito Pay admin the webhook URL and
+   return domain shown there. Or, without Enfinito Pay, your live SSLCommerz store ID and password,
+   sandbox off (test with the sandbox store `testbox`: card 4111 1111 1111 1111, 12/26, 111).
 2. **Email** (Business → Email): an SMTP mailbox (e.g. mailcow on the old VPS, or Brevo). Without
    it new customers cannot confirm their email (you can confirm them by hand on the customer page).
 3. **Packages**: check prices and limits in Business → Packages.

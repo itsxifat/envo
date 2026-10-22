@@ -73,6 +73,13 @@ labels copied from the header by `lib/tableCards.ts`) — keep tables plain with
   browser returns by cross-site POST without the SameSite=Strict cookie, so the callback answers with
   a page that hops back same-site. Billing and SMTP settings live in their own `settings` rows and
   are never returned with passwords; `getSettings()` only returns known public keys.
+- Enfinito Pay (`billing/enfinitoPay.ts`, pay.enfinito.com) takes online payments instead of
+  SSLCommerz once its secret key and webhook secret are saved (Payments page). One open checkout per
+  invoice (reused or cancelled before a new one, so nothing is paid twice). The signed webhook
+  (`/api/public/enfinito-pay/webhook`) needs the raw body, so that router is mounted before
+  `express.json`; the return link (`/return`) and the hourly clock ask for the checkout server to
+  server. Wrong amounts and payments for paid/void invoices go to review, never applied. Test against
+  a local stand-in by setting `ENFINITO_PAY_API`.
 - People and phones: a login calls from `users.extension_id` (web phone, voicemail, "my calls").
   `PUT /api/users/:id/extension` links one (or `{create:true}` makes the next free number), also for
   yourself; `POST /api/users` can `create_extension` and `invite` (7-day set-password link via

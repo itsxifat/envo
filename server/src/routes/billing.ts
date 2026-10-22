@@ -1,6 +1,7 @@
 import express, { Router } from 'express';
 import { z } from 'zod';
 import { exec, many, one, tx } from '../db.js';
+import { config } from '../config.js';
 import { requireOwner } from '../auth.js';
 import { badRequest, intParam, notFound } from '../lib/http.js';
 import { audit } from '../lib/validate.js';
@@ -10,12 +11,15 @@ import { getBillingSettings, publicPaymentOptions, updateBillingSettings, type B
 import {
   checkout,
   createInvoice,
+  handleEnfinitoEvent,
   handleGatewayCallback,
   markInvoicePaid,
+  returnFromCheckout,
   reviewPayment,
   startOnlinePayment,
   submitManualPayment,
 } from '../billing/invoices.js';
+import { checkKey, keyMode, verifySignature, type WebhookEvent } from '../billing/enfinitoPay.js';
 import { runBillingClock } from '../billing/jobs.js';
 
 const invoiceColumns = 'id, number, account_id, kind, package_id, months, description, amount, currency, status, due_at, paid_at, period_start, created_at';
@@ -119,6 +123,40 @@ for (const kind of ['success', 'fail', 'cancel'] as const) {
 gatewayRouter.post('/ipn', async (req, res) => {
   await handleGatewayCallback('ipn', req.body as Record<string, string>);
   res.type('text').send('OK');
+});
+
+/**
+ * Enfinito Pay: signed webhooks, and the customer's way back from its checkout. Mounted before the
+ * JSON body parser, because the signature covers the raw body exactly as sent.
+ */
+export const enfinitoPayRouter = Router();
+enfinitoPayRouter.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
+
+enfinitoPayRouter.post('/webhook', express.raw({ type: () => true, limit: '256kb' }), async (req, res) => {
+  const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  if (!verifySignature(raw, req.get('Enfinito-Signature'), (await getBillingSettings()).enfinito_pay.webhook_secret)) {
+    res.status(400).json({ error: 'Invalid signature' });
+    return;
+  }
+  let event: WebhookEvent;
+  try {
+    event = JSON.parse(raw.toString('utf8')) as WebhookEvent;
+  } catch {
+    res.status(400).json({ error: 'Invalid JSON' });
+    return;
+  }
+  // A failure answers 500, and Enfinito Pay sends the event again later.
+  await handleEnfinitoEvent(event);
+  res.json({ received: true });
+});
+
+/** Back from the checkout (paid or cancelled), with ?session_id= added by Enfinito Pay. */
+enfinitoPayRouter.get('/return', async (req, res) => {
+  const r = await returnFromCheckout(Number(req.query.payment), String(req.query.session_id ?? '')).catch(() => ({ invoiceId: null, status: 'unknown' as const }));
+  backToApp(res, `payment=${r.status}${r.invoiceId ? `&invoice=${r.invoiceId}` : ''}`);
 });
 
 // --------------------------------------------------------------------------------------- admin
@@ -237,6 +275,15 @@ for (const decision of ['approve', 'reject'] as const) {
 }
 
 const settingsSchema = z.object({
+  enfinito_pay: z
+    .object({
+      enabled: z.boolean(),
+      /** Empty keeps the stored key. */
+      secret_key: z.union([z.literal(''), z.string().trim().regex(/^sk_(test|live)_\S{4,200}$/, 'use the secret key from Enfinito Pay (sk_test_… or sk_live_…)')]).default(''),
+      /** Empty keeps the stored secret. */
+      webhook_secret: z.union([z.literal(''), z.string().trim().regex(/^whsec_\S{4,200}$/, 'use the webhook signing secret from Enfinito Pay (whsec_…)')]).default(''),
+    })
+    .default({ enabled: false, secret_key: '', webhook_secret: '' }),
   sslcommerz: z.object({
     enabled: z.boolean(),
     sandbox: z.boolean(),
@@ -251,7 +298,21 @@ const settingsSchema = z.object({
 });
 
 function maskSecrets(s: BillingSettings) {
-  return { ...s, sslcommerz: { ...s.sslcommerz, store_passwd: '', has_passwd: !!s.sslcommerz.store_passwd } };
+  return {
+    ...s,
+    enfinito_pay: {
+      enabled: s.enfinito_pay.enabled,
+      secret_key: '',
+      webhook_secret: '',
+      has_secret_key: !!s.enfinito_pay.secret_key,
+      has_webhook_secret: !!s.enfinito_pay.webhook_secret,
+      key_mode: keyMode(s.enfinito_pay.secret_key),
+      // What to enter in the Enfinito Pay admin: checkouts return to this server's public address.
+      webhook_url: `${config.publicUrl}/api/public/enfinito-pay/webhook`,
+      return_domain: new URL(config.publicUrl).host,
+    },
+    sslcommerz: { ...s.sslcommerz, store_passwd: '', has_passwd: !!s.sslcommerz.store_passwd },
+  };
 }
 
 adminBillingRouter.get('/settings', async (_req, res) => {
@@ -261,10 +322,31 @@ adminBillingRouter.get('/settings', async (_req, res) => {
 adminBillingRouter.put('/settings', async (req, res) => {
   const d = settingsSchema.parse(req.body);
   const current = await getBillingSettings();
-  const next: BillingSettings = { ...d, sslcommerz: { ...d.sslcommerz, store_passwd: d.sslcommerz.store_passwd || current.sslcommerz.store_passwd } };
+  const next: BillingSettings = {
+    ...d,
+    enfinito_pay: {
+      enabled: d.enfinito_pay.enabled,
+      secret_key: d.enfinito_pay.secret_key || current.enfinito_pay.secret_key,
+      webhook_secret: d.enfinito_pay.webhook_secret || current.enfinito_pay.webhook_secret,
+    },
+    sslcommerz: { ...d.sslcommerz, store_passwd: d.sslcommerz.store_passwd || current.sslcommerz.store_passwd },
+  };
+  // Without the signing secret every webhook would be refused, and payments would wait for the hourly check.
+  if (next.enfinito_pay.enabled && (!next.enfinito_pay.secret_key || !next.enfinito_pay.webhook_secret)) {
+    throw badRequest('To take payments through Enfinito Pay, add both its secret key and its webhook signing secret');
+  }
   const saved = await updateBillingSettings(next);
-  await audit(req, 'update', 'billing_settings', '', next.sslcommerz.sandbox ? 'sandbox' : 'live', null);
+  const detail = next.enfinito_pay.enabled ? `enfinito pay ${keyMode(next.enfinito_pay.secret_key)}` : `sslcommerz ${next.sslcommerz.sandbox ? 'sandbox' : 'live'}`;
+  await audit(req, 'update', 'billing_settings', '', detail, null);
   res.json(maskSecrets(saved));
+});
+
+/** Tries an Enfinito Pay key (the one typed in, or the saved one) without creating anything. */
+adminBillingRouter.post('/settings/enfinito-pay/check', async (req, res) => {
+  const { secret_key } = z.object({ secret_key: z.string().trim().max(250).default('') }).parse(req.body ?? {});
+  const key = secret_key || (await getBillingSettings()).enfinito_pay.secret_key;
+  if (!key) throw badRequest('Enter the secret key first');
+  res.json({ ...(await checkKey(key)), mode: keyMode(key) });
 });
 
 /** Runs the billing clock now (renewals, suspensions, reconciliation) instead of waiting an hour. */

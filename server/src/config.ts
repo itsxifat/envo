@@ -20,6 +20,8 @@ export const config = {
   publicIp: env('PUBLIC_IP', '127.0.0.1'),
   /** Base URL browsers and payment gateways use to reach the dashboard (payment callbacks). */
   publicUrl: env('PUBLIC_URL', `https://${env('PUBLIC_HOST', 'localhost')}`).replace(/\/$/, ''),
+  /** Enfinito Pay's API (pay.enfinito.com); overridden only to test against a local stand-in. */
+  enfinitoPayApi: env('ENFINITO_PAY_API', 'https://pay.enfinito.com/api/v1').replace(/\/$/, ''),
   ami: {
     host: env('AMI_HOST', '127.0.0.1'),
     port: Number(env('AMI_PORT', '5038')),

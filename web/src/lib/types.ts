@@ -16,6 +16,8 @@ export interface User {
   isOwner: boolean;
   /** SIP servers this login may work in; null = all (platform admins). */
   tenantIds: number[] | null;
+  /** Set while a platform admin works in this customer's portal (support access). */
+  impersonator: { id: number; name: string; email: string } | null;
 }
 
 export type IvrTier = 'basic' | 'basic_ai' | 'multi_ai' | 'advanced_ai' | 'unlimited';

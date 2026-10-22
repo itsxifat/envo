@@ -1,12 +1,13 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Briefcase, ChevronRight, Plus } from 'lucide-react';
+import { Briefcase, ChevronRight, LogIn, Plus } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api';
+import { useAuth } from '../../state/auth';
 import { ACCOUNT_STATUS, formatBdt, formatDate } from '../../lib/format';
 import type { AccountRow, Package } from '../../lib/types';
-import { Badge, Button, Card, CopyField, EmptyState, ErrorBlock, Field, Input, Modal, NumberInput, Notice, PageHeader, SearchInput, Select, TableSkeleton, Tabs } from '../../components/ui';
+import { Badge, Button, Card, CopyField, EmptyState, ErrorBlock, Field, IconButton, Input, Modal, NumberInput, Notice, PageHeader, SearchInput, Select, TableSkeleton, Tabs } from '../../components/ui';
 
 const STATUS_TABS = [
   { value: '', label: 'All' },
@@ -122,9 +123,16 @@ function NewCustomer({ onClose }: { onClose: () => void }) {
 }
 
 export function CustomersPage() {
-  const [search, setSearch] = useState('');
+  const [params] = useSearchParams();
+  const { openCustomerPortal } = useAuth();
+  const [search, setSearch] = useState(() => params.get('q') ?? '');
   const [status, setStatus] = useState<(typeof STATUS_TABS)[number]['value']>('');
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(() => params.get('new') === '1');
+  // The header search box navigates here with ?q=, also while this page is already open.
+  useEffect(() => {
+    const q = params.get('q');
+    if (q !== null) setSearch(q);
+  }, [params]);
   const list = useQuery({
     queryKey: ['admin', 'accounts', search, status],
     queryFn: () => api.get<AccountRow[]>(`/api/admin/accounts?search=${encodeURIComponent(search)}&status=${status}`),
@@ -203,9 +211,16 @@ export function CustomersPage() {
                         {a.servers} srv · {a.extensions} ext · {a.dids} no.
                       </td>
                       <td>
-                        <Link to={`/admin/customers/${a.id}`} className="inline-flex size-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label={`Open ${a.name}`}>
-                          <ChevronRight className="size-4" />
-                        </Link>
+                        <div className="flex justify-end gap-0.5">
+                          {a.status !== 'closed' && (
+                            <IconButton label="Open their portal" tone="brand" onClick={() => void openCustomerPortal(a.id).catch((err) => toast.error(errorMessage(err)))}>
+                              <LogIn className="size-4" />
+                            </IconButton>
+                          )}
+                          <Link to={`/admin/customers/${a.id}`} className="inline-flex size-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label={`Details of ${a.name}`}>
+                            <ChevronRight className="size-4" />
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                   );

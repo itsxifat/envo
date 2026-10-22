@@ -40,6 +40,8 @@ import { integrationRouter } from './routes/integrations.js';
 import { startWebhooks } from './webhooks.js';
 import { accountRouter } from './routes/account.js';
 import { adminRouter, publicRouter } from './routes/admin.js';
+import { adminConsoleRouter } from './routes/adminConsole.js';
+import { setupRouter } from './routes/setup.js';
 import { startRetention } from './billing/retention.js';
 import { startBillingClock } from './billing/jobs.js';
 import { adminBillingRouter, billingRouter, gatewayRouter } from './routes/billing.js';
@@ -105,6 +107,7 @@ async function main(): Promise<void> {
   app.use('/api/account/billing', billingRouter);
   app.use('/api/account', accountRouter);
   app.use('/api/admin/billing', requireRole('superadmin'), adminBillingRouter);
+  app.use('/api/admin', requireRole('superadmin'), adminConsoleRouter);
   app.use('/api/admin', requireRole('superadmin'), adminRouter);
   app.use('/api', requireActiveAccount);
   app.use('/api/tenants', tenantRouter);
@@ -129,6 +132,7 @@ async function main(): Promise<void> {
   app.use('/api/dashboard', dashboardRouter);
   app.use('/api/destinations', destinationRouter);
   app.use('/api/integrations', integrationRouter);
+  app.use('/api/setup', setupRouter);
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: 'Not found' });
   });

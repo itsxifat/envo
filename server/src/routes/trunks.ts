@@ -18,7 +18,7 @@ const sipUser = z
   .refine((v) => v === '' || isSipUser(v), 'letters, digits and _ . + - only')
   .default('');
 
-const trunkSchema = z
+export const trunkSchema = z
   .object({
     name,
     shared: z.boolean().default(false),
@@ -69,7 +69,7 @@ function coversLoopback(cidr: string): boolean {
   return ((toInt(ip) & mask) >>> 0) === ((toInt('127.0.0.1') & mask) >>> 0);
 }
 
-function present(trunk: Trunk) {
+export function present(trunk: Trunk) {
   const ep = trunkEndpoint(trunk);
   const reg = live.registrationOf(ep);
   const contact = live.contacts.find((c) => c.endpoint === ep);
@@ -111,7 +111,7 @@ trunkRouter.get('/:id', async (req, res) => {
 });
 
 /** Customers' trunks must point at a real provider, never at this machine or a private network. */
-async function assertPublicProvider(data: z.infer<typeof trunkSchema>): Promise<void> {
+export async function assertPublicProvider(data: z.infer<typeof trunkSchema>): Promise<void> {
   const ips = [data.host, ...data.match_ips.split(/[\s,]+/).filter(Boolean)];
   for (const v of ips) {
     const ip = v.split('/')[0]!;
@@ -127,7 +127,7 @@ async function assertPublicProvider(data: z.infer<typeof trunkSchema>): Promise<
   }
 }
 
-async function validate(data: z.infer<typeof trunkSchema>, tenantId: number | null, hasStoredPassword: boolean) {
+export async function validate(data: z.infer<typeof trunkSchema>, tenantId: number | null, hasStoredPassword: boolean) {
   if (data.auth_mode === 'register' && !data.password && !hasStoredPassword) {
     throw badRequest('password: is required to register');
   }

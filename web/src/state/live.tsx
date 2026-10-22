@@ -67,7 +67,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           case 'apply':
             setState((s) => ({ ...s, [msg.type]: msg.data }));
             if (msg.type === 'registrations') void qc.invalidateQueries({ queryKey: ['list', 'trunks'] });
-            if (msg.type === 'contacts' || msg.type === 'registrations') void qc.invalidateQueries({ queryKey: ['dashboard', 'summary'] });
+            if (msg.type === 'contacts' || msg.type === 'registrations') {
+              void qc.invalidateQueries({ queryKey: ['dashboard', 'summary'] });
+              void qc.invalidateQueries({ queryKey: ['setup'] });
+            }
             break;
           case 'changed':
             if (msg.entity) void qc.invalidateQueries({ queryKey: ['list', msg.entity] });

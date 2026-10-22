@@ -3,7 +3,7 @@ import { LogOut } from 'lucide-react';
 import { useAuth } from '../state/auth';
 import { TenantProvider } from '../state/tenant';
 import { LiveProvider } from '../state/live';
-import { LogoMark } from '../components/Layout';
+import { LogoMark, SupportBanner } from '../components/Layout';
 import { Button } from '../components/ui';
 import { AccountPage } from './Account';
 import { BillingPage } from './Billing';
@@ -19,6 +19,7 @@ export function AccountInactive() {
     <TenantProvider>
       <LiveProvider>
         <div className="flex min-h-full flex-col">
+          <SupportBanner />
           <header className="print:hidden sticky top-0 z-20 flex h-14 items-center justify-between border-b border-slate-200/70 bg-white/90 px-4 backdrop-blur-xl sm:px-6 lg:h-16">
             <div className="flex items-center gap-3">
               <LogoMark className="size-8 rounded-[10px] [&>svg]:size-[22px]" />

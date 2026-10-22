@@ -5,12 +5,14 @@ import { TenantProvider } from './state/tenant';
 import { LiveProvider } from './state/live';
 import { PhoneProvider } from './phone/PhoneProvider';
 import { Layout } from './components/Layout';
+import { AdminLayout } from './components/AdminLayout';
 import { LoadingBlock } from './components/ui';
 import type { Role } from './lib/types';
 import { LoginPage } from './pages/Login';
 import { LandingPage } from './pages/public/Landing';
 import { CheckEmailPage, ForgotPasswordPage, ResetPasswordPage, SetupPage, SignupPage, VerifyPage } from './pages/public/Signup';
 import { DashboardPage } from './pages/Dashboard';
+import { GetStartedPage } from './pages/GetStarted';
 import { LiveCallsPage } from './pages/LiveCalls';
 import { CallLogsPage } from './pages/CallLogs';
 import { RecordingsPage } from './pages/Recordings';
@@ -31,12 +33,17 @@ import { UsersPage } from './pages/Users';
 import { DevelopersPage } from './pages/Developers';
 import { SystemPage } from './pages/System';
 import { AccountPage } from './pages/Account';
-import { CustomersPage } from './pages/admin/Customers';
-import { CustomerDetailPage } from './pages/admin/CustomerDetail';
-import { PackagesPage } from './pages/admin/Packages';
 import { AccountInactive } from './pages/AccountInactive';
 import { BillingPage } from './pages/Billing';
 import { InvoiceViewPage } from './pages/InvoiceView';
+import { AdminOverviewPage } from './pages/admin/Overview';
+import { CustomersPage } from './pages/admin/Customers';
+import { CustomerDetailPage } from './pages/admin/CustomerDetail';
+import { LiveMonitorPage } from './pages/admin/LiveMonitor';
+import { LinesPage } from './pages/admin/Lines';
+import { ActivityPage } from './pages/admin/Activity';
+import { StaffPage } from './pages/admin/Staff';
+import { PackagesPage } from './pages/admin/Packages';
 import { SalesPage } from './pages/admin/Sales';
 import { BillingSettingsPage } from './pages/admin/BillingSettings';
 import { EmailSettingsPage } from './pages/admin/EmailSettings';
@@ -48,6 +55,33 @@ function RequireRole({ roles, children }: { roles: Role[]; children: ReactNode }
 }
 
 const ADMIN: Role[] = ['superadmin', 'admin'];
+
+/** Platform admins: the support console. A customer's portal is reached only through "Open portal". */
+function AdminApp() {
+  return (
+    <LiveProvider>
+      <Routes>
+        <Route path="home" element={<LandingPage />} />
+        <Route path="admin" element={<AdminLayout />}>
+          <Route index element={<AdminOverviewPage />} />
+          <Route path="customers" element={<CustomersPage />} />
+          <Route path="customers/:id" element={<CustomerDetailPage />} />
+          <Route path="live" element={<LiveMonitorPage />} />
+          <Route path="lines" element={<LinesPage />} />
+          <Route path="activity" element={<ActivityPage />} />
+          <Route path="sales" element={<SalesPage />} />
+          <Route path="packages" element={<PackagesPage />} />
+          <Route path="system" element={<SystemPage />} />
+          <Route path="billing-settings" element={<BillingSettingsPage />} />
+          <Route path="email" element={<EmailSettingsPage />} />
+          <Route path="staff" element={<StaffPage />} />
+          <Route path="*" element={<Navigate to="/admin" replace />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/admin" replace />} />
+      </Routes>
+    </LiveProvider>
+  );
+}
 
 export function App() {
   const { user, loading } = useAuth();
@@ -69,8 +103,9 @@ export function App() {
       </Routes>
     );
   }
+  if (user.role === 'superadmin' && !user.impersonator) return <AdminApp />;
   // Awaiting payment or suspended: only the plan (and soon payment) until the account is active again.
-  if (user.role !== 'superadmin' && user.accountStatus !== 'active') return <AccountInactive />;
+  if (user.accountStatus !== 'active') return <AccountInactive />;
   return (
     <TenantProvider>
       <LiveProvider>
@@ -80,6 +115,7 @@ export function App() {
             <Route path="home" element={<LandingPage />} />
             <Route element={<Layout />}>
               <Route index element={<DashboardPage />} />
+              <Route path="get-started" element={<RequireRole roles={ADMIN}><GetStartedPage /></RequireRole>} />
               <Route path="live" element={<RequireRole roles={ADMIN}><LiveCallsPage /></RequireRole>} />
               <Route path="calls" element={<CallLogsPage />} />
               <Route path="recordings" element={<RecordingsPage />} />
@@ -98,16 +134,9 @@ export function App() {
               <Route path="servers" element={<RequireRole roles={ADMIN}><ServersPage /></RequireRole>} />
               <Route path="users" element={<RequireRole roles={ADMIN}><UsersPage /></RequireRole>} />
               <Route path="developers" element={<RequireRole roles={ADMIN}><DevelopersPage /></RequireRole>} />
-              <Route path="system" element={<RequireRole roles={['superadmin']}><SystemPage /></RequireRole>} />
               <Route path="account" element={<RequireRole roles={['admin']}><AccountPage /></RequireRole>} />
               <Route path="billing" element={<RequireRole roles={['admin']}><BillingPage /></RequireRole>} />
               <Route path="billing/invoices/:id" element={<RequireRole roles={['admin']}><InvoiceViewPage /></RequireRole>} />
-              <Route path="admin/sales" element={<RequireRole roles={['superadmin']}><SalesPage /></RequireRole>} />
-              <Route path="admin/billing-settings" element={<RequireRole roles={['superadmin']}><BillingSettingsPage /></RequireRole>} />
-              <Route path="admin/email" element={<RequireRole roles={['superadmin']}><EmailSettingsPage /></RequireRole>} />
-              <Route path="admin/customers" element={<RequireRole roles={['superadmin']}><CustomersPage /></RequireRole>} />
-              <Route path="admin/customers/:id" element={<RequireRole roles={['superadmin']}><CustomerDetailPage /></RequireRole>} />
-              <Route path="admin/packages" element={<RequireRole roles={['superadmin']}><PackagesPage /></RequireRole>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

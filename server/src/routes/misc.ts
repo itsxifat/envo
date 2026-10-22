@@ -14,6 +14,8 @@ export const webphoneRouter = Router();
 /** SIP-over-WebSocket credentials for the signed-in user's own extension. */
 webphoneRouter.get('/', async (req, res) => {
   const user = req.user!;
+  // Support access must not register as the customer's phone (their calls would ring here too).
+  if (user.impersonator) return void res.json({ enabled: false, reason: "The web phone is off while you view a customer's portal" });
   const settings = await getSettings();
   const ext = user.extensionId
     ? await one<Extension & { tenant_enabled: boolean; tenant_name: string }>(

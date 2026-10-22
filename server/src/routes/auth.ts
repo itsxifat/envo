@@ -12,6 +12,7 @@ import {
   verifyPassword,
 } from '../auth.js';
 import { HttpError, badRequest } from '../lib/http.js';
+import { audit } from '../lib/validate.js';
 import { getSettings } from '../settings.js';
 import { getAccountPlan } from '../billing/plan.js';
 
@@ -55,7 +56,17 @@ authRouter.get('/me', authenticate, async (req, res) => {
   res.json({ user: req.user, plan, company: settings.company_name, sipDomain: settings.sip_domain });
 });
 
+/** Ends support access to a customer's portal and returns to the platform admin's own login. */
+authRouter.post('/impersonation/stop', authenticate, async (req, res) => {
+  const user = req.user!;
+  if (!user.impersonator) throw badRequest("You are not viewing a customer's portal");
+  await audit(req, 'impersonate_end', 'account', user.accountId ?? '', `left the portal of ${user.email}`, null);
+  issueSession(res, user.impersonator.id);
+  res.json({ ok: true, accountId: user.accountId });
+});
+
 authRouter.post('/password', authenticate, async (req, res) => {
+  if (req.user!.impersonator) throw badRequest("The customer's password can't be changed from support access");
   const { current, next } = z
     .object({ current: z.string().min(1), next: z.string().min(8, 'must be at least 8 characters').max(128) })
     .parse(req.body);

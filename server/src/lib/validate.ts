@@ -94,9 +94,13 @@ export async function audit(
   summary = '',
   tenantId?: number | null,
 ): Promise<void> {
+  // Changes made through support access are the platform admin's, done in the customer's name.
+  const imp = req.user?.impersonator;
+  const actor = imp ? imp.id : (req.user?.id ?? null);
+  const text = imp ? `${summary} [support, as ${req.user!.email}]` : summary;
   await exec(
     'INSERT INTO audit_log (user_id, tenant_id, action, entity, entity_id, summary) VALUES ($1, $2, $3, $4, $5, $6)',
-    [req.user?.id ?? null, tenantId ?? req.user?.tenantId ?? null, action, entity, String(entityId), summary.slice(0, 300)],
+    [actor, tenantId ?? req.user?.tenantId ?? null, action, entity, String(entityId), text.slice(0, 300)],
   ).catch((err) => console.warn('[audit] failed:', err));
 }
 

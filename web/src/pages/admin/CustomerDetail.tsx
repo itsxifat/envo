@@ -1,21 +1,37 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
+import clsx from 'clsx';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, ArrowRight, Building2, Crown, Disc3, Hash, ListTree, Pause, Play, Users, XCircle } from 'lucide-react';
+import { Activity, ArrowLeft, Building2, Clock, Crown, Disc3, Hash, KeyRound, ListTree, LogIn, MailCheck, MoreHorizontal, Pause, PhoneCall, Play, UserCheck, UserX, Users, XCircle } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api';
-import { useTenant } from '../../state/tenant';
-import { ACCOUNT_STATUS, IVR_TIER_LABELS, formatBdt, formatDate, timeAgo } from '../../lib/format';
+import { useAuth } from '../../state/auth';
+import { InviteDone, type InviteResult } from '../../components/people';
+import { describeAction } from './Activity';
+import { ACCOUNT_STATUS, IVR_TIER_LABELS, formatBdt, formatDate, formatDuration, timeAgo } from '../../lib/format';
 import type { AccountStatus, Invoice, IvrTier, Package, Plan, PlanLimits, Usage } from '../../lib/types';
-import { Badge, Button, Card, CardHeader, ErrorBlock, Field, Input, LoadingBlock, Meter, NumberInput, Select, Textarea, Toggle, useConfirm } from '../../components/ui';
+import { Badge, Button, Card, CardHeader, ErrorBlock, Field, Input, ListSkeleton, LoadingBlock, Menu, Meter, Modal, NumberInput, Select, Stat, StatusDot, Textarea, Toggle, useConfirm } from '../../components/ui';
 
 interface Detail {
   account: { id: number; name: string; email: string; phone: string; address: string; notes: string; status: AccountStatus; internal: boolean; created_at: string };
   plan: Plan;
   usage: Usage;
-  servers: { id: number; name: string; slug: string; enabled: boolean; extensions: number; numbers: number }[];
+  servers: {
+    id: number;
+    name: string;
+    slug: string;
+    enabled: boolean;
+    extensions: number;
+    numbers: number;
+    devices: { total: number; online: number };
+    lines: { id: number; name: string; host: string; health: 'ok' | 'failing' | 'waiting' | 'off'; label: string }[];
+    number_list: { id: number; number: string; label: string; dest_type: string }[];
+    live_calls: number;
+  }[];
   users: { id: number; email: string; name: string; role: string; is_owner: boolean; enabled: boolean; last_login_at: string | null; email_verified_at: string | null }[];
   subscriptions: { id: number; package_name: string; status: string; price: string; current_period_start: string; current_period_end: string; overrides: Partial<PlanLimits> }[];
+  live: { calls: number; channels_in_use: number; max_channels: number | null };
+  today: { calls: number; answered: number; talk_sec: number };
 }
 
 const OVERRIDABLE: { key: keyof PlanLimits; label: string }[] = [
@@ -218,11 +234,11 @@ function ContactCard({ detail }: { detail: Detail }) {
 
 export function CustomerDetailPage() {
   const { id } = useParams();
-  const navigate = useNavigate();
   const qc = useQueryClient();
   const confirm = useConfirm();
-  const { setTenantId } = useTenant();
-  const q = useQuery({ queryKey: ['admin', 'account', id], queryFn: () => api.get<Detail>(`/api/admin/accounts/${id}`) });
+  const { openCustomerPortal } = useAuth();
+  const [opening, setOpening] = useState(false);
+  const q = useQuery({ queryKey: ['admin', 'account', id], queryFn: () => api.get<Detail>(`/api/admin/accounts/${id}`), refetchInterval: 20_000 });
   const setStatus = useMutation({
     mutationFn: (status: AccountStatus) => api.put(`/api/admin/accounts/${id}`, { ...q.data!.account, status }),
     onSuccess: (_d, status) => {
@@ -237,6 +253,17 @@ export function CustomerDetailPage() {
   const d = q.data;
   const st = ACCOUNT_STATUS[d.account.status]!;
   const l = d.plan.limits;
+  const canOpen = d.account.status !== 'closed' && d.users.some((u) => u.enabled);
+
+  const open = async () => {
+    setOpening(true);
+    try {
+      await openCustomerPortal(d.account.id);
+    } catch (err) {
+      toast.error(errorMessage(err));
+      setOpening(false);
+    }
+  };
 
   return (
     <>
@@ -246,7 +273,7 @@ export function CustomerDetailPage() {
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-[22px] font-semibold tracking-tight text-slate-900 sm:text-2xl">{d.account.name}</h1>
+            <h1 className="font-display text-[26px] leading-tight font-semibold tracking-[-0.03em] text-slate-950">{d.account.name}</h1>
             <Badge tone={st.tone}>{st.label}</Badge>
           </div>
           <p className="mt-1 text-sm text-slate-500">
@@ -254,43 +281,138 @@ export function CustomerDetailPage() {
             {d.plan.subscription && ` · ${formatBdt(d.plan.subscription.price)}/mo · renews ${formatDate(d.plan.subscription.currentPeriodEnd)}`}
           </p>
         </div>
-        {!d.account.internal && (
-          <div className="page-actions flex flex-wrap gap-2">
-            {d.account.status === 'active' ? (
-              <Button
-                icon={<Pause className="size-4" />}
-                onClick={async () => {
-                  if (await confirm({ title: `Suspend ${d.account.name}?`, message: 'Their phones and numbers stop working right away. They can still sign in and pay.', confirmLabel: 'Suspend', danger: true }))
-                    setStatus.mutate('suspended');
-                }}
-              >
-                Suspend
-              </Button>
-            ) : (
-              d.account.status !== 'closed' && (
-                <Button variant="success" icon={<Play className="size-4" />} onClick={() => setStatus.mutate('active')}>
-                  Reactivate
-                </Button>
-              )
-            )}
-            {d.account.status !== 'closed' && (
-              <Button
-                variant="ghost"
-                icon={<XCircle className="size-4" />}
-                onClick={async () => {
-                  if (await confirm({ title: `Close ${d.account.name}?`, message: 'Nobody from this customer can sign in any more and their SIP servers stop. Data is kept.', confirmLabel: 'Close account', danger: true }))
-                    setStatus.mutate('closed');
-                }}
-              >
-                Close
-              </Button>
-            )}
-          </div>
-        )}
+        <div className="page-actions flex flex-wrap gap-2">
+          <Button
+            variant="brand"
+            icon={<LogIn className="size-4" />}
+            loading={opening}
+            disabled={!canOpen}
+            title={canOpen ? 'See and change their phone system exactly as they do' : 'This customer has no active login'}
+            onClick={open}
+          >
+            Open their portal
+          </Button>
+          {!d.account.internal && d.account.status === 'active' && (
+            <Button
+              icon={<Pause className="size-4" />}
+              onClick={async () => {
+                if (await confirm({ title: `Suspend ${d.account.name}?`, message: 'Their phones and numbers stop working right away. They can still sign in and pay.', confirmLabel: 'Suspend', danger: true }))
+                  setStatus.mutate('suspended');
+              }}
+            >
+              Suspend
+            </Button>
+          )}
+          {!d.account.internal && (d.account.status === 'pending' || d.account.status === 'suspended') && (
+            <Button variant="success" icon={<Play className="size-4" />} onClick={() => setStatus.mutate('active')}>
+              Reactivate
+            </Button>
+          )}
+          {!d.account.internal && d.account.status !== 'closed' && (
+            <Button
+              variant="ghost"
+              icon={<XCircle className="size-4" />}
+              onClick={async () => {
+                if (await confirm({ title: `Close ${d.account.name}?`, message: 'Nobody from this customer can sign in any more and their SIP servers stop. Data is kept.', confirmLabel: 'Close account', danger: true }))
+                  setStatus.mutate('closed');
+              }}
+            >
+              Close
+            </Button>
+          )}
+          {!d.account.internal && d.account.status === 'closed' && (
+            <Button variant="success" icon={<Play className="size-4" />} onClick={() => setStatus.mutate('active')}>
+              Reopen
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:mb-6 sm:gap-4 xl:grid-cols-4">
+        <Stat
+          label="Calls right now"
+          value={d.live.calls}
+          sub={d.live.max_channels === null ? 'No channel limit' : `${d.live.channels_in_use} of ${d.live.max_channels} channels in use`}
+          icon={<Activity className="size-5" />}
+        />
+        <Stat label="Calls today" value={d.today.calls} sub={d.today.calls ? `${d.today.answered} answered` : 'None yet today'} icon={<PhoneCall className="size-5" />} tone="violet" />
+        <Stat label="Talk time today" value={formatDuration(d.today.talk_sec)} sub="Answered calls" icon={<Clock className="size-5" />} tone="amber" />
+        <Stat
+          label="Phones online"
+          value={`${d.servers.reduce((n, s) => n + s.devices.online, 0)} / ${d.servers.reduce((n, s) => n + s.devices.total, 0)}`}
+          sub="Registered extensions"
+          icon={<Users className="size-5" />}
+          tone="blue"
+        />
       </div>
 
       <div className="grid gap-4 sm:gap-6 xl:grid-cols-3">
         <div className="space-y-4 sm:space-y-6 xl:col-span-2">
+          <Card className="overflow-hidden">
+            <CardHeader title="Phone system" description="Live health of each SIP server: phones, provider lines and numbers" />
+            {d.servers.length === 0 ? (
+              <p className="px-5 py-6 text-sm text-slate-500">No SIP server yet. One is created automatically when their first package goes live.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {d.servers.map((s) => (
+                  <li key={s.id} className="space-y-3 px-4 py-4 sm:px-5">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-xs font-semibold text-slate-600 uppercase">{s.name.slice(0, 2)}</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5 text-sm font-medium text-slate-900">
+                          {s.name}
+                          {!s.enabled && <Badge>Off</Badge>}
+                          {s.live_calls > 0 && (
+                            <Badge tone="green" dot>
+                              {s.live_calls} on a call
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {s.slug} · {s.devices.online} of {s.devices.total} phones online · {s.numbers} number{s.numbers === 1 ? '' : 's'}
+                        </div>
+                      </div>
+                    </div>
+                    {(s.lines.length > 0 || s.number_list.length > 0) && (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                          <div className="eyebrow mb-1.5 text-slate-500">Provider lines</div>
+                          {s.lines.length === 0 ? (
+                            <p className="text-xs text-slate-500">None of their own (numbers on a shared line)</p>
+                          ) : (
+                            <ul className="space-y-1">
+                              {s.lines.map((line) => (
+                                <li key={line.id} className="flex items-center gap-2 text-[13px]">
+                                  <StatusDot tone={HEALTH_TONE[line.health]} pulse={line.health === 'ok'} />
+                                  <span className="min-w-0 flex-1 truncate text-slate-700">{line.name}</span>
+                                  <span className={clsx('shrink-0 text-xs', line.health === 'failing' ? 'text-rose-600' : 'text-slate-500')}>{line.label}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                        <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                          <div className="eyebrow mb-1.5 text-slate-500">Numbers</div>
+                          {s.number_list.length === 0 ? (
+                            <p className="text-xs text-slate-500">No numbers yet</p>
+                          ) : (
+                            <ul className="flex flex-wrap gap-1.5">
+                              {s.number_list.map((n) => (
+                                <li key={n.id} className="rounded-md bg-white px-2 py-0.5 font-mono text-xs text-slate-700 ring-1 ring-black/[0.06]" title={n.label || undefined}>
+                                  {n.number}
+                                  {n.dest_type === 'hangup' && <span className="ml-1 font-sans text-[11px] text-amber-700">· not routed</span>}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
           <SubscriptionCard key={`${d.plan.package?.id}-${d.plan.subscription?.currentPeriodEnd}`} detail={d} />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <Meter label="SIP servers" icon={<Building2 />} used={d.usage.servers} limit={l.max_servers} />
@@ -300,81 +422,23 @@ export function CustomerDetailPage() {
             <Meter label="Recordings" icon={<Disc3 />} used={d.usage.recordingMb} limit={l.recording_days === 0 ? 0 : l.recording_mb} unit="MB" />
             <Meter label="Team members" icon={<Users />} used={d.usage.users} limit={null} />
           </div>
-          <Card className="overflow-hidden">
-            <CardHeader title="SIP servers" description="Open one to manage this customer's phone system for them" />
-            {d.servers.length === 0 ? (
-              <p className="px-5 py-6 text-sm text-slate-500">No SIP servers yet.</p>
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {d.servers.map((s) => (
-                  <li key={s.id} className="flex items-center gap-3 px-4 py-3 sm:px-5">
-                    <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-xs font-semibold text-slate-600 uppercase">{s.name.slice(0, 2)}</div>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-slate-900">
-                        {s.name} {!s.enabled && <Badge className="ml-1">Off</Badge>}
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {s.slug} · {s.extensions} extensions · {s.numbers} numbers
-                      </div>
-                    </div>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setTenantId(s.id);
-                        void qc.invalidateQueries();
-                        navigate('/');
-                      }}
-                    >
-                      Open <ArrowRight className="size-3.5" />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-          <Card className="overflow-hidden">
-            <CardHeader title="Team" description="People who can sign in for this customer" />
-            <ul className="divide-y divide-slate-100">
-              {d.users.map((u) => (
-                <li key={u.id} className="flex items-center gap-3 px-4 py-3 sm:px-5">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 truncate text-sm font-medium text-slate-900">
-                      {u.name}
-                      {u.is_owner && <Crown className="size-3.5 text-amber-500" aria-label="Owner" />}
-                      {!u.enabled && <Badge>Disabled</Badge>}
-                      {!u.email_verified_at && (
-                        <button
-                          type="button"
-                          className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-amber-600/20 hover:bg-amber-100"
-                          title="Their confirmation email never arrived? Confirm it for them."
-                          onClick={async () => {
-                            try {
-                              await api.post(`/api/admin/users/${u.id}/verify-email`);
-                              void qc.invalidateQueries({ queryKey: ['admin'] });
-                              toast.success('Email confirmed; they can sign in now');
-                            } catch (err) {
-                              toast.error(errorMessage(err));
-                            }
-                          }}
-                        >
-                          Email not confirmed · confirm
-                        </button>
-                      )}
-                    </div>
-                    <div className="truncate text-xs text-slate-500">{u.email}</div>
-                  </div>
-                  <div className="text-right text-xs text-slate-500">
-                    <div className="capitalize">{u.is_owner ? 'Owner' : u.role}</div>
-                    <div>signed in {timeAgo(u.last_login_at)}</div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </Card>
+          <TeamCard detail={d} />
         </div>
         <div className="space-y-4 sm:space-y-6">
           <ContactCard key={d.account.id} detail={d} />
           <CustomerInvoices accountId={d.account.id} />
+          <Card className="overflow-hidden">
+            <CardHeader
+              title="Activity"
+              description="Changes in their portal, including by support"
+              actions={
+                <Link to={`/admin/activity?account=${d.account.id}`} className="text-sm font-medium text-brand-700 hover:text-brand-800">
+                  View all
+                </Link>
+              }
+            />
+            <RecentActivity accountId={d.account.id} />
+          </Card>
           {d.subscriptions.length > 0 && (
             <Card className="overflow-hidden">
               <CardHeader title="Package history" />
@@ -393,6 +457,136 @@ export function CustomerDetailPage() {
         </div>
       </div>
     </>
+  );
+}
+
+const HEALTH_TONE = { ok: 'green', failing: 'red', waiting: 'amber', off: 'gray' } as const;
+
+/** The customer's logins with the support actions: confirm email, send a password link, turn off. */
+function TeamCard({ detail }: { detail: Detail }) {
+  const qc = useQueryClient();
+  const confirm = useConfirm();
+  const [link, setLink] = useState<{ name: string; email: string; result: InviteResult } | null>(null);
+  const act = async (fn: () => Promise<unknown>, done: string) => {
+    try {
+      await fn();
+      void qc.invalidateQueries({ queryKey: ['admin'] });
+      toast.success(done);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader title="Team" description="People who can sign in for this customer" />
+      {detail.users.length === 0 ? (
+        <p className="px-5 py-6 text-sm text-slate-500">No logins yet.</p>
+      ) : (
+        <ul className="divide-y divide-slate-100">
+          {detail.users.map((u) => (
+            <li key={u.id} className="flex items-center gap-3 px-4 py-3 sm:px-5">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5 text-sm font-medium text-slate-900">
+                  <span className="truncate">{u.name}</span>
+                  {u.is_owner && <Crown className="size-3.5 text-amber-500" aria-label="Owner" />}
+                  {!u.enabled && <Badge tone="red">Login off</Badge>}
+                  {!u.email_verified_at && <Badge tone="amber">Email not confirmed</Badge>}
+                </div>
+                <div className="truncate text-xs text-slate-500">
+                  {u.email} · {u.is_owner ? 'Owner' : u.role === 'admin' ? 'Admin' : 'Agent'} · signed in {timeAgo(u.last_login_at)}
+                </div>
+              </div>
+              <Menu
+                items={[
+                  ...(!u.email_verified_at
+                    ? [{ label: 'Confirm their email', icon: <MailCheck className="size-4" />, onSelect: () => void act(() => api.post(`/api/admin/users/${u.id}/verify-email`), 'Email confirmed; they can sign in now') }]
+                    : []),
+                  {
+                    label: 'Send a password link',
+                    icon: <KeyRound className="size-4" />,
+                    onSelect: () =>
+                      void api
+                        .post<{ invite_url?: string; invite_status?: InviteResult['invite_status'] }>(`/api/users/${u.id}/invite`)
+                        .then((r) => setLink({ name: u.name, email: u.email, result: { ...r, id: u.id, extension: null } }))
+                        .catch((err) => toast.error(errorMessage(err))),
+                  },
+                  u.enabled
+                    ? {
+                        label: 'Turn off this login',
+                        icon: <UserX className="size-4" />,
+                        danger: true,
+                        separatorBefore: true,
+                        onSelect: async () => {
+                          if (
+                            await confirm({
+                              title: `Turn off ${u.name}'s login?`,
+                              message: 'They are signed out and cannot sign in until you turn it back on. Their extension keeps working.',
+                              confirmLabel: 'Turn off',
+                              danger: true,
+                            })
+                          )
+                            void act(() => api.post(`/api/admin/users/${u.id}/enabled`, { enabled: false }), 'Login turned off');
+                        },
+                      }
+                    : {
+                        label: 'Turn this login back on',
+                        icon: <UserCheck className="size-4" />,
+                        separatorBefore: true,
+                        onSelect: () => void act(() => api.post(`/api/admin/users/${u.id}/enabled`, { enabled: true }), 'Login turned on'),
+                      },
+                ]}
+                trigger={({ onClick, ref }) => (
+                  <button
+                    ref={ref as never}
+                    type="button"
+                    onClick={onClick}
+                    aria-label={`Actions for ${u.name}`}
+                    className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-black/[0.05] hover:text-slate-800"
+                  >
+                    <MoreHorizontal className="size-4" />
+                  </button>
+                )}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+      {link && (
+        <Modal open onClose={() => setLink(null)} title="Password link" size="sm" footer={<Button onClick={() => setLink(null)}>Done</Button>}>
+          <InviteDone name={link.name} email={link.email} result={link.result} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+interface ActivityRow {
+  id: number;
+  created_at: string;
+  action: string;
+  entity: string;
+  summary: string;
+  user_name: string | null;
+}
+
+function RecentActivity({ accountId }: { accountId: number }) {
+  const q = useQuery({ queryKey: ['admin', 'audit', 'account', accountId], queryFn: () => api.get<ActivityRow[]>(`/api/admin/audit?account_id=${accountId}&limit=10`) });
+  if (q.isLoading) return <ListSkeleton rows={3} />;
+  if (!q.data?.length) return <p className="px-5 py-5 text-sm text-slate-500">Nothing changed yet.</p>;
+  return (
+    <ul className="divide-y divide-slate-100 text-sm">
+      {q.data.slice(0, 6).map((r) => (
+        <li key={r.id} className="px-4 py-2.5 sm:px-5">
+          <div className="truncate text-slate-700">
+            <span className="font-medium">{r.user_name ?? 'System'}</span> {describeAction(r.action, r.entity)}
+          </div>
+          <div className="truncate text-xs text-slate-500">
+            {r.summary ? `${r.summary} · ` : ''}
+            {timeAgo(r.created_at)}
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
 

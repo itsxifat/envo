@@ -133,9 +133,9 @@ userRouter.get('/', async (req, res) => {
           `SELECT ${COLUMNS}, e.number AS extension_number, et.name AS extension_tenant_name, t.name AS tenant_name, a.name AS account_name
              FROM users u LEFT JOIN extensions e ON e.id = u.extension_id LEFT JOIN tenants et ON et.id = e.tenant_id
              LEFT JOIN tenants t ON t.id = u.tenant_id LEFT JOIN accounts a ON a.id = u.account_id
-            ${req.query.account_id ? 'WHERE u.account_id = $1' : ''}
+            ${req.query.role === 'superadmin' ? "WHERE u.role = 'superadmin'" : req.query.account_id ? 'WHERE u.account_id = $1' : ''}
             ORDER BY u.id`,
-          req.query.account_id ? [Number(req.query.account_id)] : [],
+          req.query.role !== 'superadmin' && req.query.account_id ? [Number(req.query.account_id)] : [],
         )
       : await many(
           `SELECT ${COLUMNS}, e.number AS extension_number, et.name AS extension_tenant_name, t.name AS tenant_name

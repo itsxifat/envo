@@ -19,6 +19,8 @@ function invalidateAll(qc: ReturnType<typeof useQueryClient>, resource: string) 
   void qc.invalidateQueries({ queryKey: ['list', resource] });
   void qc.invalidateQueries({ queryKey: ['list', 'destinations'] });
   void qc.invalidateQueries({ queryKey: ['dashboard'] });
+  // Guided setup progress follows every change too.
+  void qc.invalidateQueries({ queryKey: ['setup'] });
   // Package usage counts (Plan & usage page, limit hints) follow every create and delete.
   void qc.invalidateQueries({ queryKey: ['account'] });
   if (resource === 'extensions' || resource === 'numbers' || resource === 'trunks') void qc.invalidateQueries({ queryKey: ['list', 'tenants'] });

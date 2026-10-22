@@ -13,6 +13,10 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  /** Platform admins: open a customer's portal as that customer (support access). */
+  openCustomerPortal: (accountId: number) => Promise<void>;
+  /** Leave the customer's portal and return to the admin portal. */
+  leaveCustomerPortal: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -60,7 +64,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     qc.clear();
   }, [qc]);
 
-  return <AuthContext.Provider value={{ user, plan, company, sipDomain, loading, login, logout, refresh }}>{children}</AuthContext.Provider>;
+  // Switching who you are reloads the app, so no cached data, live feed or open page carries over.
+  const openCustomerPortal = useCallback(async (accountId: number) => {
+    await api.post(`/api/admin/accounts/${accountId}/impersonate`);
+    window.location.assign('/');
+  }, []);
+
+  const leaveCustomerPortal = useCallback(async () => {
+    const r = await api.post<{ accountId: number | null }>('/api/auth/impersonation/stop');
+    window.location.assign(r.accountId ? `/admin/customers/${r.accountId}` : '/admin');
+  }, []);
+
+  return (
+    <AuthContext.Provider value={{ user, plan, company, sipDomain, loading, login, logout, refresh, openCustomerPortal, leaveCustomerPortal }}>{children}</AuthContext.Provider>
+  );
 }
 
 export function useAuth(): AuthState {

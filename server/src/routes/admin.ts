@@ -9,6 +9,8 @@ import { scheduleApply } from '../asterisk/apply.js';
 import { getAccountPlan, getUsage, invalidatePlans, IVR_TIERS } from '../billing/plan.js';
 import { getEmailSettings, testEmail, updateEmailSettings, type EmailSettings } from '../lib/mailer.js';
 import { getBillingSettings } from '../billing/settings.js';
+import { live } from '../asterisk/live.js';
+import { lineHealth, onlineExtensions } from './adminConsole.js';
 
 /** Platform administration (Enfinito): packages, customers and their subscriptions. */
 export const adminRouter = Router();
@@ -139,7 +141,7 @@ adminRouter.get('/accounts/:id', async (req, res) => {
   const [plan, usage, servers, users, subscriptions] = await Promise.all([
     getAccountPlan(id),
     getUsage(id, { recordings: true }),
-    many(
+    many<{ id: number; name: string; slug: string; enabled: boolean; extensions: number; numbers: number }>(
       `SELECT t.id, t.name, t.slug, t.enabled,
               (SELECT count(*) FROM extensions e WHERE e.tenant_id = t.id) AS extensions,
               (SELECT count(*) FROM numbers n WHERE n.tenant_id = t.id) AS numbers
@@ -153,7 +155,45 @@ adminRouter.get('/accounts/:id', async (req, res) => {
       [id],
     ),
   ]);
-  res.json({ account, plan, usage, servers, users, subscriptions });
+  // Live health of each SIP server: phones online, provider lines, numbers, calls now and today.
+  const tenantIds = servers.map((s) => Number(s.id));
+  const [devices, lines, numbers, today] = await Promise.all([
+    onlineExtensions('AND tenant_id = ANY($1)', [tenantIds]),
+    many<Parameters<typeof lineHealth>[0]>(
+      'SELECT id, name, host, port, auth_mode, username, enabled, qualify, tenant_id FROM trunks WHERE tenant_id = ANY($1) ORDER BY id',
+      [tenantIds],
+    ),
+    many<{ id: number; number: string; label: string; tenant_id: number; trunk_id: number | null; dest_type: string }>(
+      'SELECT id, number, label, tenant_id, trunk_id, dest_type FROM numbers WHERE tenant_id = ANY($1) ORDER BY number',
+      [tenantIds],
+    ),
+    one<{ calls: number; answered: number; talk_sec: number }>(
+      `SELECT count(DISTINCT linkedid) AS calls, count(DISTINCT linkedid) FILTER (WHERE disposition = 'ANSWERED') AS answered,
+              COALESCE(sum(billsec), 0) AS talk_sec
+         FROM cdr WHERE accountcode = ANY($1) AND calldate >= date_trunc('day', now())`,
+      [tenantIds.map((t) => `t${t}`)],
+    ),
+  ]);
+  const liveCalls = new Set(live.channels.filter((c) => c.tenantId !== null && tenantIds.includes(c.tenantId)).map((c) => c.linkedid)).size;
+  res.json({
+    account,
+    plan,
+    usage,
+    servers: servers.map((s) => {
+      const tid = Number(s.id);
+      return {
+        ...s,
+        devices: devices.byTenant.get(tid) ?? { total: 0, online: 0 },
+        lines: lines.filter((l) => l.tenant_id === tid).map((l) => ({ id: l.id, name: l.name, host: l.host, ...lineHealth(l) })),
+        number_list: numbers.filter((n) => n.tenant_id === tid),
+        live_calls: new Set(live.channels.filter((c) => c.tenantId === tid).map((c) => c.linkedid)).size,
+      };
+    }),
+    users,
+    subscriptions,
+    live: { calls: liveCalls, channels_in_use: live.groups[`envo_account/a${id}`] ?? liveCalls, max_channels: plan.limits.max_channels },
+    today: { calls: Number(today?.calls ?? 0), answered: Number(today?.answered ?? 0), talk_sec: Number(today?.talk_sec ?? 0) },
+  });
 });
 
 const accountSchema = z.object({

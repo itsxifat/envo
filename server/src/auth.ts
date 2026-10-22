@@ -25,6 +25,8 @@ export interface SessionUser {
   isOwner: boolean;
   /** SIP servers this login may work in; null = every one (platform admins). */
   tenantIds: number[] | null;
+  /** A platform admin who opened this customer's portal from /admin (support access). */
+  impersonator: { id: number; name: string; email: string } | null;
 }
 
 declare module 'express-serve-static-core' {
@@ -35,6 +37,8 @@ declare module 'express-serve-static-core' {
 
 export const SESSION_COOKIE = 'envo_session';
 const SESSION_TTL_SEC = 7 * 24 * 3600;
+/** Support access to a customer's portal ends by itself after this long. */
+const IMPERSONATION_TTL_SEC = 4 * 3600;
 
 export function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 12);
@@ -44,13 +48,19 @@ export function verifyPassword(password: string, hash: string): Promise<boolean>
   return bcrypt.compare(password, hash);
 }
 
-export function issueSession(res: Response, userId: number): void {
-  const token = jwt.sign({ sub: String(userId) }, config.jwtSecret, { expiresIn: SESSION_TTL_SEC });
+/**
+ * Signs in as `userId`. With `impersonatorId` a platform admin works in that customer's portal: the
+ * session acts as the customer login and remembers who really holds it.
+ */
+export function issueSession(res: Response, userId: number, opts: { impersonatorId?: number } = {}): void {
+  const ttl = opts.impersonatorId ? IMPERSONATION_TTL_SEC : SESSION_TTL_SEC;
+  const claims = opts.impersonatorId ? { sub: String(userId), imp: String(opts.impersonatorId) } : { sub: String(userId) };
+  const token = jwt.sign(claims, config.jwtSecret, { expiresIn: ttl });
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: config.cookieSecure,
     sameSite: 'strict',
-    maxAge: SESSION_TTL_SEC * 1000,
+    maxAge: ttl * 1000,
     path: '/',
   });
 }
@@ -98,6 +108,16 @@ export async function userFromCookieHeader(cookieHeader: string | undefined): Pr
     if (row.account_status === 'closed') return null;
     if (row.role === 'agent' && row.tenant_enabled === false) return null;
   }
+  let impersonator: SessionUser['impersonator'] = null;
+  if (payload.imp) {
+    // Support access holds only while the admin behind it is still an active platform admin.
+    const imp = await one<{ id: number; name: string; email: string; role: Role; enabled: boolean }>(
+      'SELECT id, name, email, role, enabled FROM users WHERE id = $1',
+      [Number(payload.imp)],
+    );
+    if (!imp || !imp.enabled || imp.role !== 'superadmin' || row.role === 'superadmin') return null;
+    impersonator = { id: imp.id, name: imp.name, email: imp.email };
+  }
   const tenantIds = row.role === 'superadmin' ? null : row.role === 'agent' ? (row.tenant_id ? [row.tenant_id] : []) : row.account_tenants;
   const home = row.tenant_id !== null && (tenantIds === null || tenantIds.includes(row.tenant_id)) ? row.tenant_id : (tenantIds?.[0] ?? row.tenant_id);
   return {
@@ -111,6 +131,7 @@ export async function userFromCookieHeader(cookieHeader: string | undefined): Pr
     accountStatus: row.account_status,
     isOwner: row.role === 'superadmin' || row.is_owner,
     tenantIds,
+    impersonator,
   };
 }
 

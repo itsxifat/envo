@@ -18,6 +18,7 @@ import {
   PhoneIncoming,
   RefreshCw,
   Search,
+  ShieldCheck,
   Users,
   Voicemail as VoicemailIcon,
   X,
@@ -184,7 +185,7 @@ function TabBar({ onMore }: { onMore: () => void }) {
   );
 }
 
-function ApplyIndicator() {
+export function ApplyIndicator() {
   const { apply } = useLive();
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
@@ -335,17 +336,20 @@ function LiveCallsPill() {
 }
 
 function UserMenu() {
-  const { user, logout } = useAuth();
+  const { user, logout, leaveCustomerPortal } = useAuth();
   const navigate = useNavigate();
   const [pwOpen, setPwOpen] = useState(false);
   if (!user) return null;
-  const roleLabel = user.role === 'superadmin' ? 'Platform admin' : user.isOwner ? 'Owner' : user.role === 'admin' ? 'Admin' : 'Agent';
+  const support = !!user.impersonator;
+  const roleLabel = support ? 'Support access' : user.role === 'superadmin' ? 'Platform admin' : user.isOwner ? 'Owner' : user.role === 'admin' ? 'Admin' : 'Agent';
   return (
     <>
       <Menu
         items={[
           { label: user.email, disabled: true, icon: <span className="size-4" /> },
-          { label: 'Change password', icon: <KeyRound className="size-4" />, onSelect: () => setPwOpen(true), separatorBefore: true },
+          support
+            ? { label: 'Back to admin portal', icon: <ShieldCheck className="size-4" />, onSelect: () => void leaveCustomerPortal().catch((err) => toast.error(errorMessage(err))), separatorBefore: true }
+            : { label: 'Change password', icon: <KeyRound className="size-4" />, onSelect: () => setPwOpen(true), separatorBefore: true },
           { label: 'View website', icon: <Globe className="size-4" />, onSelect: () => navigate('/home') },
           { label: 'Sign out', icon: <LogOut className="size-4" />, danger: true, onSelect: () => void logout(), separatorBefore: true },
         ]}
@@ -375,7 +379,7 @@ function UserMenu() {
   );
 }
 
-function PasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function PasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [busy, setBusy] = useState(false);
@@ -424,6 +428,42 @@ function PasswordModal({ open, onClose }: { open: boolean; onClose: () => void }
   );
 }
 
+/**
+ * Shown on every page while a platform admin works in this customer's portal from /admin, with the way
+ * back. Everything done here is real and is logged under the admin's own name.
+ */
+export function SupportBanner() {
+  const { user, plan, leaveCustomerPortal } = useAuth();
+  const [busy, setBusy] = useState(false);
+  if (!user?.impersonator) return null;
+  return (
+    <div className="flex shrink-0 flex-wrap items-center justify-center gap-x-3 gap-y-1.5 bg-amber-300 px-4 py-2 text-center text-[13px] text-amber-950 print:hidden">
+      <span className="inline-flex min-w-0 items-center gap-2">
+        <ShieldCheck className="size-4 shrink-0" />
+        <span>
+          <strong className="font-semibold">Support access</strong> · {plan?.accountName ?? 'Customer'} portal, signed in as {user.name}. Changes are real and logged under your name.
+        </span>
+      </span>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            await leaveCustomerPortal();
+          } catch (err) {
+            toast.error(errorMessage(err));
+            setBusy(false);
+          }
+        }}
+        className="rounded-full bg-amber-950 px-3.5 py-1 text-xs font-semibold text-amber-50 transition hover:bg-black focus-visible:ring-4 focus-visible:ring-amber-950/25 focus-visible:outline-none disabled:opacity-60"
+      >
+        {busy ? 'Returning…' : 'Back to admin'}
+      </button>
+    </div>
+  );
+}
+
 /** Header button that opens the command palette. */
 function PaletteTrigger({ onOpen }: { onOpen: () => void }) {
   const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
@@ -460,55 +500,57 @@ export function Layout() {
   }, [location.pathname]);
 
   return (
-    <div className="flex h-full bg-canvas">
-      <a
-        href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-[90] focus:rounded-lg focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-brand-700 focus:shadow-lg"
-      >
-        Skip to content
-      </a>
-      <aside className="hidden w-[248px] shrink-0 lg:block print:hidden">
-        <Sidebar />
-      </aside>
-      {mobileOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="animate-fade-in absolute inset-0 bg-[#0b0d12]/40 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
-          <aside className="animate-drawer absolute inset-y-0 left-0 w-[min(18rem,85vw)] shadow-2xl">
-            <button
-              type="button"
-              className="absolute top-4 right-3 z-10 rounded-full p-1.5 text-slate-400 transition hover:bg-black/[0.05] hover:text-slate-700"
-              onClick={() => setMobileOpen(false)}
-              aria-label="Close menu"
-            >
-              <X className="size-5" />
-            </button>
-            <Sidebar onNavigate={() => setMobileOpen(false)} />
-          </aside>
-        </div>
-      )}
-      <div className="flex min-w-0 flex-1 flex-col lg:py-2 lg:pr-2 print:p-0">
-        <div className="flex min-h-0 flex-1 flex-col lg:overflow-hidden lg:rounded-2xl lg:border lg:border-black/[0.07] lg:bg-white lg:shadow-[var(--shadow-panel)] print:overflow-visible print:border-0 print:shadow-none">
-          <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-black/[0.06] bg-white/90 px-3 backdrop-blur-xl sm:gap-3 sm:px-6 lg:h-[60px] print:hidden">
-            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-              <NavLink to="/" className="lg:hidden" aria-label="Dashboard">
-                <LogoMark className="size-8 [&>svg]:size-[22px]" />
-              </NavLink>
-              <TenantSwitcher />
-              <PaletteTrigger onOpen={() => palette.setOpen(true)} />
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
-              <LiveCallsPill />
-              <ApplyIndicator />
-              <UserMenu />
-            </div>
-          </header>
-          <main id="main" ref={main} className="app-surface flex-1 overflow-y-auto print:overflow-visible">
-            <div className="pb-tabbar mx-auto max-w-[1400px] px-4 pt-5 sm:px-6 sm:pt-7 lg:px-10 lg:pt-9 lg:pb-16">
-              <ServerGate>
-                <Outlet />
-              </ServerGate>
-            </div>
-          </main>
+    <div className="flex h-full flex-col bg-canvas">
+      <SupportBanner />
+      <div className="flex min-h-0 flex-1">
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-[90] focus:rounded-lg focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-brand-700 focus:shadow-lg"
+        >
+          Skip to content
+        </a>
+        <aside className="hidden w-[248px] shrink-0 lg:block print:hidden">
+          <Sidebar />
+        </aside>
+        {mobileOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <div className="animate-fade-in absolute inset-0 bg-[#0b0d12]/40 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
+            <aside className="animate-drawer absolute inset-y-0 left-0 w-[min(18rem,85vw)] shadow-2xl">
+              <button
+                type="button"
+                className="absolute top-4 right-3 z-10 rounded-full p-1.5 text-slate-400 transition hover:bg-black/[0.05] hover:text-slate-700"
+                onClick={() => setMobileOpen(false)}
+                aria-label="Close menu"
+              >
+                <X className="size-5" />
+              </button>
+              <Sidebar onNavigate={() => setMobileOpen(false)} />
+            </aside>
+          </div>
+        )}
+        <div className="flex min-w-0 flex-1 flex-col lg:py-2 lg:pr-2 print:p-0">
+          <div className="flex min-h-0 flex-1 flex-col lg:overflow-hidden lg:rounded-2xl lg:border lg:border-black/[0.07] lg:bg-white lg:shadow-[var(--shadow-panel)] print:overflow-visible print:border-0 print:shadow-none">
+            <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-black/[0.06] bg-white/90 px-3 backdrop-blur-xl sm:gap-3 sm:px-6 lg:h-[60px] print:hidden">
+              <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                <NavLink to="/" className="lg:hidden" aria-label="Dashboard">
+                  <LogoMark className="size-8 [&>svg]:size-[22px]" />
+                </NavLink>
+                <TenantSwitcher />
+                <PaletteTrigger onOpen={() => palette.setOpen(true)} />
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
+                <LiveCallsPill />
+                <UserMenu />
+              </div>
+            </header>
+            <main id="main" ref={main} className="app-surface flex-1 overflow-y-auto print:overflow-visible">
+              <div className="pb-tabbar mx-auto max-w-[1400px] px-4 pt-5 sm:px-6 sm:pt-7 lg:px-10 lg:pt-9 lg:pb-16">
+                <ServerGate>
+                  <Outlet />
+                </ServerGate>
+              </div>
+            </main>
+          </div>
         </div>
       </div>
       <TabBar onMore={() => setMobileOpen(true)} />
@@ -572,7 +614,7 @@ function PaletteHint({ onOpen }: { onOpen: () => void }) {
 }
 
 /** Pages that work without a SIP server (account, billing, platform administration). */
-const SERVERLESS = ['/servers', '/admin', '/account', '/billing', '/system', '/users'];
+const SERVERLESS = ['/servers', '/account', '/billing', '/users'];
 
 /**
  * Nothing to manage yet (a fresh platform, or a customer whose package has no server): instead of
@@ -584,7 +626,6 @@ function ServerGate({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const exempt = SERVERLESS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   if (!loaded || tenants.length > 0 || exempt || user?.role === 'agent') return <>{children}</>;
-  const platform = user?.role === 'superadmin';
   return (
     <div className="mx-auto max-w-xl pt-6 sm:pt-12">
       <div className="card px-6 py-10 text-center sm:px-10">
@@ -592,24 +633,13 @@ function ServerGate({ children }: { children: React.ReactNode }) {
           <Building2 className="size-7" />
         </div>
         <h1 className="font-display mt-5 text-[26px] leading-tight font-semibold tracking-[-0.03em] text-slate-950">Create your first SIP server</h1>
-        <p className="mt-2 text-[15px] text-slate-500">
-          {platform
-            ? 'A SIP server is a complete phone system: extensions, numbers, IVRs and call routing. Create one for Enfinito, or for a customer from Business → Customers.'
-            : 'A SIP server is your phone system: extensions, numbers, IVRs and call routing. Create it to get started.'}
-        </p>
+        <p className="mt-2 text-[15px] text-slate-500">A SIP server is your phone system: extensions, numbers, IVRs and call routing. Create it to get started.</p>
         <div className="mt-6 flex flex-col justify-center gap-2 sm:flex-row">
           <NavLink to="/servers">
             <Button variant="primary" size="lg" className="w-full sm:w-auto">
               Create a SIP server
             </Button>
           </NavLink>
-          {platform && (
-            <NavLink to="/admin/customers">
-              <Button size="lg" className="w-full sm:w-auto">
-                Customers
-              </Button>
-            </NavLink>
-          )}
         </div>
       </div>
     </div>

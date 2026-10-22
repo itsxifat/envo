@@ -4,25 +4,28 @@ import {
   AudioLines,
   BadgeDollarSign,
   Briefcase,
-  CreditCard,
-  Mail,
-  Receipt,
   Building2,
-  Gem,
   Clock,
   Code2,
+  CreditCard,
   FileAudio,
   Gauge,
+  Gem,
   Hash,
   History,
   LayoutDashboard,
   ListTree,
+  Mail,
   Network,
+  PhoneOutgoing,
   Presentation,
-  Route,
+  Receipt,
+  Rocket,
+  ScrollText,
   Server,
   Settings,
   ShieldBan,
+  ShieldCheck,
   UserRound,
   Users,
   Voicemail,
@@ -42,6 +45,8 @@ export interface NavItem {
   owner?: boolean;
   /** Extra words the command palette should match on. */
   keywords?: string;
+  /** Active only on this exact path (index pages). */
+  end?: boolean;
 }
 
 export interface NavGroup {
@@ -49,56 +54,85 @@ export interface NavGroup {
   items: NavItem[];
 }
 
+const ADMINS: Role[] = ['superadmin', 'admin'];
+
+/** The customer portal. Names say what a thing does for the caller, not what it is called in SIP. */
 export const NAV: NavGroup[] = [
   {
     title: 'Overview',
     items: [
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, keywords: 'home overview stats' },
-      { to: '/live', label: 'Live calls', icon: Activity, roles: ['superadmin', 'admin'], feature: 'call_monitoring', keywords: 'active channels monitor spy whisper barge' },
-      { to: '/calls', label: 'Call logs', icon: History, keywords: 'cdr history recordings' },
+      { to: '/get-started', label: 'Get started', icon: Rocket, roles: ADMINS, keywords: 'setup guide wizard onboarding first steps connect number' },
+      { to: '/live', label: 'Live calls', icon: Activity, roles: ADMINS, feature: 'call_monitoring', keywords: 'active channels monitor spy whisper barge' },
+      { to: '/calls', label: 'Call history', icon: History, keywords: 'cdr call logs history' },
       { to: '/recordings', label: 'Recordings', icon: AudioLines, keywords: 'call recordings audio listen play download retention days left storage' },
       { to: '/voicemail', label: 'Voicemail', icon: Voicemail, keywords: 'messages inbox' },
     ],
   },
   {
-    title: 'PBX',
+    title: 'People',
     items: [
-      { to: '/extensions', label: 'Extensions', icon: Users, roles: ['superadmin', 'admin'], keywords: 'sip accounts users phones desk softphone credentials' },
-      { to: '/numbers', label: 'Phone numbers', icon: Hash, roles: ['superadmin', 'admin'], keywords: 'did inbound routing msisdn' },
-      { to: '/ivrs', label: 'IVR menus', icon: ListTree, roles: ['superadmin', 'admin'], keywords: 'auto attendant press 1 menu greeting' },
-      { to: '/ring-groups', label: 'Ring groups', icon: Network, roles: ['superadmin', 'admin'], keywords: 'hunt group ring all' },
-      { to: '/queues', label: 'Queues', icon: Gauge, roles: ['superadmin', 'admin'], keywords: 'call center agents hold music' },
-      { to: '/conferences', label: 'Conference rooms', icon: Presentation, roles: ['superadmin', 'admin'], keywords: 'meeting bridge room pin' },
-      { to: '/time-conditions', label: 'Time conditions', icon: Clock, roles: ['superadmin', 'admin'], keywords: 'office hours schedule holiday open closed' },
-      { to: '/sounds', label: 'Sounds', icon: FileAudio, roles: ['superadmin', 'admin'], keywords: 'prompts greetings music on hold tts upload' },
-      { to: '/blocked', label: 'Blocked callers', icon: ShieldBan, roles: ['superadmin', 'admin'], keywords: 'blacklist spam reject' },
+      { to: '/extensions', label: 'Extensions & phones', icon: Users, roles: ADMINS, keywords: 'extensions sip accounts users phones desk softphone credentials' },
+      { to: '/users', label: 'Team logins', icon: UserRound, roles: ADMINS, keywords: 'team users people logins roles admin agent password invite' },
     ],
   },
   {
-    title: 'Connectivity',
+    title: 'Incoming calls',
     items: [
-      { to: '/trunks', label: 'SIP trunks', icon: Server, roles: ['superadmin', 'admin'], keywords: 'provider iptsp carrier register gateway' },
-      { to: '/routes', label: 'Outbound routes', icon: Route, roles: ['superadmin', 'admin'], keywords: 'dial patterns prefix least cost' },
+      { to: '/numbers', label: 'Phone numbers', icon: Hash, roles: ADMINS, keywords: 'did inbound routing msisdn connect number' },
+      { to: '/ivrs', label: 'IVR menus', icon: ListTree, roles: ADMINS, keywords: 'auto attendant press 1 menu greeting' },
+      { to: '/ring-groups', label: 'Ring groups', icon: Network, roles: ADMINS, keywords: 'hunt group ring all team everyone' },
+      { to: '/queues', label: 'Call queues', icon: Gauge, roles: ADMINS, keywords: 'call center agents hold music queues' },
+      { to: '/time-conditions', label: 'Business hours', icon: Clock, roles: ADMINS, keywords: 'time conditions office hours schedule holiday open closed' },
+      { to: '/conferences', label: 'Conference rooms', icon: Presentation, roles: ADMINS, keywords: 'meeting bridge room pin' },
+      { to: '/sounds', label: 'Greetings & sounds', icon: FileAudio, roles: ADMINS, keywords: 'prompts greetings music on hold tts upload sounds' },
+      { to: '/blocked', label: 'Blocked callers', icon: ShieldBan, roles: ADMINS, keywords: 'blacklist spam reject' },
     ],
   },
   {
-    title: 'Administration',
+    title: 'Outgoing calls',
     items: [
-      { to: '/servers', label: 'SIP servers', icon: Building2, roles: ['superadmin', 'admin'], keywords: 'tenants multi tenant pbx instance' },
-      { to: '/users', label: 'Team', icon: UserRound, roles: ['superadmin', 'admin'], keywords: 'users people logins roles admin agent password invite' },
-      { to: '/developers', label: 'Developers', icon: Code2, roles: ['superadmin', 'admin'], feature: 'api_access', keywords: 'api keys webhooks embed widget integration commerce' },
+      { to: '/trunks', label: 'Phone lines', icon: Server, roles: ADMINS, keywords: 'sip trunks provider iptsp carrier register gateway lines' },
+      { to: '/routes', label: 'Calling rules', icon: PhoneOutgoing, roles: ADMINS, keywords: 'outbound routes dial patterns prefix least cost' },
+    ],
+  },
+  {
+    title: 'Account',
+    items: [
+      { to: '/servers', label: 'SIP servers', icon: Building2, roles: ADMINS, keywords: 'tenants multi tenant pbx instance phone system settings timezone' },
+      { to: '/developers', label: 'Developers', icon: Code2, roles: ADMINS, feature: 'api_access', keywords: 'api keys webhooks embed widget integration commerce' },
       { to: '/account', label: 'Plan & usage', icon: Gem, roles: ['admin'], customer: true, keywords: 'package subscription limits upgrade' },
       { to: '/billing', label: 'Billing', icon: CreditCard, roles: ['admin'], customer: true, owner: true, keywords: 'invoice pay payment bkash card renew upgrade package' },
-      { to: '/system', label: 'System', icon: Settings, roles: ['superadmin'], keywords: 'health asterisk modules audit backup settings' },
+    ],
+  },
+];
+
+/** The support console at /admin (platform admins only). */
+export const ADMIN_NAV: NavGroup[] = [
+  {
+    title: 'Support',
+    items: [
+      { to: '/admin', label: 'Overview', icon: LayoutDashboard, end: true, keywords: 'home dashboard attention' },
+      { to: '/admin/customers', label: 'Customers', icon: Briefcase, keywords: 'accounts clients subscribers companies suspend open portal' },
+      { to: '/admin/live', label: 'Live monitor', icon: Activity, keywords: 'calls now channels hang up' },
+      { to: '/admin/lines', label: 'Lines & numbers', icon: Server, keywords: 'trunks registrations provider dids' },
+      { to: '/admin/activity', label: 'Activity log', icon: ScrollText, keywords: 'audit history who changed' },
     ],
   },
   {
     title: 'Business',
     items: [
-      { to: '/admin/customers', label: 'Customers', icon: Briefcase, roles: ['superadmin'], keywords: 'accounts clients subscribers tenants companies suspend' },
-      { to: '/admin/sales', label: 'Sales', icon: Receipt, roles: ['superadmin'], keywords: 'revenue invoices payments mrr approve bkash sslcommerz' },
-      { to: '/admin/packages', label: 'Packages', icon: BadgeDollarSign, roles: ['superadmin'], keywords: 'plans pricing limits price tiers' },
-      { to: '/admin/email', label: 'Email', icon: Mail, roles: ['superadmin'], keywords: 'smtp mail notifications verification sender' },
+      { to: '/admin/sales', label: 'Sales & invoices', icon: Receipt, keywords: 'revenue invoices payments mrr approve bkash sslcommerz' },
+      { to: '/admin/packages', label: 'Packages', icon: BadgeDollarSign, keywords: 'plans pricing limits price tiers' },
+    ],
+  },
+  {
+    title: 'Platform',
+    items: [
+      { to: '/admin/system', label: 'System health', icon: Settings, keywords: 'asterisk modules cli logs settings sip domain' },
+      { to: '/admin/billing-settings', label: 'Payments', icon: CreditCard, keywords: 'sslcommerz manual payment settings grace' },
+      { to: '/admin/email', label: 'Email', icon: Mail, keywords: 'smtp mail notifications verification sender' },
+      { to: '/admin/staff', label: 'Staff', icon: ShieldCheck, keywords: 'platform admins team support' },
     ],
   },
 ];

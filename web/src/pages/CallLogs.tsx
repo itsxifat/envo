@@ -67,7 +67,7 @@ export function CallLogsPage() {
 
   return (
     <div>
-      <PageHeader title="Call logs" icon={<History className="size-5" />} description="Every call, with recordings when enabled" actions={<CallsNav />} />
+      <PageHeader title="Call history" icon={<History className="size-5" />} description="Every call, with recordings when enabled" actions={<CallsNav />} />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Tabs value={range} onChange={(v) => { setRange(v); setPage(1); }} tabs={Object.entries(RANGES).map(([value, label]) => ({ value: value as Range, label }))} />

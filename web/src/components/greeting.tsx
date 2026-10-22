@@ -111,6 +111,11 @@ export function GreetingMaker({ onCreated, placeholder, name: defaultName }: { o
           )}
           {previewUrl && <audio controls autoPlay src={previewUrl} className="h-9 w-full" />}
           <div className="flex flex-wrap gap-2">
+            {placeholder && !text.trim() && (
+              <Button size="sm" variant="ghost" onClick={() => setText(placeholder.slice(0, 1500))}>
+                Use the example
+              </Button>
+            )}
             <Button size="sm" icon={<Play className="size-4" />} loading={busy === 'preview'} disabled={text.trim().length < 2} onClick={preview}>
               Listen
             </Button>

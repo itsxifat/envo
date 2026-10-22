@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import clsx from 'clsx';
 import { Hash, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useList, useRemove, useSave } from '../lib/hooks';
@@ -6,6 +6,7 @@ import { useAuth } from '../state/auth';
 import { useLive } from '../state/live';
 import type { PhoneNumber, Trunk } from '../lib/types';
 import { DestLabel, DestinationPicker } from '../components/DestinationPicker';
+import { ConnectNumberModal } from '../components/connectNumber';
 import {
   Badge,
   Button,
@@ -39,12 +40,17 @@ const EMPTY: Form = {
 
 export function NumbersPage() {
   const list = useList<PhoneNumber>('numbers');
+  const trunks = useList<Trunk>('trunks');
   const remove = useRemove('numbers', 'Number removed');
   const confirm = useConfirm();
   const { user } = useAuth();
   const { groups } = useLive();
   const [editing, setEditing] = useState<PhoneNumber | 'new' | null>(null);
+  const [connecting, setConnecting] = useState(false);
   const isSuper = user?.role === 'superadmin';
+  // Customers may remove numbers on their own lines; numbers on lines Envo provides stay with support.
+  const ownLines = useMemo(() => new Set((trunks.data ?? []).filter((t) => t.tenant_id !== null).map((t) => t.id)), [trunks.data]);
+  const canRemove = (n: PhoneNumber) => isSuper || (n.trunk_id !== null && ownLines.has(n.trunk_id));
 
   const liveByDid = (n: PhoneNumber) => groups[`envo_did/did${n.id}`] ?? 0;
 
@@ -53,13 +59,18 @@ export function NumbersPage() {
       <PageHeader
         title="Phone numbers"
         icon={<Hash className="size-5" />}
-        description="Your DIDs / IP phone numbers and where each one rings"
+        description="Your phone numbers and where each one rings"
         actions={
-          isSuper && (
-            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>
-              Add number
+          <>
+            {isSuper && (
+              <Button icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>
+                Add number
+              </Button>
+            )}
+            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setConnecting(true)}>
+              Connect a number
             </Button>
-          )
+          </>
         }
       />
       <Card>
@@ -71,8 +82,8 @@ export function NumbersPage() {
           <EmptyState
             icon={<Hash className="size-5" />}
             title="No phone numbers yet"
-            description={isSuper ? 'Add the numbers your provider assigned and choose where incoming calls should go.' : 'Ask your platform administrator to assign numbers to this SIP server.'}
-            action={isSuper && <Button variant="primary" onClick={() => setEditing('new')}>Add number</Button>}
+            description="Connect the number you bought from your IP phone provider, then choose where its calls ring."
+            action={<Button variant="primary" onClick={() => setConnecting(true)}>Connect a number</Button>}
           />
         ) : (
           <div className="overflow-x-auto">
@@ -80,7 +91,7 @@ export function NumbersPage() {
               <thead>
                 <tr>
                   <th>Number</th>
-                  <th>Trunk</th>
+                  <th>Line</th>
                   <th>Incoming calls go to</th>
                   <th>Channels</th>
                   <th className="w-24" />
@@ -97,7 +108,7 @@ export function NumbersPage() {
                         {n.recording === 'on' && <Badge tone="violet">Rec</Badge>}
                       </div>
                     </td>
-                    <td className="text-sm text-slate-600">{n.trunk_name ?? <span className="text-slate-400">Any trunk</span>}</td>
+                    <td className="text-sm text-slate-600">{n.trunk_name ?? <span className="text-slate-400">Any line</span>}</td>
                     <td className="text-sm">
                       <DestLabel type={n.dest_type} target={n.dest_target} />
                     </td>
@@ -110,7 +121,7 @@ export function NumbersPage() {
                         <IconButton label="Edit" onClick={() => setEditing(n)}>
                           <Pencil className="size-4" />
                         </IconButton>
-                        {isSuper && (
+                        {canRemove(n) && (
                           <IconButton
                             label="Remove"
                             tone="danger"
@@ -131,6 +142,7 @@ export function NumbersPage() {
         )}
       </Card>
       {editing && <NumberModal number={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {connecting && <ConnectNumberModal onClose={() => setConnecting(false)} />}
     </div>
   );
 }
@@ -175,9 +187,9 @@ function NumberModal({ number, onClose }: { number: PhoneNumber | null; onClose:
         </Field>
         {isSuper && (
           <>
-            <Field label="Trunk" hint="The provider connection this number belongs to">
+            <Field label="Line" hint="The provider line this number arrives on">
               <Select value={form.trunk_id ?? ''} onChange={(e) => set('trunk_id', e.target.value ? Number(e.target.value) : null)}>
-                <option value="">Any trunk</option>
+                <option value="">Any line</option>
                 {trunks.data?.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name}

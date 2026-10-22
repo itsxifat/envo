@@ -31,12 +31,12 @@ export interface SetupStatus {
 }
 
 /** How far the current SIP server is from taking calls (GET /api/setup/status). */
-export function useSetupStatus(opts: { fast?: boolean } = {}) {
+export function useSetupStatus(opts: { fast?: boolean; enabled?: boolean } = {}) {
   const { tenantId } = useTenant();
   return useQuery({
     queryKey: ['setup', tenantId],
     queryFn: () => api.get<SetupStatus>(scoped('/api/setup/status', tenantId)),
-    enabled: !!tenantId,
+    enabled: !!tenantId && (opts.enabled ?? true),
     refetchInterval: opts.fast ? 3000 : 15_000,
   });
 }

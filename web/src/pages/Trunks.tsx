@@ -67,9 +67,9 @@ export function TrunksPage() {
   return (
     <div>
       <PageHeader
-        title="SIP trunks"
+        title="Phone lines"
         icon={<Server className="size-5" />}
-        description="Connections to your SIP providers / IP phone number operators"
+        description="Your accounts with IP phone providers: calls to your numbers arrive on them"
         actions={
           <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>
             Add trunk
@@ -144,7 +144,7 @@ export function TrunksPage() {
                               label="Delete"
                               tone="danger"
                               onClick={async () => {
-                                if (await confirm({ title: `Delete trunk "${t.name}"?`, message: 'Calls through this provider stop immediately. Outbound routes using it are updated.', confirmLabel: 'Delete', danger: true })) remove.mutate(t.id);
+                                if (await confirm({ title: `Delete line "${t.name}"?`, message: 'Calls through this provider stop immediately. Calling rules that use it are updated.', confirmLabel: 'Delete', danger: true })) remove.mutate(t.id);
                               }}
                             >
                               <Trash2 className="size-4" />

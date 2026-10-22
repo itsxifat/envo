@@ -34,7 +34,7 @@ export function SoundsPage() {
 
   return (
     <div>
-      <PageHeader title="Sounds" icon={<FileAudio className="size-5" />} description="Greetings and announcements for IVRs, queues and conferences" />
+      <PageHeader title="Greetings & sounds" icon={<FileAudio className="size-5" />} description="What callers hear in menus, queues and conference rooms" />
       <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
         <div className="space-y-4">
           <Tabs

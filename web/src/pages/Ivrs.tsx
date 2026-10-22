@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { ListTree, Music, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { ListTree, Music, Pencil, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { useList, useRemove, useSave } from '../lib/hooks';
 import { useTenant } from '../state/tenant';
 import { scoped } from '../lib/api';
 import type { Ivr, IvrOption, Sound } from '../lib/types';
 import { DestLabel, DestinationPicker } from '../components/DestinationPicker';
+import { GreetingMaker } from '../components/greeting';
 import {
   Badge,
   Button,
@@ -129,6 +130,7 @@ function IvrModal({ ivr, sounds, onClose }: { ivr: Ivr | null; sounds: Sound[]; 
   const { tenantId } = useTenant();
   const [form, setForm] = useState<Form>(() => (ivr ? { ...EMPTY, ...ivr } : { ...EMPTY, options: [{ digit: '1', dest_type: 'extension', dest_target: '' }] }));
   const save = useSave('ivrs', { created: 'IVR created', updated: 'IVR saved' });
+  const [making, setMaking] = useState(false);
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }));
   const setOption = (i: number, patch: Partial<IvrOption>) => set('options', form.options.map((o, j) => (j === i ? { ...o, ...patch } : o)));
   const unused = DIGITS.filter((d) => !form.options.some((o) => o.digit === d));
@@ -165,7 +167,7 @@ function IvrModal({ ivr, sounds, onClose }: { ivr: Ivr | null; sounds: Sound[]; 
           <Field label="Internal number (optional)" hint="Dial it from any extension to test the menu">
             <Input value={form.number} onChange={(e) => set('number', e.target.value.replace(/\D/g, ''))} placeholder="700" />
           </Field>
-          <Field label="Greeting" hint="Upload recordings on the Sounds page">
+          <Field label="Greeting" hint={making ? undefined : 'Pick a saved greeting, or make a new one'}>
             <Select value={form.greeting_sound_id ?? ''} onChange={(e) => set('greeting_sound_id', e.target.value ? Number(e.target.value) : null)}>
               <option value="">No greeting (silence)</option>
               {sounds.map((s) => (
@@ -176,6 +178,27 @@ function IvrModal({ ivr, sounds, onClose }: { ivr: Ivr | null; sounds: Sound[]; 
             </Select>
             {greeting && <audio controls preload="none" src={scoped(`/api/sounds/${greeting.id}/audio`, tenantId)} className="mt-2 h-9 w-full" />}
           </Field>
+          {making ? (
+            <div className="rounded-xl border border-slate-200 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="text-[13px] font-medium text-slate-700">New greeting</span>
+                <IconButton label="Cancel" onClick={() => setMaking(false)}>
+                  <X className="size-4" />
+                </IconButton>
+              </div>
+              <GreetingMaker
+                name={form.name ? `${form.name} greeting` : undefined}
+                onCreated={(sound) => {
+                  set('greeting_sound_id', sound.id);
+                  setMaking(false);
+                }}
+              />
+            </div>
+          ) : (
+            <Button size="sm" icon={<Sparkles className="size-4" />} onClick={() => setMaking(true)}>
+              Make a new greeting
+            </Button>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <Field label="Wait for input (s)">
               <NumberInput value={form.timeout} onChange={(v) => set('timeout', v)} min={1} max={60} />

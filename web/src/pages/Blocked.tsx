@@ -103,7 +103,7 @@ export function BlockedPage() {
         </Card>
       </div>
       <p className="mt-4 flex items-center gap-1.5 text-xs text-slate-500">
-        <Plus className="size-3.5" /> Tip: use the block button next to any inbound call in Call logs.
+        <Plus className="size-3.5" /> Tip: use the block button next to any incoming call in Call history.
       </p>
     </div>
   );

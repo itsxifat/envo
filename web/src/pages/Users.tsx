@@ -37,7 +37,7 @@ export function UsersPage() {
   return (
     <div>
       <PageHeader
-        title="Team"
+        title="Team logins"
         icon={<UserRound className="size-5" />}
         description="People who sign in to Envo, and the extension each one calls from"
         actions={

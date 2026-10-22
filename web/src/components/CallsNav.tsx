@@ -3,7 +3,7 @@ import clsx from 'clsx';
 import { AudioLines, History } from 'lucide-react';
 
 const TABS = [
-  { to: '/calls', label: 'Call logs', icon: History },
+  { to: '/calls', label: 'Call history', icon: History },
   { to: '/recordings', label: 'Recordings', icon: AudioLines },
 ];
 

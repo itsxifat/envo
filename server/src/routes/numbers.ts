@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { many, one, exec, insertParts, updateSet } from '../db.js';
 import { requireRole, tenantOf, assertTenantAccess } from '../auth.js';
 import { accountOfTenant, assertLimit } from '../billing/plan.js';
-import { badRequest, intParam, notFound } from '../lib/http.js';
+import { badRequest, forbidden, intParam, notFound } from '../lib/http.js';
 import { assertDestination, audit, destTarget, destType, phoneNumber } from '../lib/validate.js';
 import { scheduleApply } from '../asterisk/apply.js';
 import type { PhoneNumber } from '../asterisk/model.js';
@@ -80,6 +80,10 @@ numberRouter.put('/:id', requireRole('superadmin', 'admin'), async (req, res) =>
 
 numberRouter.delete('/:id', requireRole('superadmin', 'admin'), async (req, res) => {
   const existing = await load(req);
+  // Customers remove numbers on their own lines; a number on a line Envo provides goes through support.
+  if (req.user!.role !== 'superadmin' && !(await one('SELECT 1 FROM trunks WHERE id = $1 AND tenant_id = $2', [existing.trunk_id, existing.tenant_id]))) {
+    throw forbidden('This number is on a line Envo provides. Contact support to remove it.');
+  }
   await exec('DELETE FROM numbers WHERE id = $1', [existing.id]);
   await audit(req, 'delete', 'number', existing.id, existing.number, existing.tenant_id);
   scheduleApply();

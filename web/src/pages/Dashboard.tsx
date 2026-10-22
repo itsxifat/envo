@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { api, scoped } from '../lib/api';
 import { useTenant } from '../state/tenant';
-import { useAuth, useIsAdmin } from '../state/auth';
+import { useAuth, useFeature, useIsAdmin } from '../state/auth';
 import { useLive } from '../state/live';
 import { usePhone } from '../phone/PhoneProvider';
 import { formatDuration, parseCallerId, timeAgo } from '../lib/format';
@@ -32,6 +32,7 @@ import type { CallRow, Trunk } from '../lib/types';
 import { Badge, Button, Card, CardHeader, EmptyState, ListSkeleton, PageHeader, Stat, StatSkeleton, StatusDot, Trend } from '../components/ui';
 import { HourlyChart, type HourPoint } from '../components/HourlyChart';
 import { MyPhoneSetup } from '../components/people';
+import { SETUP_STEPS, useSetupProgress } from './GetStarted';
 
 interface Summary {
   extensions: { total: number; online: number };
@@ -97,6 +98,8 @@ export function DashboardPage() {
   const { tenantId, tenant } = useTenant();
   const { user } = useAuth();
   const isAdmin = useIsAdmin();
+  // Webhooks and the website embed come with the developer API, which not every package includes.
+  const apiAccess = useFeature('api_access');
   const live = useLive();
   const phone = usePhone();
 
@@ -126,7 +129,7 @@ export function DashboardPage() {
   const webhooks = useQuery({
     queryKey: ['list', 'webhooks', tenantId],
     queryFn: () => api.get<WebhookRow[]>(scoped('/api/integrations/webhooks', tenantId)),
-    enabled: !!tenantId && isAdmin,
+    enabled: !!tenantId && isAdmin && apiAccess,
     refetchInterval: 120_000,
   });
 
@@ -137,14 +140,10 @@ export function DashboardPage() {
   const daily = stats.data?.daily ?? [];
   const answerRate = today && today.total ? Math.round((today.answered / today.total) * 100) : null;
 
-  const steps = [
-    { done: (s?.trunks.total ?? 0) > 0, label: 'Connect a SIP trunk (your IP phone provider)', to: '/trunks' },
-    { done: (s?.numbers ?? 0) > 0, label: 'Add a phone number and choose where it rings', to: '/numbers' },
-    { done: (s?.extensions.online ?? 0) > 0, label: 'Get a phone online: the web phone, a desk phone or an app', to: '/extensions' },
-    { done: phone.reg === 'registered', label: 'Open the web phone and dial *43 to test audio', to: null },
-  ];
-  const doneCount = steps.filter((x) => x.done).length;
-  const showSetup = isAdmin && doneCount < steps.length;
+  const setup = useSetupProgress({ enabled: isAdmin });
+  // Shown to admins until every step of the guide is done.
+  const setupDone = isAdmin && setup.count < SETUP_STEPS.length ? setup.done : null;
+  const setupPct = Math.round((setup.count / SETUP_STEPS.length) * 100);
 
   const issues = useMemo<Issue[]>(() => {
     const out: Issue[] = [];
@@ -170,13 +169,13 @@ export function DashboardPage() {
         out.push({
           key: `trunk:${t.id}`,
           tone: 'danger',
-          title: `Trunk “${t.name}” is ${st.label.toLowerCase()}`,
-          detail: `${t.host} is not accepting this SIP server. Outside calls over this trunk will fail.`,
+          title: `Phone line “${t.name}” is ${st.label.toLowerCase()}`,
+          detail: `Your provider (${t.host}) is not accepting this phone system, so outside calls on this line fail.`,
           to: '/trunks',
-          action: 'Check trunk',
+          action: 'Check the line',
         });
       } else if (st.tone === 'amber' && t.enabled) {
-        out.push({ key: `trunk:${t.id}`, tone: 'warn', title: `Trunk “${t.name}” is ${st.label.toLowerCase()}`, detail: `Waiting for ${t.host} to respond.`, to: '/trunks', action: 'Check trunk' });
+        out.push({ key: `trunk:${t.id}`, tone: 'warn', title: `Phone line “${t.name}” is ${st.label.toLowerCase()}`, detail: `Waiting for your provider (${t.host}) to answer.`, to: '/trunks', action: 'Check the line' });
       }
     }
     if (isAdmin && s && s.extensions.total > 0 && s.extensions.online === 0) {
@@ -204,7 +203,7 @@ export function DashboardPage() {
         description={tenant ? `${tenant.name} · live overview` : 'Live overview'}
         actions={
           <>
-            {isAdmin && (
+            {isAdmin && apiAccess && (
               <Link to="/developers">
                 <Button icon={<Code2 className="size-4" />}>Connect a website</Button>
               </Link>
@@ -313,39 +312,39 @@ export function DashboardPage() {
         </Card>
       )}
 
-      {showSetup && (
+      {setupDone && (
         <Card className="mt-4 overflow-hidden sm:mt-6">
           <div className="relative flex flex-wrap items-center justify-between gap-4 overflow-hidden bg-ink-950 px-4 py-5 text-white sm:px-6">
             <div>
-              <h3 className="font-display text-lg font-semibold tracking-tight">Get this SIP server taking calls</h3>
+              <h3 className="font-display text-lg font-semibold tracking-tight">Finish setting up your phone system</h3>
               <p className="mt-0.5 text-sm text-slate-400">
-                {doneCount} of {steps.length} steps done
+                {setup.count} of {SETUP_STEPS.length} steps done
               </p>
             </div>
             <div className="flex items-center gap-3">
               <div className="h-2 w-40 overflow-hidden rounded-full bg-white/15 sm:w-48">
-                <div className="h-full rounded-full bg-brand-500 transition-all duration-700" style={{ width: `${(doneCount / steps.length) * 100}%` }} />
+                <div className="h-full rounded-full bg-brand-500 transition-all duration-700" style={{ width: `${setupPct}%` }} />
               </div>
-              <span className="text-sm font-semibold tabular-nums text-white">{Math.round((doneCount / steps.length) * 100)}%</span>
+              <span className="text-sm font-semibold tabular-nums text-white">{setupPct}%</span>
             </div>
           </div>
           <ul className="divide-y divide-slate-100">
-            {steps.map((st) => (
-              <li key={st.label} className="flex items-center gap-3 px-4 py-3 text-sm sm:px-6">
-                {st.done ? <CheckCircle2 className="size-5 shrink-0 text-emerald-500" /> : <Circle className="size-5 shrink-0 text-slate-300" />}
-                <span className={clsx('flex-1', st.done ? 'text-slate-400 line-through' : 'text-slate-700')}>{st.label}</span>
-                {!st.done &&
-                  (st.to ? (
-                    <Link to={st.to} className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-700 hover:text-brand-800">
-                      Open <ArrowRight className="size-3.5" />
-                    </Link>
-                  ) : (
-                    <button type="button" className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-700 hover:text-brand-800" onClick={() => phone.setPanelOpen(true)}>
-                      Open phone <ArrowRight className="size-3.5" />
-                    </button>
-                  ))}
-              </li>
-            ))}
+            {SETUP_STEPS.map((st) => {
+              const done = setupDone[st.key];
+              return (
+                <li key={st.key}>
+                  <Link to={`/get-started#${st.key}`} className="group/step flex items-center gap-3 px-4 py-3 text-sm transition-colors hover:bg-slate-50/70 sm:px-6">
+                    {done ? <CheckCircle2 className="size-5 shrink-0 text-emerald-500" /> : <Circle className="size-5 shrink-0 text-slate-300" />}
+                    <span className={clsx('flex-1', done ? 'text-slate-400 line-through' : 'text-slate-700')}>{st.title}</span>
+                    {!done && (
+                      <span className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-700 group-hover/step:text-brand-800">
+                        {st.key === setup.next ? 'Continue' : 'Open'} <ArrowRight className="size-3.5" />
+                      </span>
+                    )}
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </Card>
       )}
@@ -377,7 +376,7 @@ export function DashboardPage() {
               </div>
               <div className="flex items-center justify-between gap-3">
                 <dt className="flex items-center gap-2 text-slate-600">
-                  <Server className="size-4 text-slate-400" /> Trunks registered
+                  <Server className="size-4 text-slate-400" /> Lines connected
                 </dt>
                 <dd className="font-semibold tabular-nums text-slate-900">{s ? `${s.trunks.registered} / ${s.trunks.total}` : '—'}</dd>
               </div>
@@ -441,7 +440,7 @@ export function DashboardPage() {
           <div className="min-w-0 space-y-6">
             <Card>
               <CardHeader
-                title="SIP trunks"
+                title="Phone lines"
                 actions={
                   <Link to="/trunks" className="text-sm font-medium text-brand-700 hover:text-brand-800">
                     Manage
@@ -469,12 +468,12 @@ export function DashboardPage() {
               ) : (
                 <EmptyState
                   icon={<Server className="size-5" />}
-                  title="No trunks yet"
-                  description="Connect your SIP provider to make and receive outside calls."
+                  title="No phone lines yet"
+                  description="Connect the number you bought from your provider to make and take outside calls."
                   action={
-                    <Link to="/trunks">
+                    <Link to="/get-started#number">
                       <Button size="sm" variant="primary" icon={<Plus className="size-4" />}>
-                        Add a trunk
+                        Connect a number
                       </Button>
                     </Link>
                   }
@@ -487,9 +486,9 @@ export function DashboardPage() {
               <div className="grid grid-cols-2 gap-2 p-3">
                 {[
                   { to: '/users?add=1', label: 'Add a person', icon: UserPlus },
-                  { to: '/numbers', label: 'Add number', icon: Hash },
+                  { to: '/numbers', label: 'Connect a number', icon: Hash },
                   { to: '/ivrs', label: 'Build an IVR', icon: PhoneIncoming },
-                  { to: '/developers', label: 'API & embed', icon: Code2 },
+                  apiAccess ? { to: '/developers', label: 'API & embed', icon: Code2 } : { to: '/time-conditions', label: 'Set business hours', icon: Clock },
                 ].map((a) => (
                   <Link
                     key={a.to}

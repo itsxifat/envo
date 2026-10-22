@@ -65,9 +65,9 @@ export function TimeConditionsPage() {
   return (
     <div>
       <PageHeader
-        title="Time conditions"
+        title="Business hours"
         icon={<Clock className="size-5" />}
-        description={`Route calls by business hours and holidays · ${tz}`}
+        description={`Send calls to different places when you are open, closed or on holiday · ${tz}`}
         actions={
           <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>
             New time condition

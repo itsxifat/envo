@@ -90,9 +90,9 @@ export function ExtensionsPage() {
   return (
     <div>
       <PageHeader
-        title="Extensions"
+        title="Extensions & phones"
         icon={<Users className="size-5" />}
-        description={list.data ? `${list.data.length} extensions · ${online} online${tenant ? ` · ${tenant.name}` : ''}` : 'SIP accounts for IP phones, softphones and the web phone'}
+        description={list.data ? `${list.data.length} extensions · ${online} online${tenant ? ` · ${tenant.name}` : ''}` : 'Phone accounts for desk phones, phone apps and the web phone'}
         actions={
           <>
             <Button icon={<Plus className="size-4" />} onClick={() => setBulk(true)}>

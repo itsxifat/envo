@@ -48,9 +48,9 @@ export function RoutesPage() {
   return (
     <div>
       <PageHeader
-        title="Outbound routes"
+        title="Calling rules"
         icon={<Route className="size-5" />}
-        description="Which trunk each dialed number goes out through, with failover"
+        description="Which line each outside call goes out on, with a backup line if one fails"
         actions={
           <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>
             Add route

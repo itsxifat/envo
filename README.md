@@ -73,6 +73,7 @@ with three extensions is created for them and the owner's web phone works right 
 | Visitors | `/`, `/signup` | Landing page with live pricing, sign-up, email confirmation, password reset |
 | Customers (owner) | Billing, Plan & usage | Choose / renew / upgrade (prorated) / switch at renewal, pay online or report a bKash/bank transfer, invoices, billing details |
 | Customers (admins) | Everything PBX | Their account's SIP servers, extensions, numbers, trunks, team — within the package |
+| Customers (admins), support | Phone numbers → Get a new number; /admin → Number requests | Customers choose a number from Enfinito's allocation and send the operator's registration (NID, photo); support registers it, connects it in one step, and adds paid top-ups |
 | Enfinito (platform admins) | Business → Customers, Sales, Packages, Email | Customers (suspend, close, package, custom limits, open their PBX), revenue and invoices, payments to confirm, package editor, payment and email settings |
 
 - **Packages** limit SIP servers, IP numbers, extensions, concurrent calls (account-wide), IVR menus,

@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router';
 import clsx from 'clsx';
 import { toast } from 'sonner';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Check, ChevronDown, ListTree, Mail, Pencil, Phone, PhoneCall, Plus, Rocket, Smartphone, UserPlus, Users, Voicemail, X } from 'lucide-react';
+import { ArrowRight, Check, ChevronDown, Hash, ListTree, Mail, Pencil, Phone, PhoneCall, Plus, Rocket, Smartphone, Sparkles, UserPlus, Users, Voicemail, X } from 'lucide-react';
 import { api, errorMessage, scoped } from '../lib/api';
 import { useDestinations, useList, useSave } from '../lib/hooks';
 import { useAuth } from '../state/auth';
@@ -15,6 +15,7 @@ import { ConnectNumberForm, LineProgress, useSetupStatus, type LineState, type S
 import { GreetingMaker } from '../components/greeting';
 import { AddPersonModal, InviteDone, MyPhoneSetup, type InviteResult } from '../components/people';
 import { DestLabel } from '../components/DestinationPicker';
+import { GetNumberModal, isOpenRequest, useNumberRequests, useSupplyOptions } from '../components/numberSupply';
 import { Badge, Button, Card, CopyButton, ErrorBlock, Field, IconButton, Input, LoadingBlock, Notice, PageHeader, Select, StatusDot } from '../components/ui';
 
 /*
@@ -447,13 +448,27 @@ function LineBadge({ line }: { line: LineState | null }) {
 }
 
 function NumberStep({ status, onContinue }: { status: SetupStatus; onContinue: () => void }) {
+  const supply = useSupplyOptions();
+  const requests = useNumberRequests();
   const [connected, setConnected] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [own, setOwn] = useState(false);
+  const [getting, setGetting] = useState(false);
   const numbers = status.numbers;
+  const offer = !!supply.data?.enabled;
+  const waiting = (requests.data ?? []).filter(isOpenRequest);
+  const pending = waiting.length > 0 && (
+    <Notice title={waiting.length === 1 ? 'Your number is on its way' : `${waiting.length} numbers are on their way`}>
+      We are registering {waiting.map((r) => r.requested_number || 'a free number').join(', ')} with the operator and connect {waiting.length === 1 ? 'it' : 'them'} for you. You
+      can follow this on the Phone numbers page.
+    </Notice>
+  );
+  const getModal = getting && <GetNumberModal onClose={() => setGetting(false)} />;
 
   if (connected) {
     return (
       <div className="space-y-4">
+        {pending}
         <LineProgress number={connected} />
         <StepFooter
           onContinue={onContinue}
@@ -469,12 +484,14 @@ function NumberStep({ status, onContinue }: { status: SetupStatus; onContinue: (
             </Button>
           }
         />
+        {getModal}
       </div>
     );
   }
   if (numbers.length && !adding) {
     return (
       <div className="space-y-4">
+        {pending}
         <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
           {numbers.map((n) => (
             <li key={n.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
@@ -494,24 +511,72 @@ function NumberStep({ status, onContinue }: { status: SetupStatus; onContinue: (
         <StepFooter
           onContinue={onContinue}
           extra={
-            <Button icon={<Plus className="size-4" />} onClick={() => setAdding(true)}>
-              Connect another number
-            </Button>
+            <>
+              {offer && (
+                <Button icon={<Sparkles className="size-4" />} onClick={() => setGetting(true)}>
+                  Get a new number
+                </Button>
+              )}
+              <Button icon={<Plus className="size-4" />} onClick={() => setAdding(true)}>
+                Connect another number
+              </Button>
+            </>
           }
         />
+        {getModal}
       </div>
     );
   }
   return (
     <div className="space-y-4">
+      {pending}
       <p className="text-sm text-slate-600">
-        This is the number your customers dial. You buy it from an IP phone provider (IPTSP), and they give you a few details to type in here.
+        {offer
+          ? 'This is the number your customers dial. Get a new one from Enfinito, or connect one you bought from an IP phone provider (IPTSP).'
+          : 'This is the number your customers dial. You buy it from an IP phone provider (IPTSP), and they give you a few details to type in here.'}
       </p>
-      <ConnectNumberForm onDone={setConnected} />
+      {offer && !own ? (
+        <div className="grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => setGetting(true)}
+            className="flex items-start gap-3 rounded-xl border border-brand-500 bg-brand-50/60 p-3.5 text-left ring-3 ring-brand-500/10 transition hover:bg-brand-50"
+          >
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white">
+              <Sparkles className="size-4" />
+            </span>
+            <span>
+              <span className="block text-sm font-medium text-slate-900">Get a new number from Enfinito</span>
+              <span className="mt-0.5 block text-xs text-slate-500">Choose a number and send your details. We register and connect it for you.</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setOwn(true)}
+            className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3.5 text-left transition hover:border-slate-300"
+          >
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+              <Hash className="size-4" />
+            </span>
+            <span>
+              <span className="block text-sm font-medium text-slate-900">I already have a number</span>
+              <span className="mt-0.5 block text-xs text-slate-500">Bought from an IP phone provider? Type in the details they gave you.</span>
+            </span>
+          </button>
+        </div>
+      ) : (
+        <ConnectNumberForm onDone={setConnected} />
+      )}
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-black/[0.06] pt-4">
-        {adding ? (
-          <Button variant="ghost" onClick={() => setAdding(false)}>
-            Cancel
+        {adding || (offer && own) ? (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setAdding(false);
+              setOwn(false);
+            }}
+          >
+            {offer && own && !adding ? 'Back' : 'Cancel'}
           </Button>
         ) : (
           <>
@@ -522,6 +587,7 @@ function NumberStep({ status, onContinue }: { status: SetupStatus; onContinue: (
           </>
         )}
       </div>
+      {getModal}
     </div>
   );
 }

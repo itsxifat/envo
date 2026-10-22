@@ -240,7 +240,7 @@ export function PayDialog({ invoice, onClose }: { invoice: Invoice; onClose: () 
 export function PaymentResult({ status }: { status: string | null }) {
   if (!status) return null;
   const map: Record<string, [tone: 'success' | 'warn' | 'danger' | 'info', title: string, text: string]> = {
-    paid: ['success', 'Payment received', 'Thank you! Your package is active.'],
+    paid: ['success', 'Payment received', 'Thank you! Your payment is confirmed.'],
     review: ['info', 'Payment received, being checked', 'Your bank flagged this payment for a quick review. We confirm it shortly.'],
     failed: ['danger', 'The payment did not go through', 'Nothing was charged. Try again or use another method.'],
     cancelled: ['warn', 'Payment cancelled', 'You left the payment page. You can pay any time below.'],

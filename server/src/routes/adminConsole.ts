@@ -8,6 +8,7 @@ import { live } from '../asterisk/live.js';
 import { getApplyStatus } from '../asterisk/apply.js';
 import { trunkEndpoint, webEndpoint } from '../asterisk/model.js';
 import { getAccountPlan } from '../billing/plan.js';
+import { supplyCounts } from '../supply/counts.js';
 
 /**
  * The support console at /admin: what the platform team needs to look after customers (overview,
@@ -85,7 +86,7 @@ async function onlineExtensions(where = '', params: unknown[] = []): Promise<{ t
 
 // ---------------------------------------------------------------------------------- overview
 adminConsoleRouter.get('/overview', async (_req, res) => {
-  const [counts, recent, money, unverified, lines, tenants, devices] = await Promise.all([
+  const [counts, recent, money, unverified, lines, tenants, devices, supply] = await Promise.all([
     one<Record<string, number>>(
       `SELECT count(*) FILTER (WHERE NOT internal) AS total,
               count(*) FILTER (WHERE status = 'active' AND NOT internal) AS active,
@@ -118,6 +119,7 @@ adminConsoleRouter.get('/overview', async (_req, res) => {
     many<LineRow>('SELECT id, name, host, port, auth_mode, username, enabled, qualify, tenant_id FROM trunks'),
     tenantDirectory(),
     onlineExtensions(),
+    supplyCounts(),
   ]);
 
   const lineStates = lines.map((l) => ({ ...l, ...lineHealth(l) }));
@@ -145,6 +147,14 @@ adminConsoleRouter.get('/overview', async (_req, res) => {
   }
   if ((money?.overdue ?? 0) > 0) {
     attention.push({ key: 'overdue', tone: 'warn', title: `${money!.overdue} overdue invoice${money!.overdue === 1 ? '' : 's'}`, detail: 'Unpaid past the due date.', to: '/admin/sales' });
+  }
+  if (supply.new_requests > 0) {
+    const n = supply.new_requests;
+    attention.push({ key: 'number-requests', tone: 'warn', title: `${n} new number request${n === 1 ? '' : 's'}`, detail: 'Customers are waiting for a phone number: register it with the operator, then connect it.', to: '/admin/number-requests' });
+  }
+  if (supply.topups_to_add > 0) {
+    const n = supply.topups_to_add;
+    attention.push({ key: 'topups', tone: 'warn', title: `${n} paid top-up${n === 1 ? '' : 's'} to add`, detail: "Customers paid for balance: add it to their number at the operator.", to: '/admin/number-requests?tab=topups' });
   }
   for (const u of unverified) {
     attention.push({

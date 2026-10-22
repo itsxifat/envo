@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { exec, many, one, tx, insertParts } from '../db.js';
 import { requireRole, tenantOf } from '../auth.js';
@@ -81,10 +81,26 @@ const lineSchema = z.object({
   outbound: z.boolean().default(true),
 });
 
-/** Connects a phone number: its provider line (new or existing), routing and outgoing calls in one step. */
-setupRouter.post('/line', requireRole('superadmin', 'admin'), async (req, res) => {
-  const tenantId = tenantOf(req)!;
-  const d = lineSchema.parse(req.body);
+export type LineInput = z.infer<typeof lineSchema>;
+export const lineInput = (body: unknown): LineInput => lineSchema.parse(body);
+
+/** Where a new number rings until someone chooses: where the others ring, else the first extension. */
+export async function defaultDestination(tenantId: number): Promise<{ dest_type: string; dest_target: string }> {
+  const routed = await one<{ dest_type: string; dest_target: string }>(
+    "SELECT dest_type, dest_target FROM numbers WHERE tenant_id = $1 AND dest_type <> 'hangup' ORDER BY id LIMIT 1",
+    [tenantId],
+  );
+  if (routed) return routed;
+  const ext = await one<{ number: string }>('SELECT number FROM extensions WHERE tenant_id = $1 AND enabled ORDER BY length(number), number LIMIT 1', [tenantId]);
+  return ext ? { dest_type: 'extension', dest_target: ext.number } : { dest_type: 'hangup', dest_target: '' };
+}
+
+/**
+ * Connects a phone number to a SIP server: its provider line (new or existing), where its calls ring
+ * and, for the server's first number, outgoing calls. Used by the guided setup, and by support when a
+ * number a customer asked for arrives.
+ */
+export async function connectLine(req: Request, tenantId: number, d: LineInput, source = 'guided setup'): Promise<{ trunk_id: number | null; number_id: number; route_id: number | null }> {
   await assertLimit(await accountOfTenant(tenantId), 'max_dids');
   if (await one('SELECT 1 FROM numbers WHERE number = $1', [d.number])) {
     throw conflict(`${d.number} is already connected to a SIP server. If it is yours, contact support.`);
@@ -130,9 +146,14 @@ setupRouter.post('/line', requireRole('superadmin', 'admin'), async (req, res) =
     }
     return { trunk_id: trunkId, number_id: numberId, route_id: routeId };
   });
-  await audit(req, 'create', 'number', created.number_id, `${d.number} (guided setup${trunk ? `, line ${trunk.host}` : ''})`, tenantId);
+  await audit(req, 'create', 'number', created.number_id, `${d.number} (${source}${trunk ? `, line ${trunk.host}` : ''})`, tenantId);
   scheduleApply();
-  res.status(201).json(created);
+  return created;
+}
+
+/** Connects a phone number: its provider line (new or existing), routing and outgoing calls in one step. */
+setupRouter.post('/line', requireRole('superadmin', 'admin'), async (req, res) => {
+  res.status(201).json(await connectLine(req, tenantOf(req)!, lineSchema.parse(req.body)));
 });
 
 const routingSchema = z.object({

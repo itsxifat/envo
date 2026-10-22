@@ -6,12 +6,13 @@ import { HttpError, badRequest, notFound } from '../lib/http.js';
 import { scheduleApply } from '../asterisk/apply.js';
 import { getUsage, invalidatePlans } from './plan.js';
 import { createSession, queryTransaction, validate, type Validation } from './sslcommerz.js';
-import { bdMobile, cancelCheckout, createCheckout, retrieveCheckout, type CheckoutSession, type WebhookEvent } from './enfinitoPay.js';
+import { cancelCheckout, createCheckout, retrieveCheckout, type CheckoutSession, type WebhookEvent } from './enfinitoPay.js';
+import { bdMobile } from '../lib/validate.js';
 import { getBillingSettings, onlineGateway } from './settings.js';
 import { provisionFirstServer } from './provision.js';
 import { notifyPaymentReceived } from './notify.js';
 
-export type InvoiceKind = 'subscription' | 'renewal' | 'upgrade' | 'manual';
+export type InvoiceKind = 'subscription' | 'renewal' | 'upgrade' | 'manual' | 'topup';
 
 export interface Invoice {
   id: number;
@@ -188,6 +189,11 @@ export async function checkout(accountId: number, packageId: number, months: num
 /** Applies what a paid invoice bought. Runs inside the transaction that marks it paid. */
 async function applyInvoice(db: Db, invoice: Invoice): Promise<void> {
   if (invoice.kind === 'manual') return;
+  // A number's balance top-up: paid now, then added at the operator (Number requests in /admin).
+  if (invoice.kind === 'topup') {
+    await db.query("UPDATE topups SET status = 'paid', updated_at = now() WHERE invoice_id = $1 AND status = 'awaiting_payment'", [invoice.id]);
+    return;
+  }
   const sub = (await db.query<SubRow>("SELECT * FROM subscriptions WHERE account_id = $1 AND status <> 'cancelled' FOR UPDATE", [invoice.account_id])).rows[0];
   const pkg = invoice.package_id ? (await db.query<PackageRow>('SELECT * FROM packages WHERE id = $1', [invoice.package_id])).rows[0] : undefined;
   const months = invoice.months;

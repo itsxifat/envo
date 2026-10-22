@@ -43,6 +43,7 @@ import { LiveMonitorPage } from './pages/admin/LiveMonitor';
 import { LinesPage } from './pages/admin/Lines';
 import { ActivityPage } from './pages/admin/Activity';
 import { StaffPage } from './pages/admin/Staff';
+import { NumberRequestsPage } from './pages/admin/NumberRequests';
 import { PackagesPage } from './pages/admin/Packages';
 import { SalesPage } from './pages/admin/Sales';
 import { BillingSettingsPage } from './pages/admin/BillingSettings';
@@ -66,6 +67,7 @@ function AdminApp() {
           <Route index element={<AdminOverviewPage />} />
           <Route path="customers" element={<CustomersPage />} />
           <Route path="customers/:id" element={<CustomerDetailPage />} />
+          <Route path="number-requests" element={<NumberRequestsPage />} />
           <Route path="live" element={<LiveMonitorPage />} />
           <Route path="lines" element={<LinesPage />} />
           <Route path="activity" element={<ActivityPage />} />

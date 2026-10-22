@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import clsx from 'clsx';
-import { Hash, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Hash, Pencil, Plus, Sparkles, Trash2, Wallet } from 'lucide-react';
 import { useList, useRemove, useSave } from '../lib/hooks';
 import { useAuth } from '../state/auth';
 import { useLive } from '../state/live';
 import type { PhoneNumber, Trunk } from '../lib/types';
 import { DestLabel, DestinationPicker } from '../components/DestinationPicker';
 import { ConnectNumberModal } from '../components/connectNumber';
+import { GetNumberModal, NumberRequestsCard, TopupDialog, useNumberRequests, useSupplyOptions } from '../components/numberSupply';
 import {
   Badge,
   Button,
@@ -47,7 +48,15 @@ export function NumbersPage() {
   const { groups } = useLive();
   const [editing, setEditing] = useState<PhoneNumber | 'new' | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [getting, setGetting] = useState(false);
+  const [topup, setTopup] = useState<PhoneNumber | null>(null);
+  const supply = useSupplyOptions();
+  const requests = useNumberRequests();
+  const offer = !!supply.data?.enabled;
   const isSuper = user?.role === 'superadmin';
+  // Numbers Enfinito provided (through a request) can be topped up here by the account owner.
+  const fromEnfinito = useMemo(() => new Set((requests.data ?? []).filter((r) => r.status === 'connected' && r.number_id).map((r) => r.number_id)), [requests.data]);
+  const canTopUp = (n: PhoneNumber) => !!user?.isOwner && !!supply.data?.topup.enabled && fromEnfinito.has(n.id);
   // Customers may remove numbers on their own lines; numbers on lines Envo provides stay with support.
   const ownLines = useMemo(() => new Set((trunks.data ?? []).filter((t) => t.tenant_id !== null).map((t) => t.id)), [trunks.data]);
   const canRemove = (n: PhoneNumber) => isSuper || (n.trunk_id !== null && ownLines.has(n.trunk_id));
@@ -67,12 +76,18 @@ export function NumbersPage() {
                 Add number
               </Button>
             )}
-            <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setConnecting(true)}>
-              Connect a number
+            <Button variant={offer ? 'secondary' : 'primary'} icon={<Plus className="size-4" />} onClick={() => setConnecting(true)}>
+              {offer ? 'Connect my own number' : 'Connect a number'}
             </Button>
+            {offer && (
+              <Button variant="primary" icon={<Sparkles className="size-4" />} onClick={() => setGetting(true)}>
+                Get a new number
+              </Button>
+            )}
           </>
         }
       />
+      {requests.data && <NumberRequestsCard requests={requests.data} />}
       <Card>
         {list.isLoading ? (
           <LoadingBlock />
@@ -82,8 +97,9 @@ export function NumbersPage() {
           <EmptyState
             icon={<Hash className="size-5" />}
             title="No phone numbers yet"
-            description="Connect the number you bought from your IP phone provider, then choose where its calls ring."
-            action={<Button variant="primary" onClick={() => setConnecting(true)}>Connect a number</Button>}
+            description={offer ? 'Get a new number from Enfinito, or connect one you bought from an IP phone provider.' : 'Connect the number you bought from your IP phone provider, then choose where its calls ring.'}
+            action={offer ? <Button variant="primary" onClick={() => setGetting(true)}>Get a new number</Button> : <Button variant="primary" onClick={() => setConnecting(true)}>Connect a number</Button>}
+            secondary={offer && <Button onClick={() => setConnecting(true)}>Connect my own number</Button>}
           />
         ) : (
           <div className="overflow-x-auto">
@@ -94,7 +110,7 @@ export function NumbersPage() {
                   <th>Line</th>
                   <th>Incoming calls go to</th>
                   <th>Channels</th>
-                  <th className="w-24" />
+                  <th className="w-32" />
                 </tr>
               </thead>
               <tbody>
@@ -118,6 +134,11 @@ export function NumbersPage() {
                     </td>
                     <td>
                       <div className="flex justify-end gap-0.5">
+                        {canTopUp(n) && (
+                          <IconButton label="Top up" tone="brand" onClick={() => setTopup(n)}>
+                            <Wallet className="size-4" />
+                          </IconButton>
+                        )}
                         <IconButton label="Edit" onClick={() => setEditing(n)}>
                           <Pencil className="size-4" />
                         </IconButton>
@@ -143,6 +164,8 @@ export function NumbersPage() {
       </Card>
       {editing && <NumberModal number={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       {connecting && <ConnectNumberModal onClose={() => setConnecting(false)} />}
+      {getting && <GetNumberModal onClose={() => setGetting(false)} />}
+      {topup && <TopupDialog numberId={topup.id} number={topup.number} onClose={() => setTopup(null)} />}
     </div>
   );
 }

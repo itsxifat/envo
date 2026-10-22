@@ -13,6 +13,7 @@ import {
   Gem,
   Hash,
   History,
+  Inbox,
   LayoutDashboard,
   ListTree,
   Mail,
@@ -114,6 +115,7 @@ export const ADMIN_NAV: NavGroup[] = [
     items: [
       { to: '/admin', label: 'Overview', icon: LayoutDashboard, end: true, keywords: 'home dashboard attention' },
       { to: '/admin/customers', label: 'Customers', icon: Briefcase, keywords: 'accounts clients subscribers companies suspend open portal' },
+      { to: '/admin/number-requests', label: 'Number requests', icon: Inbox, keywords: 'new numbers registration kyc nid icc pool top-up recharge balance' },
       { to: '/admin/live', label: 'Live monitor', icon: Activity, keywords: 'calls now channels hang up' },
       { to: '/admin/lines', label: 'Lines & numbers', icon: Server, keywords: 'trunks registrations provider dids' },
       { to: '/admin/activity', label: 'Activity log', icon: ScrollText, keywords: 'audit history who changed' },

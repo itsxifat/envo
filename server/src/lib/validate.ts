@@ -105,6 +105,12 @@ export async function audit(
 }
 
 // Shared field schemas
+/** A Bangladeshi mobile number in the national form (01XXXXXXXXX), or undefined. Accepts +880 / 880 forms. */
+export function bdMobile(phone: string): string | undefined {
+  const digits = phone.replace(/[^\d]/g, '').replace(/^(?:00)?880?(?=1)/, '0');
+  return /^01[3-9]\d{8}$/.test(digits) ? digits : undefined;
+}
+
 export const phoneNumber = z.string().trim().regex(/^\+?[0-9]{3,20}$/, 'must be a phone number (digits, optional +)');
 export const optionalPhone = z.union([z.literal(''), phoneNumber]).default('');
 export const internalNumber = z.string().trim().regex(/^[0-9]{2,8}$/, 'must be 2-8 digits');

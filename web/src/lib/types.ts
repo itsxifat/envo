@@ -459,7 +459,7 @@ export interface Option {
 
 export type Destinations = Record<Exclude<DestType, 'external' | 'hangup'>, Option[]>;
 
-export type InvoiceKind = 'subscription' | 'renewal' | 'upgrade' | 'manual';
+export type InvoiceKind = 'subscription' | 'renewal' | 'upgrade' | 'manual' | 'topup';
 
 export interface Invoice {
   id: number;
@@ -585,4 +585,76 @@ export interface RecordingSummary {
     extensions: { number: string; name: string; recording: string }[];
     numbers: { number: string; recording: string }[];
   } | null;
+}
+
+// ------------------------------------------------------------------ numbers from Enfinito
+export type NumberRequestStatus = 'submitted' | 'in_review' | 'connected' | 'rejected' | 'cancelled';
+
+/** A customer's request for a new number (GET /api/number-requests). */
+export interface NumberRequest {
+  id: number;
+  status: NumberRequestStatus;
+  requested_number: string;
+  reason: string;
+  tenant_id: number | null;
+  tenant_name: string | null;
+  number_id: number | null;
+  connected_number: string | null;
+  subscriber_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupplyOptions {
+  enabled: boolean;
+  operator_name: string;
+  topup: { enabled: boolean; min: number; max: number; presets: number[] };
+}
+
+export interface SupplySettings extends SupplyOptions {
+  line: { host: string; port: number; transport: 'udp' | 'tcp' | 'tls' };
+}
+
+export interface SupplyCounts {
+  new_requests: number;
+  in_review: number;
+  topups_to_add: number;
+  available: number;
+  reserved: number;
+  assigned: number;
+}
+
+export type TopupStatus = 'awaiting_payment' | 'paid' | 'applied' | 'cancelled';
+
+export interface Topup {
+  id: number;
+  number_id: number | null;
+  number: string;
+  amount: string;
+  status: TopupStatus;
+  created_at: string;
+  applied_at: string | null;
+  invoice_id: number;
+  invoice_number: string;
+  invoice_status: 'unpaid' | 'paid' | 'void';
+}
+
+/** What the operator's registration form asks for. */
+export interface SubscriberDetails {
+  subscriber_type: 'individual' | 'organization';
+  name: string;
+  authorized_person: string;
+  nid: string;
+  passport: string;
+  phone: string;
+  email: string;
+  birth_date: string;
+  gender: 'male' | 'female';
+  occupation: 'government_service' | 'private_service' | 'business' | 'student' | 'other';
+  present_address: { street: string; city: string; postcode: string; country: string };
+  permanent_address: { street: string; city: string; postcode: string; country: string };
+  billing_address: 'present' | 'permanent';
+  father_name: string;
+  mother_name: string;
+  spouse_name: string;
 }

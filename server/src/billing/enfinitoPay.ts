@@ -120,9 +120,3 @@ export function verifySignature(rawBody: Buffer, header: string | undefined, sec
   const expected = crypto.createHmac('sha256', secret).update(`${t}.`).update(rawBody).digest();
   return crypto.timingSafeEqual(expected, Buffer.from(v1, 'hex'));
 }
-
-/** A Bangladeshi mobile number as Enfinito Pay accepts it (01XXXXXXXXX), or undefined. */
-export function bdMobile(phone: string): string | undefined {
-  const digits = phone.replace(/[^\d]/g, '').replace(/^(?:00)?880?(?=1)/, '0');
-  return /^01[3-9]\d{8}$/.test(digits) ? digits : undefined;
-}

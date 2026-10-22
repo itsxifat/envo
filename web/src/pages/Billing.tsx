@@ -10,7 +10,7 @@ import type { CheckoutResult, Invoice, Package } from '../lib/types';
 import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, Notice, PageHeader, Textarea, useConfirm } from '../components/ui';
 import { PaymentResult, PayDialog, PlanPicker } from '../components/billing';
 
-const KIND: Record<string, string> = { subscription: 'Package', renewal: 'Renewal', upgrade: 'Upgrade', manual: 'Other' };
+const KIND: Record<string, string> = { subscription: 'Package', renewal: 'Renewal', upgrade: 'Upgrade', manual: 'Other', topup: 'Top-up' };
 
 export function BillingPage() {
   const qc = useQueryClient();

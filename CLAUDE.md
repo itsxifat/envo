@@ -80,6 +80,15 @@ labels copied from the header by `lib/tableCards.ts`) — keep tables plain with
   `express.json`; the return link (`/return`) and the hourly clock ask for the checkout server to
   server. Wrong amounts and payments for paid/void invoices go to review, never applied. Test against
   a local stand-in by setting `ENFINITO_PAY_API`.
+- Numbers from Enfinito (`routes/numberRequests.ts`, `supply/`): customers pick a free number from
+  `number_pool` and send the operator's subscriber registration (details JSON + photo + NID under
+  `<data dir>/kyc/<id>/`, 0600, served to platform admins only; dropped when a request is cancelled
+  or rejected). Support works the queue at /admin/number-requests: register with the operator (ICC),
+  then Connect (`connectLine()` from `routes/setup.ts`, the same code as the guided setup). Top-ups
+  are `topup` invoices (paid like any invoice); a paid one waits in /admin until support adds the
+  balance at the operator and marks it added. Off until enabled in its Settings tab. The support
+  steps are single functions on purpose: automation can replace them later. Envo never operates the
+  operator's panels itself.
 - People and phones: a login calls from `users.extension_id` (web phone, voicemail, "my calls").
   `PUT /api/users/:id/extension` links one (or `{create:true}` makes the next free number), also for
   yourself; `POST /api/users` can `create_extension` and `invite` (7-day set-password link via

@@ -26,7 +26,7 @@ function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
       <nav className="flex-1 space-y-5 overflow-y-auto px-2.5 pt-1 pb-4" aria-label="Admin">
         {ADMIN_NAV.map((group) => (
           <div key={group.title}>
-            <div className="mb-1.5 px-2.5 font-mono text-[10.5px] font-medium tracking-[0.08em] text-slate-500 uppercase">{group.title}</div>
+            <div className="mb-1.5 px-2.5 text-[12px] font-medium text-slate-500">{group.title}</div>
             <div className="space-y-px">
               {group.items.map((item) => (
                 <NavLink

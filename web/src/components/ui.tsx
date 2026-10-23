@@ -412,7 +412,7 @@ export function PageHeader({ title, description, actions, icon }: { title: strin
     <div className="mb-5 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
       <div className="flex min-w-0 items-center gap-3.5">
         {icon && (
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white text-brand-600 shadow-[var(--shadow-card)] ring-1 ring-black/[0.06] [&>svg]:size-[18px]">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 ring-1 ring-brand-100 [&>svg]:size-[18px]">
             {icon}
           </div>
         )}
@@ -613,7 +613,7 @@ export function Tabs<T extends string>({ value, onChange, tabs, className }: { v
         >
           {t.label}
           {t.count !== undefined && (
-            <span className={clsx('rounded-full px-1.5 font-mono text-[10.5px] tabular-nums', value === t.value ? 'bg-slate-100 text-slate-600' : 'bg-slate-200/70 text-slate-500')}>{t.count}</span>
+            <span className={clsx('rounded-full px-1.5 text-[11px] font-semibold tabular-nums', value === t.value ? 'bg-brand-50 text-brand-700' : 'bg-slate-200/70 text-slate-500')}>{t.count}</span>
           )}
         </button>
       ))}

@@ -62,8 +62,10 @@ function Logo({ company }: { company: string }) {
   );
 }
 
+/** The phone service's state in plain words; support (platform admins in a portal) also see the version. */
 function PbxStatus() {
   const live = useLive();
+  const { user } = useAuth();
   const connected = live.connected && live.asterisk?.connected;
   return (
     <div className="mx-3 mb-3 flex items-center gap-2.5 rounded-xl bg-white/70 px-3 py-2.5 ring-1 ring-black/[0.05]">
@@ -72,8 +74,8 @@ function PbxStatus() {
         <span className={clsx('relative inline-flex size-2 rounded-full', connected ? 'bg-emerald-500' : 'bg-rose-500')} />
       </span>
       <div className="min-w-0 flex-1">
-        <div className="text-[12.5px] leading-tight font-medium text-slate-800">{connected ? 'PBX online' : live.connected ? 'PBX offline' : 'Reconnecting…'}</div>
-        {live.asterisk?.version && <div className="mt-0.5 truncate font-mono text-[10.5px] leading-tight text-slate-400">{live.asterisk.version}</div>}
+        <div className="text-[12.5px] leading-tight font-medium text-slate-800">{connected ? 'Phone service working' : live.connected ? 'Phone service unavailable' : 'Reconnecting…'}</div>
+        {user?.impersonator && live.asterisk?.version && <div className="mt-0.5 truncate font-mono text-[10.5px] leading-tight text-slate-400">{live.asterisk.version}</div>}
       </div>
     </div>
   );
@@ -121,7 +123,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <Link
             to="/numbers?add=1"
             onClick={onNavigate}
-            className="flex h-10 items-center justify-center gap-2 rounded-[10px] bg-brand-600 px-3 text-[13.5px] font-semibold text-white shadow-[var(--shadow-button)] transition hover:bg-brand-700 active:bg-brand-800 lg:h-9"
+            className="flex h-10 items-center justify-center gap-2 rounded-[10px] bg-gradient-to-b from-brand-500 to-brand-600 px-3 text-[13.5px] font-semibold text-white shadow-[var(--shadow-button)] ring-1 ring-brand-700/40 transition hover:from-brand-600 hover:to-brand-700 active:scale-[0.99] lg:h-9"
           >
             <Plus className="size-4" />
             {supply.data?.enabled === false ? 'Add a number' : 'Buy a number'}
@@ -132,7 +134,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         {(user ? visibleNav(user, plan, setupDone) : []).map((group) => {
           const here = group.items.some((i) => onPage(i.to, pathname));
           const expanded = !group.collapsible || here || !!open[group.title];
-          const heading = 'font-mono text-[10.5px] font-medium tracking-[0.08em] text-slate-400 uppercase';
+          const heading = 'text-[12px] font-medium text-slate-400';
           return (
             <div key={group.title || 'main'}>
               {group.collapsible ? (

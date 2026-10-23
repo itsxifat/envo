@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
@@ -6,7 +6,7 @@ import {
   Activity,
   ArrowRight,
   CheckCircle2,
-  Circle,
+  ChevronDown,
   Clock,
   Code2,
   Hash,
@@ -21,7 +21,6 @@ import {
   UserPlus,
   Users,
   Wallet,
-  WifiOff,
 } from 'lucide-react';
 import { api, scoped } from '../lib/api';
 import { useTenant } from '../state/tenant';
@@ -33,7 +32,8 @@ import type { CallRow, Trunk } from '../lib/types';
 import { Badge, Button, Card, CardHeader, EmptyState, ListSkeleton, PageHeader, Stat, StatSkeleton, StatusDot, Trend } from '../components/ui';
 import { HourlyChart, type HourPoint } from '../components/HourlyChart';
 import { MyPhoneSetup } from '../components/people';
-import { useTopupNumbers } from '../components/numberSupply';
+import { useSupplyOptions, useTopupNumbers } from '../components/numberSupply';
+import type { LineState } from '../components/connectNumber';
 import { SETUP_STEPS, useSetupProgress } from './GetStarted';
 
 interface Summary {
@@ -149,6 +149,20 @@ export function DashboardPage() {
   const setupDone = isAdmin && setup.count < SETUP_STEPS.length ? setup.done : null;
   const setupPct = Math.round((setup.count / SETUP_STEPS.length) * 100);
 
+  const support = user?.role === 'superadmin' || !!user?.impersonator;
+  const supply = useSupplyOptions();
+  const offer = supply.data?.enabled !== false;
+  const numbers = setup.status.data?.numbers ?? [];
+  // The things customers come back for, first: a number, calling credit, a person, where calls go.
+  const quickActions = [
+    { to: '/numbers?add=1', label: offer ? 'Buy a number' : 'Add a number', desc: offer ? 'Pick one from us' : 'Connect your own', icon: Hash },
+    ...(topupNumbers.data?.length ? [{ to: '/billing#balance', label: 'Top up balance', desc: 'Add calling credit', icon: Wallet }] : []),
+    { to: '/users?add=1', label: 'Add a person', desc: 'Give someone a phone', icon: UserPlus },
+    { to: '/get-started#calls', label: 'Where calls go', desc: 'Everyone, one person or a menu', icon: PhoneIncoming },
+    apiAccess ? { to: '/developers', label: 'API & embed', desc: 'Connect your website', icon: Code2 } : { to: '/time-conditions', label: 'Business hours', desc: 'Open and closed times', icon: Clock },
+  ].slice(0, 4);
+
+  const [allIssues, setAllIssues] = useState(false);
   const issues = useMemo<Issue[]>(() => {
     const out: Issue[] = [];
     if (live.connected && live.asterisk && !live.asterisk.connected) {
@@ -161,10 +175,11 @@ export function DashboardPage() {
     if (!live.connected) {
       out.push({ key: 'ws', tone: 'warn', title: 'Live updates disconnected', detail: 'Reconnecting to the server. Numbers on this page may be stale.' });
     }
-    if (live.apply?.state === 'error') {
+    // Configuration problems are for support to fix; customers could do nothing about them.
+    if (support && live.apply?.state === 'error') {
       out.push({ key: 'apply', tone: 'danger', title: 'Configuration did not apply', detail: live.apply.error || 'Asterisk rejected the last change.', to: '/system', action: 'Review' });
     }
-    for (const w of live.apply?.warnings ?? []) {
+    for (const w of support ? (live.apply?.warnings ?? []) : []) {
       out.push({ key: `warn:${w}`, tone: 'warn', title: 'Configuration warning', detail: w });
     }
     for (const t of trunks.data ?? []) {
@@ -174,12 +189,19 @@ export function DashboardPage() {
           key: `trunk:${t.id}`,
           tone: 'danger',
           title: `Phone line “${t.name}” is ${st.label.toLowerCase()}`,
-          detail: `Your provider (${t.host}) is not accepting this phone system, so outside calls on this line fail.`,
+          detail: `Your provider${support ? ` (${t.host})` : ''} is not accepting this phone system, so outside calls on this line fail.`,
           to: '/trunks',
           action: 'Check the line',
         });
       } else if (st.tone === 'amber' && t.enabled) {
-        out.push({ key: `trunk:${t.id}`, tone: 'warn', title: `Phone line “${t.name}” is ${st.label.toLowerCase()}`, detail: `Waiting for your provider (${t.host}) to answer.`, to: '/trunks', action: 'Check the line' });
+        out.push({
+          key: `trunk:${t.id}`,
+          tone: 'warn',
+          title: `Phone line “${t.name}” is ${st.label.toLowerCase()}`,
+          detail: `Waiting for your provider${support ? ` (${t.host})` : ''} to answer.`,
+          to: '/trunks',
+          action: 'Check the line',
+        });
       }
     }
     if (isAdmin && s && s.extensions.total > 0 && s.extensions.online === 0) {
@@ -197,8 +219,9 @@ export function DashboardPage() {
         });
       }
     }
-    return out;
-  }, [live.connected, live.asterisk, live.apply, trunks.data, webhooks.data, s, isAdmin, user?.role]);
+    // The most serious first.
+    return out.sort((a, b) => (a.tone === b.tone ? 0 : a.tone === 'danger' ? -1 : 1));
+  }, [live.connected, live.asterisk, live.apply, trunks.data, webhooks.data, s, isAdmin, user?.role, support]);
 
   return (
     <div>
@@ -219,41 +242,121 @@ export function DashboardPage() {
         }
       />
 
+      {issues.length > 0 && (
+        <Card className={clsx('mb-4 overflow-hidden sm:mb-6', issues[0]!.tone === 'danger' ? 'border-rose-200' : 'border-amber-200')}>
+          <ul className="divide-y divide-slate-100">
+            {(allIssues ? issues : issues.slice(0, 1)).map((i) => (
+              <li key={i.key} className="flex flex-wrap items-start gap-3 px-4 py-3.5 sm:px-5">
+                <span className={clsx('mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg', i.tone === 'danger' ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-600')}>
+                  {i.tone === 'danger' ? <ServerCrash className="size-4" /> : <TriangleAlert className="size-4" />}
+                </span>
+                <div className="min-w-0 flex-1 basis-48">
+                  <p className="text-sm font-medium text-slate-900">{i.title}</p>
+                  <p className="mt-0.5 text-[13px] text-slate-500">{i.detail}</p>
+                </div>
+                {i.to && (
+                  <Link to={i.to} className="mt-0.5 inline-flex items-center gap-1 text-[13px] font-medium text-brand-700 hover:text-brand-800">
+                    {i.action ?? 'Open'} <ArrowRight className="size-3.5" />
+                  </Link>
+                )}
+              </li>
+            ))}
+          </ul>
+          {issues.length > 1 && (
+            <button
+              type="button"
+              onClick={() => setAllIssues(!allIssues)}
+              aria-expanded={allIssues}
+              className="flex w-full items-center justify-center gap-1 border-t border-slate-100 px-4 py-2 text-[13px] font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+            >
+              {allIssues ? 'Show less' : `${issues.length - 1} more to look at`}
+              <ChevronDown className={clsx('size-4 transition', allIssues && 'rotate-180')} />
+            </button>
+          )}
+        </Card>
+      )}
+
       {setupDone && (
         <Card className="mb-4 overflow-hidden sm:mb-6">
-          <div className="relative flex flex-wrap items-center justify-between gap-4 overflow-hidden bg-ink-950 px-4 py-5 text-white sm:px-6">
-            <div>
-              <h3 className="font-display text-lg font-semibold tracking-tight">Finish setting up your phone system</h3>
-              <p className="mt-0.5 text-sm text-slate-400">
-                {setup.count} of {SETUP_STEPS.length} steps done
+          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 pt-4 sm:px-6 sm:pt-5">
+            <div className="min-w-0">
+              <h3 className="text-[16px] font-semibold tracking-tight text-slate-950">Finish setting up your phone system</h3>
+              <p className="mt-0.5 text-sm text-slate-500">
+                {setup.count} of {SETUP_STEPS.length} steps done · a few minutes left
               </p>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="h-2 w-40 overflow-hidden rounded-full bg-white/15 sm:w-48">
-                <div className="h-full rounded-full bg-brand-500 transition-all duration-700" style={{ width: `${setupPct}%` }} />
-              </div>
-              <span className="text-sm font-semibold tabular-nums text-white">{setupPct}%</span>
-            </div>
+            <Link to={`/get-started${setup.next ? `#${setup.next}` : ''}`}>
+              <Button variant="primary">
+                Continue <ArrowRight className="size-4" />
+              </Button>
+            </Link>
           </div>
-          <ul className="divide-y divide-slate-100">
-            {SETUP_STEPS.map((st) => {
+          <div
+            className="mx-4 mt-4 h-1.5 overflow-hidden rounded-full bg-slate-100 sm:mx-6"
+            role="progressbar"
+            aria-label="Setup progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={setupPct}
+          >
+            <div className="h-full rounded-full bg-brand-500 transition-all duration-700" style={{ width: `${setupPct}%` }} />
+          </div>
+          <ol className="grid gap-2 p-4 sm:grid-cols-2 sm:px-6 sm:pb-5 xl:grid-cols-4">
+            {SETUP_STEPS.map((st, i) => {
               const done = setupDone[st.key];
+              const next = st.key === setup.next;
               return (
                 <li key={st.key}>
-                  <Link to={`/get-started#${st.key}`} className="group/step flex items-center gap-3 px-4 py-3 text-sm transition-colors hover:bg-slate-50/70 sm:px-6">
-                    {done ? <CheckCircle2 className="size-5 shrink-0 text-emerald-500" /> : <Circle className="size-5 shrink-0 text-slate-300" />}
-                    <span className={clsx('flex-1', done ? 'text-slate-400 line-through' : 'text-slate-700')}>{st.title}</span>
-                    {!done && (
-                      <span className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-700 group-hover/step:text-brand-800">
-                        {st.key === setup.next ? 'Continue' : 'Open'} <ArrowRight className="size-3.5" />
+                  <Link
+                    to={`/get-started#${st.key}`}
+                    className={clsx(
+                      'flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-sm transition',
+                      done
+                        ? 'border-transparent bg-slate-50 text-slate-400'
+                        : next
+                          ? 'border-brand-200 bg-brand-50/60 font-medium text-slate-900 hover:border-brand-300'
+                          : 'border-slate-200 text-slate-700 hover:border-slate-300',
+                    )}
+                  >
+                    {done ? (
+                      <CheckCircle2 className="size-5 shrink-0 text-emerald-500" />
+                    ) : (
+                      <span
+                        className={clsx(
+                          'flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold',
+                          next ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-500',
+                        )}
+                      >
+                        {i + 1}
                       </span>
                     )}
+                    <span className={clsx('truncate', done && 'line-through')}>{st.title}</span>
                   </Link>
                 </li>
               );
             })}
-          </ul>
+          </ol>
         </Card>
+      )}
+
+      {isAdmin && (
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:mb-6 xl:grid-cols-4">
+          {quickActions.map((a) => (
+            <Link
+              key={a.to}
+              to={a.to}
+              className="group flex flex-col items-start gap-2.5 rounded-2xl border border-black/[0.07] bg-white p-3.5 shadow-[var(--shadow-card)] transition hover:-translate-y-px hover:border-brand-200 hover:shadow-[var(--shadow-raise)] sm:flex-row sm:items-center sm:gap-3 sm:p-4"
+            >
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 ring-1 ring-brand-100 transition group-hover:bg-brand-600 group-hover:text-white group-hover:ring-brand-600">
+                <a.icon className="size-[18px]" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-slate-900 sm:truncate">{a.label}</span>
+                <span className="hidden truncate text-xs text-slate-500 sm:block">{a.desc}</span>
+              </span>
+            </Link>
+          ))}
+        </div>
       )}
 
       <MyPhoneSetup className="mb-4 sm:mb-6" />
@@ -271,7 +374,7 @@ export function DashboardPage() {
             <Stat
               label="Active calls"
               value={activeCalls}
-              sub={live.asterisk?.connected ? 'Updated live' : 'PBX offline'}
+              sub={live.asterisk?.connected ? 'Updated live' : 'Phone service offline'}
               icon={<Activity className="size-5" />}
               footer={
                 activeCalls > 0 ? (
@@ -284,9 +387,9 @@ export function DashboardPage() {
               }
             />
             <Stat
-              label="Extensions online"
+              label="Phones online"
               value={s ? `${s.extensions.online} / ${s.extensions.total}` : '—'}
-              sub="Registered devices"
+              sub="Ready to take calls"
               icon={<Users className="size-5" />}
               tone="blue"
               footer={
@@ -321,37 +424,6 @@ export function DashboardPage() {
         )}
       </div>
 
-      {issues.length > 0 && (
-        <Card className="mt-4 overflow-hidden sm:mt-6">
-          <CardHeader
-            title={
-              <span className="flex items-center gap-2">
-                <TriangleAlert className="size-4 text-amber-500" />
-                Needs attention
-              </span>
-            }
-            description={`${issues.length} thing${issues.length === 1 ? '' : 's'} to look at`}
-          />
-          <ul className="divide-y divide-slate-100">
-            {issues.slice(0, 5).map((i) => (
-              <li key={i.key} className="flex flex-wrap items-start gap-3 px-4 py-3.5 sm:px-5">
-                <span className={clsx('mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg', i.tone === 'danger' ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-600')}>
-                  {i.tone === 'danger' ? <ServerCrash className="size-4" /> : <WifiOff className="size-4" />}
-                </span>
-                <div className="min-w-0 flex-1 basis-48">
-                  <p className="text-sm font-medium text-slate-900">{i.title}</p>
-                  <p className="mt-0.5 text-[13px] text-slate-500">{i.detail}</p>
-                </div>
-                {i.to && (
-                  <Link to={i.to} className="mt-0.5 inline-flex items-center gap-1 text-[13px] font-medium text-brand-700 hover:text-brand-800">
-                    {i.action ?? 'Open'} <ArrowRight className="size-3.5" />
-                  </Link>
-                )}
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
 
       <div className="mt-4 grid gap-4 sm:mt-6 sm:gap-6 xl:grid-cols-3">
         <Card className="min-w-0 xl:col-span-2">
@@ -441,78 +513,61 @@ export function DashboardPage() {
         </Card>
 
         {isAdmin && (
-          <div className="min-w-0 space-y-6">
-            <Card>
-              <CardHeader
-                title="Phone lines"
-                actions={
-                  <Link to="/trunks" className="text-sm font-medium text-brand-700 hover:text-brand-800">
-                    Manage
+          <Card className="min-w-0">
+            <CardHeader
+              title="Your numbers"
+              actions={
+                <Link to="/numbers" className="text-sm font-medium text-brand-700 hover:text-brand-800">
+                  Manage
+                </Link>
+              }
+            />
+            {setup.status.isLoading && !setup.status.data ? (
+              <ListSkeleton rows={2} />
+            ) : numbers.length ? (
+              <ul className="divide-y divide-slate-100">
+                {numbers.map((n) => {
+                  const st = lineState(n.line);
+                  return (
+                    <li key={n.id} className="flex items-center gap-3 px-5 py-3">
+                      <StatusDot tone={st.tone} pulse={st.tone === 'green'} />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-mono text-sm font-semibold text-slate-900">{n.number}</div>
+                        <div className="truncate text-xs text-slate-500">{n.label || 'No label'}</div>
+                      </div>
+                      <span className={clsx('shrink-0 text-xs', st.tone === 'red' ? 'text-rose-600' : st.tone === 'amber' ? 'text-amber-600' : 'text-slate-500')}>{st.label}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <EmptyState
+                icon={<Hash className="size-5" />}
+                title="No numbers yet"
+                description="Get the number your customers will dial to reach you."
+                action={
+                  <Link to="/numbers?add=1">
+                    <Button size="sm" variant="primary" icon={<Plus className="size-4" />}>
+                      {offer ? 'Buy a number' : 'Add a number'}
+                    </Button>
                   </Link>
                 }
               />
-              {trunks.isLoading && !trunks.data ? (
-                <ListSkeleton rows={2} />
-              ) : trunks.data?.length ? (
-                <ul className="divide-y divide-slate-100">
-                  {trunks.data.map((t) => {
-                    const st = trunkState(t);
-                    return (
-                      <li key={t.id} className="flex items-center gap-3 px-5 py-3">
-                        <StatusDot tone={st.tone} pulse={st.tone === 'green'} />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium text-slate-800">{t.name}</div>
-                          <div className="truncate font-mono text-xs text-slate-500">{t.host}</div>
-                        </div>
-                        <span className={clsx('shrink-0 text-xs', st.tone === 'red' ? 'text-rose-600' : st.tone === 'amber' ? 'text-amber-600' : 'text-slate-500')}>{st.label}</span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : (
-                <EmptyState
-                  icon={<Server className="size-5" />}
-                  title="No phone lines yet"
-                  description="Connect the number you bought from your provider to make and take outside calls."
-                  action={
-                    <Link to="/get-started#number">
-                      <Button size="sm" variant="primary" icon={<Plus className="size-4" />}>
-                        Connect a number
-                      </Button>
-                    </Link>
-                  }
-                />
-              )}
-            </Card>
-
-            <Card>
-              <CardHeader title="Quick actions" />
-              <div className="grid grid-cols-2 gap-2 p-3">
-                {[
-                  { to: '/numbers?add=1', label: 'Add a number', icon: Hash },
-                  ...(topupNumbers.data?.length ? [{ to: '/billing#balance', label: 'Top up balance', icon: Wallet }] : []),
-                  { to: '/users?add=1', label: 'Add a person', icon: UserPlus },
-                  { to: '/get-started#calls', label: 'Where calls go', icon: PhoneIncoming },
-                  apiAccess ? { to: '/developers', label: 'API & embed', icon: Code2 } : { to: '/time-conditions', label: 'Set business hours', icon: Clock },
-                ]
-                  .slice(0, 4)
-                  .map((a) => (
-                    <Link
-                      key={a.to}
-                      to={a.to}
-                      className="flex flex-col gap-2 rounded-xl border border-slate-200 px-3 py-3 transition hover:border-brand-300 hover:bg-brand-50/40"
-                    >
-                      <a.icon className="size-4 text-brand-600" />
-                      <span className="text-[13px] font-medium text-slate-700">{a.label}</span>
-                    </Link>
-                  ))}
-              </div>
-            </Card>
-          </div>
+            )}
+          </Card>
         )}
       </div>
     </div>
   );
+}
+
+/** A number's line, in plain words. */
+function lineState(line: LineState | null): { tone: 'green' | 'red' | 'amber' | 'gray'; label: string } {
+  if (!line) return { tone: 'gray', label: 'No line' };
+  if (line.shared || line.health === 'ok') return { tone: 'green', label: 'Working' };
+  if (line.health === 'failing') return { tone: 'red', label: 'Not accepted' };
+  if (line.health === 'waiting') return { tone: 'amber', label: 'Connecting' };
+  return { tone: 'gray', label: 'Turned off' };
 }
 
 // Categorical slots 1-3, validated against the white card surface for CVD separation.

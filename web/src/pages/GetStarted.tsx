@@ -181,7 +181,7 @@ export function GetStartedPage() {
             )}
             <Card className="overflow-hidden">
               <div className="border-b border-black/[0.06] px-4 py-4 sm:px-6">
-                <p className="font-mono text-[11px] font-medium tracking-[0.08em] text-slate-400 uppercase">
+                <p className="text-[12.5px] font-medium text-brand-700">
                   Step {index + 1} of {SETUP_STEPS.length}
                 </p>
                 <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-950">{QUESTIONS[current].title}</h2>

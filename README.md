@@ -92,6 +92,23 @@ where calls go, and a test call.
 - **Payments**: SSLCommerz (bKash, Nagad, Rocket, cards, internet banking), each confirmed with
   SSLCommerz's validation API; manual bKash/bank transfers are confirmed by an admin in Sales.
 
+### Envo Phone (personal numbers)
+
+The website has two sides: **Business** (`/`, the PBX above) and **Personal** (`/phone`), for people
+who only want a number of their own. They sign up on `/phone/signup` or in the Android app
+(`mobile/`), confirm their email with a 6-digit code, send the BTRC registration (NID, address, a
+photo of themselves and of their NID) and get a random number from the provider's pool. Their first
+recharge (at least the amount set in the admin, BDT 100 to start) activates it and becomes their
+calling balance; support then registers the number at the operator and connects it in Number
+requests, like any other, and the person is emailed. Calls to other networks are charged per started
+minute from the balance; calls between Envo numbers are free.
+
+Signed in, a personal account sees only its phone (`/phone`: dialer, calls, balance and recharges,
+account), never the PBX pages. Platform admins find everyone under **Envo Phone** in /admin (stage,
+number, balance, corrections, support access) with the app's settings: sign-ups open, where numbers
+come from, first and later recharges, price per minute, free Envo calls, support contacts, and the
+oldest app version that still works. Real calling from the app (SIP over WebSocket) is the next step.
+
 ### Before selling for real
 
 1. **Payment settings** (Payments in /admin): the Enfinito Pay secret key and webhook signing
@@ -170,7 +187,8 @@ browser phone connects calls but has no audio. That and the other bits `install.
 server/        API, Asterisk config generator, AMI client, live state (TypeScript, bundled with esbuild)
   src/asterisk/  generator.ts (DB → pjsip/dialplan/voicemail/queues), envo-lib.conf (static dialplan), ami.ts, apply.ts, live.ts
   migrations/    SQL migrations, applied on start
-web/           React + Vite dashboard and WebRTC phone (JsSIP)
+web/           React + Vite dashboard and WebRTC phone (JsSIP); personal/ is Envo Phone on the website
+mobile/        Envo Phone, the Android app (Expo / React Native); see mobile/README.md
 deploy/        install.sh (provisioning), deploy.sh (build + ship), Asterisk/nginx/systemd/fail2ban config
 ```
 

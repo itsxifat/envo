@@ -13,6 +13,8 @@ export interface User {
   /** Customer account; null for platform admins. */
   accountId: number | null;
   accountStatus: AccountStatus | null;
+  /** A business runs a PBX; a personal account (Envo Phone) is one person with one number. */
+  accountKind: 'business' | 'personal' | null;
   isOwner: boolean;
   /** SIP servers this login may work in; null = all (platform admins). */
   tenantIds: number[] | null;

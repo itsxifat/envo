@@ -215,7 +215,10 @@ function Price({ p, size = 'md' }: { p: Package; size?: 'md' | 'lg' }) {
   if (p.price_monthly === null) return <div className={clsx('font-display tracking-[-0.03em]', size === 'lg' ? 'text-[40px]' : 'text-[30px]')}>Custom</div>;
   return (
     <div className="flex items-baseline gap-1.5">
-      <span className={clsx('font-display tracking-[-0.03em]', size === 'lg' ? 'text-[40px]' : 'text-[30px]')}>৳{Number(p.price_monthly).toLocaleString('en-US')}</span>
+      <span className={clsx('font-display tracking-[-0.03em]', size === 'lg' ? 'text-[40px]' : 'text-[30px]')}>
+        <span className="mr-1.5 text-[0.55em] tracking-normal">BDT</span>
+        {Number(p.price_monthly).toLocaleString('en-US')}
+      </span>
       <span className="text-[13px] text-[#8a8f9a]">/ month</span>
     </div>
   );
@@ -376,6 +379,12 @@ export function LandingPage() {
                 See pricing <ArrowRight className="size-4 transition group-hover:translate-x-0.5" />
               </a>
             </div>
+            <p className="mt-6 text-[14px] text-[#8a8f9a]">
+              Just want a number for yourself?{' '}
+              <Link to="/phone" className="font-medium text-[#0b0d12] underline decoration-[#c6cad2] underline-offset-4 hover:decoration-[#0b0d12]">
+                Get Envo Phone
+              </Link>
+            </p>
           </div>
         </div>
 
@@ -446,7 +455,7 @@ export function LandingPage() {
           </div>
           <dl className="grid gap-x-10 gap-y-10 self-end sm:grid-cols-2">
             {[
-              ['৳499', 'Packages start here. Billed monthly in taka, with an invoice every time.'],
+              ['BDT 499', 'Packages start here. Billed monthly in taka, with an invoice every time.'],
               ['09', 'Bring the IP number from your IPTSP. Envo registers it and keeps it online.'],
               ['bKash', 'Or Nagad, Rocket, cards and internet banking through SSLCommerz, or bank transfer.'],
               ['0', 'Servers, PBX boxes or phones to buy. Start with the browser you have.'],

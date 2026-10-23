@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { Briefcase, ChevronRight, LogIn, Plus } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api';
 import { useAuth } from '../../state/auth';
-import { ACCOUNT_STATUS, formatBdt, formatDate } from '../../lib/format';
+import { ACCOUNT_STATUS, formatBdt, formatDate, plural } from '../../lib/format';
 import type { AccountRow, Package } from '../../lib/types';
 import { Badge, Button, Card, CopyField, EmptyState, ErrorBlock, Field, IconButton, Input, Modal, NumberInput, Notice, PageHeader, SearchInput, Select, TableSkeleton, Tabs } from '../../components/ui';
 
@@ -135,7 +135,7 @@ export function CustomersPage() {
   }, [params]);
   const list = useQuery({
     queryKey: ['admin', 'accounts', search, status],
-    queryFn: () => api.get<AccountRow[]>(`/api/admin/accounts?search=${encodeURIComponent(search)}&status=${status}`),
+    queryFn: () => api.get<AccountRow[]>(`/api/admin/accounts?kind=business&search=${encodeURIComponent(search)}&status=${status}`),
     placeholderData: (prev) => prev,
   });
   const rows = list.data ?? [];
@@ -145,7 +145,7 @@ export function CustomersPage() {
     <>
       <PageHeader
         title="Customers"
-        description={list.data ? `${rows.filter((r) => !r.internal).length} customers${status ? '' : ` · ${formatBdt(mrr)} monthly revenue from active ones`}` : 'Accounts that use Envo'}
+        description={list.data ? `${plural(rows.filter((r) => !r.internal).length, 'customer')}${status ? '' : ` · ${formatBdt(mrr)} monthly revenue from active ones`}` : 'Accounts that use Envo'}
         icon={<Briefcase />}
         actions={
           <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>

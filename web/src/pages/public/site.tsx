@@ -43,7 +43,33 @@ function useSectionHref(): (id: string) => string {
   return (id) => (onHome ? `#${id}` : `/#${id}`);
 }
 
-export function SiteHeader() {
+/** Who a page is for: businesses (the PBX) or people who want a number of their own (Envo Phone). */
+export type Audience = 'business' | 'personal';
+
+/** The website's two sides, side by side in the header. */
+function AudienceSwitch({ audience }: { audience: Audience }) {
+  return (
+    <div className="inline-flex shrink-0 rounded-full bg-[#f1f2f4] p-1" role="group" aria-label="Envo for">
+      {(
+        [
+          ['business', '/', 'Business'],
+          ['personal', '/phone', 'Personal'],
+        ] as const
+      ).map(([a, to, label]) => (
+        <Link
+          key={a}
+          to={to}
+          aria-current={audience === a ? 'page' : undefined}
+          className={clsx('font-geist rounded-full px-3 py-1.5 text-[13px] font-medium transition sm:px-3.5 sm:text-[13.5px]', audience === a ? 'bg-white text-[#0b0d12] shadow-[0_1px_2px_rgb(11_13_18/0.12)]' : 'text-[#5b616e] hover:text-[#0b0d12]')}
+        >
+          {label}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+export function SiteHeader({ audience = 'business' }: { audience?: Audience }) {
   const { user } = useAuth();
   const section = useSectionHref();
   const [open, setOpen] = useState(false);
@@ -54,18 +80,26 @@ export function SiteHeader() {
     window.addEventListener('scroll', on, { passive: true });
     return () => window.removeEventListener('scroll', on);
   }, []);
-  const links = [
-    { href: section('product'), label: 'Product' },
-    { href: section('pricing'), label: 'Pricing' },
-    { href: section('faq'), label: 'FAQ' },
-  ];
+  const personal = audience === 'personal';
+  const links = personal
+    ? [
+        { href: '#how', label: 'How it works' },
+        { href: '#faq', label: 'FAQ' },
+      ]
+    : [
+        { href: section('product'), label: 'Product' },
+        { href: section('pricing'), label: 'Pricing' },
+        { href: section('faq'), label: 'FAQ' },
+      ];
+  const start = personal ? { to: '/phone/signup', label: 'Get my number' } : { to: '/signup', label: 'Get started' };
   return (
     <header className={clsx('sticky top-0 z-40 border-b transition-colors', scrolled ? 'border-[#e7e8ec] bg-white/90 backdrop-blur-md' : 'border-transparent bg-white')}>
-      <div className={clsx(WRAP, 'flex h-[60px] items-center gap-8')}>
-        <Link to="/" aria-label="Envo home">
+      <div className={clsx(WRAP, 'flex h-[60px] items-center gap-3 sm:gap-8')}>
+        <Link to={personal ? '/phone' : '/'} aria-label="Envo home">
           <Wordmark />
         </Link>
-        <nav className="hidden items-center gap-7 md:flex" aria-label="Website">
+        <AudienceSwitch audience={audience} />
+        <nav className="hidden items-center gap-7 lg:flex" aria-label="Website">
           {links.map((l) => (
             <a key={l.href} href={l.href} className="font-geist text-[14px] text-[#5b616e] transition hover:text-[#0b0d12]">
               {l.label}
@@ -75,15 +109,15 @@ export function SiteHeader() {
         <div className="ml-auto hidden items-center gap-5 md:flex">
           {user ? (
             <Link to="/" className="site-btn">
-              Open dashboard
+              {user.accountKind === 'personal' ? 'Open my phone' : 'Open dashboard'}
             </Link>
           ) : (
             <>
               <Link to="/login" className="font-geist text-[14px] text-[#0b0d12] hover:text-[#1f57eb]">
                 Sign in
               </Link>
-              <Link to="/signup" className="site-btn">
-                Get started
+              <Link to={start.to} className="site-btn">
+                {start.label}
               </Link>
             </>
           )}
@@ -101,15 +135,15 @@ export function SiteHeader() {
           ))}
           {user ? (
             <Link to="/" onClick={() => setOpen(false)} className="site-btn mt-5 w-full justify-center">
-              Open dashboard
+              {user.accountKind === 'personal' ? 'Open my phone' : 'Open dashboard'}
             </Link>
           ) : (
             <div className="mt-5 grid grid-cols-2 gap-3">
               <Link to="/login" onClick={() => setOpen(false)} className="site-btn-ghost justify-center">
                 Sign in
               </Link>
-              <Link to="/signup" onClick={() => setOpen(false)} className="site-btn justify-center">
-                Get started
+              <Link to={start.to} onClick={() => setOpen(false)} className="site-btn justify-center">
+                {start.label}
               </Link>
             </div>
           )}
@@ -146,6 +180,9 @@ export function SiteFooter() {
             <Link to="/signup" className="flex items-center gap-1 text-[#2a2e37] hover:text-[#1f57eb]">
               Create an account <ArrowUpRight className="size-3.5" />
             </Link>
+            <Link to="/phone" className="block text-[#2a2e37] hover:text-[#1f57eb]">
+              Envo Phone, for you
+            </Link>
             <Link to="/login" className="block text-[#2a2e37] hover:text-[#1f57eb]">
               Sign in
             </Link>
@@ -160,11 +197,11 @@ export function SiteFooter() {
   );
 }
 
-export function SitePage({ children }: { children: ReactNode }) {
+export function SitePage({ children, audience }: { children: ReactNode; audience?: Audience }) {
   useSiteFonts();
   return (
     <div className="site min-h-full bg-white">
-      <SiteHeader />
+      <SiteHeader audience={audience} />
       <main>{children}</main>
       <SiteFooter />
     </div>

@@ -116,9 +116,15 @@ adminRouter.get('/accounts', async (req, res) => {
     params.push(status);
     where.push(`a.status = $${params.length}`);
   }
+  // Businesses and Envo Phone people are listed apart (?kind=business on the Customers page).
+  const kind = String(req.query.kind ?? '');
+  if (kind === 'business' || kind === 'personal') {
+    params.push(kind);
+    where.push(`a.kind = $${params.length}`);
+  }
   res.json(
     await many(
-      `SELECT a.id, a.name, a.email, a.phone, a.status, a.internal, a.created_at,
+      `SELECT a.id, a.name, a.email, a.phone, a.status, a.internal, a.kind, a.created_at,
               p.id AS package_id, p.name AS package_name, s.status AS subscription_status, s.price, s.current_period_end,
               (SELECT count(*) FROM tenants t WHERE t.account_id = a.id) AS servers,
               (SELECT count(*) FROM extensions e JOIN tenants t ON t.id = e.tenant_id WHERE t.account_id = a.id) AS extensions,

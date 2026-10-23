@@ -49,6 +49,10 @@ interface RequestRow {
   subscriber_name: string | null;
   account_id: number;
   account_name: string;
+  /** Envo Phone requests come from one person (the app or the website's personal side). */
+  account_kind: 'business' | 'personal';
+  /** Envo Phone: the first recharge is not paid yet, so the number is not registered yet. */
+  awaiting_payment: boolean;
   tenant_id: number | null;
   tenant_name: string | null;
   connected_number: string | null;
@@ -186,9 +190,9 @@ function RequestsTab() {
               {list.data.map((r) => (
                 <tr key={r.id}>
                   <td>
-                    <Link to={`/admin/customers/${r.account_id}`} className="block min-w-0 hover:text-brand-700">
+                    <Link to={r.account_kind === 'personal' ? '/admin/phone' : `/admin/customers/${r.account_id}`} className="block min-w-0 hover:text-brand-700">
                       <div className="truncate text-sm font-medium text-slate-900">{r.account_name}</div>
-                      <div className="truncate text-xs text-slate-500">{r.tenant_name ?? 'SIP server removed'}</div>
+                      <div className="truncate text-xs text-slate-500">{r.account_kind === 'personal' ? 'Envo Phone' : (r.tenant_name ?? 'SIP server removed')}</div>
                     </Link>
                   </td>
                   <td className="text-sm text-slate-700">{r.subscriber_name ?? '—'}</td>
@@ -196,9 +200,12 @@ function RequestsTab() {
                     {r.connected_number || r.requested_number || (r.special ? <SpecialWish text={r.special} /> : <span className="font-sans font-normal text-slate-500">Any free number</span>)}
                   </td>
                   <td>
-                    <Badge tone={STATUS[r.status].tone} dot>
-                      {STATUS[r.status].label}
-                    </Badge>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Badge tone={STATUS[r.status].tone} dot>
+                        {STATUS[r.status].label}
+                      </Badge>
+                      {r.awaiting_payment && (r.status === 'submitted' || r.status === 'in_review') && <Badge tone="gray">Not paid yet</Badge>}
+                    </div>
                   </td>
                   <td className="text-sm text-slate-600">{timeAgo(r.created_at)}</td>
                   <td>
@@ -334,6 +341,13 @@ function RequestModal({ id, onClose }: { id: number; onClose: () => void }) {
             {d.decided_by_name && <span className="text-xs text-slate-500">· handled by {d.decided_by_name}</span>}
           </div>
           {d.status === 'rejected' && d.reason && <Notice tone="danger" title="Rejected">{d.reason}</Notice>}
+          {open && d.account_kind === 'personal' && (
+            <Notice tone={d.awaiting_payment ? 'warn' : 'info'} title={d.awaiting_payment ? 'Envo Phone · first recharge not paid yet' : 'Envo Phone · paid, ready to register'}>
+              {d.awaiting_payment
+                ? 'This person is registering for a personal number. Register it at the operator once their first recharge is paid; connecting before that is refused.'
+                : 'Register the number at the operator, connect it here (it rings their phone right away), then add their paid recharge under Top-ups.'}
+            </Notice>
+          )}
           {open && d.special && (
             <Notice title={`Special number wanted: ${d.special}`}>
               Check with {operator} that it is free. If it costs extra, send the customer an invoice under Sales & invoices first. If it is taken, reject the request and say so;

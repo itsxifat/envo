@@ -30,13 +30,14 @@ authRouter.post('/login', async (req, res) => {
   const { email, password } = loginSchema.parse(req.body);
   const key = `${req.ip}|${email}`;
   if (loginRateLimited(key)) throw new HttpError(429, 'Too many attempts. Try again in a few minutes.');
-  const user = await one<{ id: number; password_hash: string; enabled: boolean; email_verified_at: Date | null }>(
-    'SELECT id, password_hash, enabled, email_verified_at FROM users WHERE email = $1',
+  const user = await one<{ id: number; password_hash: string; enabled: boolean; email_verified_at: Date | null; kind: string | null }>(
+    'SELECT u.id, u.password_hash, u.enabled, u.email_verified_at, a.kind FROM users u LEFT JOIN accounts a ON a.id = u.account_id WHERE u.email = $1',
     [email],
   );
   const ok = await verifyPassword(password, user?.password_hash ?? (await dummyHash));
   if (!user || !ok || !user.enabled) throw new HttpError(401, 'Wrong email or password');
-  if (!user.email_verified_at) {
+  // Envo Phone confirms the email with a code after signing in; businesses with the emailed link first.
+  if (!user.email_verified_at && user.kind !== 'personal') {
     throw new HttpError(403, 'Confirm your email first: open the link we sent you.', { code: 'email_unverified' });
   }
   clearLoginAttempts(key);

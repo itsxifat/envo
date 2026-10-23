@@ -11,6 +11,8 @@ import type { Role } from './lib/types';
 import { LoginPage } from './pages/Login';
 import { LandingPage } from './pages/public/Landing';
 import { CheckEmailPage, ForgotPasswordPage, ResetPasswordPage, SetupPage, SignupPage, VerifyPage } from './pages/public/Signup';
+import { PersonalLandingPage, PersonalSignupPage } from './pages/public/Personal';
+import { PersonalApp } from './personal/PersonalApp';
 import { DashboardPage } from './pages/Dashboard';
 import { GetStartedPage } from './pages/GetStarted';
 import { LiveCallsPage } from './pages/LiveCalls';
@@ -44,6 +46,7 @@ import { LinesPage } from './pages/admin/Lines';
 import { ActivityPage } from './pages/admin/Activity';
 import { StaffPage } from './pages/admin/Staff';
 import { NumberRequestsPage } from './pages/admin/NumberRequests';
+import { PhoneAppPage } from './pages/admin/PhoneApp';
 import { PackagesPage } from './pages/admin/Packages';
 import { SalesPage } from './pages/admin/Sales';
 import { BillingSettingsPage } from './pages/admin/BillingSettings';
@@ -68,6 +71,7 @@ function AdminApp() {
           <Route path="customers" element={<CustomersPage />} />
           <Route path="customers/:id" element={<CustomerDetailPage />} />
           <Route path="number-requests" element={<NumberRequestsPage />} />
+          <Route path="phone" element={<PhoneAppPage />} />
           <Route path="live" element={<LiveMonitorPage />} />
           <Route path="lines" element={<LinesPage />} />
           <Route path="activity" element={<ActivityPage />} />
@@ -95,6 +99,8 @@ export function App() {
         <Route path="/home" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
+        <Route path="/phone" element={<PersonalLandingPage />} />
+        <Route path="/phone/signup" element={<PersonalSignupPage />} />
         <Route path="/check-email" element={<CheckEmailPage />} />
         <Route path="/verify" element={<VerifyPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -106,6 +112,8 @@ export function App() {
     );
   }
   if (user.role === 'superadmin' && !user.impersonator) return <AdminApp />;
+  // Envo Phone: one person with one number gets the phone, not the PBX.
+  if (user.accountKind === 'personal') return <PersonalApp />;
   // Awaiting payment or suspended: only the plan (and soon payment) until the account is active again.
   if (user.accountStatus !== 'active') return <AccountInactive />;
   return (

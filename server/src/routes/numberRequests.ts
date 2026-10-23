@@ -11,7 +11,7 @@ import { isHost } from '../asterisk/sanitize.js';
 import { assertLimit, getAccountPlan, getUsage } from '../billing/plan.js';
 import { createInvoice } from '../billing/invoices.js';
 import { activeProviders, getSupplySettings, providerOfNumber, updateSupplySettings, type SupplyProvider, type SupplySettings } from '../supply/settings.js';
-import { deleteDocuments, documentPath, saveDocument } from '../supply/files.js';
+import { deleteDocuments, documentPath, idDocumentOf, saveDocument } from '../supply/files.js';
 import { supplyCounts } from '../supply/counts.js';
 import { connectLine, defaultDestination, lineInput } from './setup.js';
 import { notifyNumberReady } from '../phone/account.js';
@@ -69,12 +69,15 @@ export const detailsSchema = z
     }
   });
 
-const documents = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 2, fields: 12, fieldSize: 64 * 1024 } }).fields([
+/** The person's photo, and the NID as two sides (made into one page here) or as one file with both. */
+const documents = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 4, fields: 12, fieldSize: 64 * 1024 } }).fields([
   { name: 'photo', maxCount: 1 },
+  { name: 'id_front', maxCount: 1 },
+  { name: 'id_back', maxCount: 1 },
   { name: 'id_document', maxCount: 1 },
 ]);
 export const uploadDocuments: RequestHandler = (req, res, next) =>
-  documents(req, res, (err: unknown) => next((err as { code?: string } | undefined)?.code === 'LIMIT_FILE_SIZE' ? badRequest('Each file can be at most 5 MB') : err));
+  documents(req, res, (err: unknown) => next((err as { code?: string } | undefined)?.code === 'LIMIT_FILE_SIZE' ? badRequest('Each file can be at most 10 MB') : err));
 
 function accountOf(req: Request): number {
   const id = req.user!.accountId;
@@ -182,9 +185,9 @@ numberRequestsRouter.post('/', uploadDocuments, async (req, res) => {
   if (!tenant || tenant.account_id !== accountId || !canAccessTenant(req.user!, body.tenant_id)) throw forbidden();
   const files = req.files as Record<string, Express.Multer.File[]> | undefined;
   const photo = files?.photo?.[0];
-  const idDoc = files?.id_document?.[0];
   if (!photo) throw badRequest('Add a photo of the subscriber');
-  if (!idDoc) throw badRequest('Add a scan or photo of the NID or passport');
+  const idDoc = await idDocumentOf(files);
+  if (!idDoc) throw badRequest('Add both sides of the NID, or a scan of the passport');
   // Open requests count too: each one becomes a number on the package.
   const open = await one<{ count: number }>("SELECT count(*) AS count FROM number_requests WHERE account_id = $1 AND status IN ('submitted', 'in_review')", [accountId]);
   await assertLimit(accountId, 'max_dids', 1 + (open?.count ?? 0));
@@ -208,7 +211,7 @@ numberRequestsRouter.post('/', uploadDocuments, async (req, res) => {
       ).rows[0]!;
       requestId = row.id;
       const photoFile = await saveDocument(row.id, 'photo', photo.buffer, false);
-      const idFile = await saveDocument(row.id, 'id', idDoc.buffer, true);
+      const idFile = await saveDocument(row.id, 'id', idDoc, true);
       await db.query('UPDATE number_requests SET photo_file = $1, id_file = $2 WHERE id = $3', [photoFile, idFile, row.id]);
       return { id: row.id, number };
     });

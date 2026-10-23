@@ -2,8 +2,8 @@ import { StyleSheet, View } from 'react-native';
 
 import { useTheme } from '@/theme/theme';
 
-/** Where you are in getting a number: account, details, photos, number. */
-export function StepDots({ step, count = 4 }: { step: number; count?: number }) {
+/** Where you are in getting a number: account, email, details, photos, number. */
+export function StepDots({ step, count = 5 }: { step: number; count?: number }) {
   const { colors } = useTheme();
   return (
     <View style={styles.row} accessibilityRole="progressbar" accessibilityLabel={`Step ${step + 1} of ${count}`}>

@@ -11,7 +11,7 @@ import { emails } from '../lib/emails.js';
 import { createInvoice, startOnlinePayment, submitManualPayment } from '../billing/invoices.js';
 import { publicPaymentOptions } from '../billing/settings.js';
 import { getSupplySettings } from '../supply/settings.js';
-import { deleteDocuments, saveDocument } from '../supply/files.js';
+import { deleteDocuments, idDocumentOf, saveDocument } from '../supply/files.js';
 import { needsSetup } from '../setup.js';
 import { phoneState, provisionPersonal, reserveRandomNumber, stageOf } from '../phone/account.js';
 import { adjustBalance, balanceOf } from '../phone/balance.js';
@@ -215,9 +215,10 @@ phoneRouter.post('/kyc', uploadDocuments, async (req, res) => {
   const details = detailsSchema.parse({ ...(raw as object), subscriber_type: 'individual', authorized_person: '', name: state.name, phone: state.mobile, email: state.email });
   const files = req.files as Record<string, Express.Multer.File[]> | undefined;
   const photo = files?.photo?.[0];
-  const idDoc = files?.id_document?.[0];
   if (!photo) throw badRequest('Add a photo of yourself');
-  if (!idDoc) throw badRequest('Add a photo of the front of your NID');
+  // The two sides become one page, the way the operator wants it.
+  const idDoc = await idDocumentOf(files);
+  if (!idDoc) throw badRequest('Add photos of the front and back of your NID');
   const fallbackProvider = (await getPhoneSettings()).provider;
 
   let requestId = 0;
@@ -234,7 +235,7 @@ phoneRouter.post('/kyc', uploadDocuments, async (req, res) => {
       ).rows[0]!;
       requestId = row.id;
       const photoFile = await saveDocument(row.id, 'photo', photo.buffer, false);
-      const idFile = await saveDocument(row.id, 'id', idDoc.buffer, true);
+      const idFile = await saveDocument(row.id, 'id', idDoc, true);
       await db.query('UPDATE number_requests SET photo_file = $1, id_file = $2 WHERE id = $3', [photoFile, idFile, row.id]);
       return { id: row.id, number: picked?.number ?? null, tenantId };
     });

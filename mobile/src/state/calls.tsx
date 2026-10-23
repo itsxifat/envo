@@ -3,6 +3,7 @@ import { Vibration } from 'react-native';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 
+import { isEnvoNumber } from '@/lib/numbers';
 import { RINGTONES, useSettings } from './settings';
 import { useSession } from './session';
 import { Sounds } from './sounds';
@@ -45,8 +46,7 @@ interface CallsValue {
 
 const CallsContext = createContext<CallsValue | null>(null);
 
-/** Envo numbers call each other for free. */
-export const isEnvoNumber = (n: string) => /^09639437\d{3}$/.test(n.replace(/\D/g, ''));
+export { isEnvoNumber } from '@/lib/numbers';
 
 export function CallsProvider({ children }: { children: ReactNode }) {
   const { addCall } = useSession();

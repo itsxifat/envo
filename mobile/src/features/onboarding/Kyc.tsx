@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { BackHandler, Image, Pressable, StyleSheet, Switch, View } from 'react-native';
 import { router } from 'expo-router';
-import * as ImagePicker from 'expo-image-picker';
-import { Camera, Check, IdCard, UserRound } from 'lucide-react-native';
+import { Camera, Check, FileText, IdCard, UserRound } from 'lucide-react-native';
 
 import { Button } from '@/components/ui/Button';
 import { Input, type InputRef } from '@/components/ui/Input';
+import { errorText } from '@/lib/api';
 import { Screen } from '@/components/ui/Screen';
 import { Text } from '@/components/ui/Text';
-import { useSession } from '@/state/session';
+import { useSession, type PickedFile } from '@/state/session';
 import { useTheme } from '@/theme/theme';
 import { fonts, radius, space } from '@/theme/tokens';
 import { StepDots } from './StepDots';
+import { pickFile } from './pickers';
+import { useSourceSheet } from './SourceSheet';
 
 /*
  * The registration the BTRC requires for every number, in three short steps: about you, where you
@@ -56,7 +58,8 @@ const addressOk = (a: Address) => a.street.trim().length >= 3 && a.city.trim().l
 
 export function KycScreen() {
   const { colors } = useTheme();
-  const { submitKyc, signOut } = useSession();
+  const { account, config, submitKyc, signOut } = useSession();
+  const [failed, setFailed] = useState<string | null>(null);
   const [part, setPart] = useState<Part>('you');
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -70,7 +73,11 @@ export function KycScreen() {
   const [father, setFather] = useState('');
   const [mother, setMother] = useState('');
   const [selfie, setSelfie] = useState<string | null>(null);
-  const [idPhoto, setIdPhoto] = useState<string | null>(null);
+  // The NID's two sides (Envo puts them on one page for the operator), or one file with both.
+  const [idMode, setIdMode] = useState<'sides' | 'one'>('sides');
+  const [front, setFront] = useState<PickedFile | null>(null);
+  const [backSide, setBackSide] = useState<PickedFile | null>(null);
+  const [oneFile, setOneFile] = useState<PickedFile | null>(null);
   const [consent, setConsent] = useState(false);
   const birthRef = useRef<InputRef>(null);
   const motherRef = useRef<InputRef>(null);
@@ -88,7 +95,8 @@ export function KycScreen() {
     father: father.trim().length < 2 ? "Enter your father's name" : null,
     mother: mother.trim().length < 2 ? "Enter your mother's name" : null,
   };
-  const ready = { you: !Object.values(youErrors).some(Boolean), home: !Object.values(homeErrors).some(Boolean), photos: !!selfie && !!idPhoto && consent };
+  const idReady = idMode === 'sides' ? !!front && !!backSide : !!oneFile;
+  const ready = { you: !Object.values(youErrors).some(Boolean), home: !Object.values(homeErrors).some(Boolean), photos: !!selfie && idReady && consent };
 
   const next = async () => {
     setTried(true);
@@ -97,13 +105,31 @@ export function KycScreen() {
     if (part === 'you') return setPart('home');
     if (part === 'home') return setPart('photos');
     setBusy(true);
+    setFailed(null);
+    const [d, m, y] = birth.split('/');
     try {
-      await submitKyc();
+      await submitKyc(
+        {
+          nid,
+          birth_date: `${y}-${m}-${d}`,
+          gender: gender!,
+          occupation: occupation!,
+          present_address: present,
+          permanent_address: same ? present : permanent,
+          father_name: father.trim(),
+          mother_name: mother.trim(),
+        },
+        selfie!,
+        idMode === 'sides' ? { front: front!, back: backSide! } : { one: oneFile! },
+      );
       router.replace('/your-number');
+    } catch (err) {
+      setFailed(errorText(err));
     } finally {
       setBusy(false);
     }
   };
+  const rejected = account?.request?.status === 'rejected' ? account.request.reason || 'Some details did not match your NID.' : null;
 
   // Back steps through the parts; from the first one it leaves (signing in again picks up here).
   const back = () => (part === 'photos' ? setPart('home') : part === 'home' ? setPart('you') : signOut());
@@ -116,18 +142,22 @@ export function KycScreen() {
     return () => sub.remove();
   }, [part]);
 
-  const take = async (which: 'selfie' | 'id') => {
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    const pick = perm.granted
-      ? await ImagePicker.launchCameraAsync({ cameraType: which === 'selfie' ? ImagePicker.CameraType.front : ImagePicker.CameraType.back, quality: 0.7, allowsEditing: true, aspect: which === 'selfie' ? [1, 1] : [16, 10] })
-      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7, allowsEditing: true });
-    if (!pick.canceled && pick.assets[0]) (which === 'selfie' ? setSelfie : setIdPhoto)(pick.assets[0].uri);
+  // The selfie is taken live; documents can also come from the gallery or the phone's files.
+  const takeSelfie = async () => {
+    const f = await pickFile('camera', { selfie: true }).catch(() => null);
+    if (f) setSelfie(f.uri);
+  };
+  const sources = useSourceSheet();
+  const pickSide = async (title: string, set: (f: PickedFile) => void) => {
+    const source = await sources.choose(title);
+    const f = source ? await pickFile(source).catch(() => null) : null;
+    if (f) set(f);
   };
 
   const titles: Record<Part, [string, string]> = {
     you: ['About you', 'As written on your NID.'],
     home: ['Where you live', 'Your address and your parents’ names, as on your NID.'],
-    photos: ['Two photos', 'A clear photo of your face, and of the front of your NID.'],
+    photos: ['Photos', 'A clear photo of your face, and both sides of your NID.'],
   };
 
   return (
@@ -139,13 +169,23 @@ export function KycScreen() {
       scroll
       footer={<Button title={part === 'photos' ? 'Get my number' : 'Continue'} onPress={next} loading={busy} block />}
     >
-      <StepDots step={part === 'photos' ? 2 : 1} />
+      <StepDots step={part === 'photos' ? 3 : 2} />
       <Text variant="title" style={styles.title}>
         {titles[part][0]}
       </Text>
       <Text tone="secondary" style={styles.lead}>
         {titles[part][1]}
       </Text>
+      {rejected && part === 'you' && (
+        <View style={[styles.notice, { backgroundColor: colors.dangerSoft }]}>
+          <Text variant="bodyMedium" tone="danger">
+            We couldn't register your number
+          </Text>
+          <Text variant="caption" tone="danger">
+            {rejected} Please check your details and send them again.
+          </Text>
+        </View>
+      )}
 
       {part === 'you' && (
         <View style={styles.fields}>
@@ -201,19 +241,47 @@ export function KycScreen() {
 
       {part === 'photos' && (
         <View style={styles.fields}>
-          <PhotoSlot icon={<UserRound size={26} color={colors.brand} />} title="Your photo" hint="Face the camera in good light" uri={selfie} onPress={() => void take('selfie')} />
-          <PhotoSlot icon={<IdCard size={26} color={colors.brand} />} title="Your NID, front side" hint="All four corners in the photo" uri={idPhoto} onPress={() => void take('id')} />
+          <PhotoSlot icon={<UserRound size={26} color={colors.brand} />} title="Your photo" hint="Face the camera in good light" file={selfie ? { uri: selfie, kind: 'image' } : null} onPress={() => void takeSelfie()} />
+          <View style={styles.idHead}>
+            <Text variant="bodyMedium">Your NID</Text>
+            <View style={[styles.segment, { backgroundColor: colors.element }]}>
+              {(['sides', 'one'] as const).map((m) => (
+                <Pressable key={m} accessibilityRole="tab" accessibilityState={{ selected: idMode === m }} onPress={() => setIdMode(m)} style={[styles.segmentItem, idMode === m && { backgroundColor: colors.background }]}>
+                  <Text variant="small" tone={idMode === m ? 'default' : 'secondary'}>
+                    {m === 'sides' ? 'Front and back' : 'One file'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+          {idMode === 'sides' ? (
+            <>
+              <PhotoSlot icon={<IdCard size={26} color={colors.brand} />} title="NID, front" hint="Camera, gallery or a file" file={front} onPress={() => void pickSide('NID, front', setFront)} />
+              <PhotoSlot icon={<IdCard size={26} color={colors.brand} />} title="NID, back" hint="Camera, gallery or a file" file={backSide} onPress={() => void pickSide('NID, back', setBackSide)} />
+            </>
+          ) : (
+            <PhotoSlot icon={<FileText size={26} color={colors.brand} />} title="NID, both sides" hint="A scan or PDF with the front and back" file={oneFile} onPress={() => void pickSide('NID, both sides', setOneFile)} />
+          )}
+          <Text variant="caption" tone="tertiary">
+            We put both sides on one page for the operator, as they need it.
+          </Text>
+          {sources.sheet}
           <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: consent }} onPress={() => setConsent(!consent)} style={[styles.consent, { backgroundColor: colors.surface }]}>
             <View style={[styles.box, { borderColor: consent ? colors.brand : colors.textTertiary, backgroundColor: consent ? colors.brand : 'transparent' }]}>
               {consent && <Check size={14} color="#FFFFFF" strokeWidth={3} />}
             </View>
             <Text variant="caption" tone="secondary" style={{ flex: 1 }}>
-              These details are correct. I allow Enfinito to share them and the photos with ICC Communication Ltd. to register my number, as the BTRC requires.
+              These details are correct. I allow Enfinito to share them and the photos with {config?.operator || 'the operator'} to register my number, as the BTRC requires.
             </Text>
           </Pressable>
           {tried && !ready.photos && (
             <Text variant="caption" tone="danger">
-              Add both photos and tick the box to continue.
+              Add your photo and both sides of your NID, and tick the box to continue.
+            </Text>
+          )}
+          {failed && (
+            <Text variant="caption" tone="danger">
+              {failed}
             </Text>
           )}
         </View>
@@ -260,19 +328,23 @@ function AddressFields({ title, value, onChange, error }: { title: string; value
   );
 }
 
-function PhotoSlot({ icon, title, hint, uri, onPress }: { icon: React.ReactNode; title: string; hint: string; uri: string | null; onPress: () => void }) {
+function PhotoSlot({ icon, title, hint, file, onPress }: { icon: React.ReactNode; title: string; hint: string; file: PickedFile | null; onPress: () => void }) {
   const { colors } = useTheme();
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={uri ? `Retake: ${title}` : `Take: ${title}`} onPress={onPress} style={({ pressed }) => [styles.slot, { backgroundColor: pressed ? colors.elementPressed : colors.surface, borderColor: uri ? colors.call : colors.border }]}>
-      {uri ? (
-        <Image source={{ uri }} style={styles.thumb} />
+    <Pressable accessibilityRole="button" accessibilityLabel={file ? `Change: ${title}` : `Add: ${title}`} onPress={onPress} style={({ pressed }) => [styles.slot, { backgroundColor: pressed ? colors.elementPressed : colors.surface, borderColor: file ? colors.call : colors.border }]}>
+      {file?.kind === 'image' ? (
+        <Image source={{ uri: file.uri }} style={styles.thumb} />
+      ) : file ? (
+        <View style={[styles.slotIcon, { backgroundColor: colors.callSoft }]}>
+          <FileText size={26} color={colors.call} />
+        </View>
       ) : (
         <View style={[styles.slotIcon, { backgroundColor: colors.brandSoft }]}>{icon}</View>
       )}
       <View style={{ flex: 1, gap: 2 }}>
         <Text variant="bodyMedium">{title}</Text>
-        <Text variant="caption" tone={uri ? 'call' : 'secondary'}>
-          {uri ? 'Added · tap to retake' : hint}
+        <Text variant="caption" tone={file ? 'call' : 'secondary'}>
+          {file ? `Added${file.kind === 'pdf' ? ' (PDF)' : ''} · tap to change` : hint}
         </Text>
       </View>
       <Camera size={20} color={colors.textSecondary} />
@@ -295,5 +367,9 @@ const styles = StyleSheet.create({
   slotIcon: { width: 56, height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   thumb: { width: 56, height: 56, borderRadius: 16 },
   consent: { flexDirection: 'row', gap: space.md, borderRadius: radius.md, padding: space.lg, alignItems: 'flex-start' },
+  idHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: space.sm },
+  segment: { flexDirection: 'row', borderRadius: radius.pill, padding: 3 },
+  segmentItem: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill },
+  notice: { borderRadius: radius.md, padding: space.lg, gap: 4, marginTop: space.lg },
   box: { width: 22, height: 22, borderRadius: 7, borderWidth: 2, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
 });

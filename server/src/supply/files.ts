@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { PDFDocument } from 'pdf-lib';
 import { config } from '../config.js';
 import { badRequest } from '../lib/http.js';
 
@@ -41,6 +42,62 @@ export function documentPath(rel: string): { file: string; type: Kind } | null {
   const m = /^(\d+)\/(photo|id)\.(jpg|png|webp|pdf)$/.exec(rel);
   if (!m) return null;
   return { file: path.join(root(), rel), type: FILE_TYPES[m[3]!]! };
+}
+
+// A4 portrait, in PDF points.
+const PAGE = { width: 595.28, height: 841.89, margin: 36, gap: 24 };
+
+/**
+ * The operator wants the NID's front and back on one page, like a photocopy: front on the top half,
+ * back on the bottom half, each as large as fits. A side can be a JPG or PNG photo, or a PDF (its
+ * first page). Returns the one-page PDF.
+ */
+export async function combineIdSides(front: Buffer, back: Buffer): Promise<Buffer> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([PAGE.width, PAGE.height]);
+  const boxW = PAGE.width - 2 * PAGE.margin;
+  const boxH = (PAGE.height - 2 * PAGE.margin - PAGE.gap) / 2;
+  for (const [i, buf] of [front, back].entries()) {
+    const kind = sniff(buf);
+    const side = i === 0 ? 'front' : 'back';
+    // pdf-lib reads the whole underlying memory, so give it a copy that starts at the file's first byte.
+    const bytes = new Uint8Array(buf);
+    let size: { width: number; height: number };
+    let draw: (o: { x: number; y: number; width: number; height: number }) => void;
+    if (kind === 'image/jpeg' || kind === 'image/png') {
+      const img = kind === 'image/jpeg' ? await doc.embedJpg(bytes) : await doc.embedPng(bytes);
+      size = img;
+      draw = (o) => page.drawImage(img, o);
+    } else if (kind === 'application/pdf') {
+      const src = await PDFDocument.load(bytes, { ignoreEncryption: true }).catch(() => null);
+      if (!src || !src.getPageCount()) throw badRequest(`The PDF for the ${side} of the NID could not be read`);
+      const [embedded] = await doc.embedPdf(src, [0]);
+      size = embedded!;
+      draw = (o) => page.drawPage(embedded!, o);
+    } else {
+      throw badRequest(`The ${side} of the NID must be a JPG or PNG photo, or a PDF`);
+    }
+    const scale = Math.min(boxW / size.width, boxH / size.height);
+    const width = size.width * scale;
+    const height = size.height * scale;
+    const top = PAGE.height - PAGE.margin - i * (boxH + PAGE.gap);
+    draw({ x: PAGE.margin + (boxW - width) / 2, y: top - boxH + (boxH - height) / 2, width, height });
+  }
+  doc.setTitle('NID, front and back');
+  doc.setCreator('Envo');
+  return Buffer.from(await doc.save());
+}
+
+/**
+ * The ID document of an upload: the NID's two sides made into one page, or one file that already has
+ * both (a scan, or a passport). Null when neither was sent.
+ */
+export async function idDocumentOf(files: Record<string, Express.Multer.File[]> | undefined): Promise<Buffer | null> {
+  const front = files?.id_front?.[0];
+  const back = files?.id_back?.[0];
+  if (front && back) return combineIdSides(front.buffer, back.buffer);
+  if (front || back) throw badRequest(`Add the ${front ? 'back' : 'front'} of the NID too`);
+  return files?.id_document?.[0]?.buffer ?? null;
 }
 
 export async function deleteDocuments(requestId: number): Promise<void> {

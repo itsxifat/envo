@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/Button';
 import { Input, type InputRef } from '@/components/ui/Input';
 import { Screen } from '@/components/ui/Screen';
 import { Text } from '@/components/ui/Text';
-import { useSession } from '@/state/session';
+import { errorText } from '@/lib/api';
+import { startOf, useSession } from '@/state/session';
 import { space } from '@/theme/tokens';
 import { StepDots } from './StepDots';
 
@@ -19,6 +20,7 @@ export function SignUpScreen() {
   const [form, setForm] = useState({ name: '', mobile: '', email: '', password: '' });
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
   const mobileRef = useRef<InputRef>(null);
   const emailRef = useRef<InputRef>(null);
   const passwordRef = useRef<InputRef>(null);
@@ -36,9 +38,11 @@ export function SignUpScreen() {
     setTried(true);
     if (!ok) return;
     setBusy(true);
+    setFailed(null);
     try {
-      await signUp({ ...form, name: form.name.trim(), email: form.email.trim().toLowerCase() });
-      router.replace('/kyc');
+      router.replace(startOf(await signUp({ ...form, name: form.name.trim(), email: form.email.trim().toLowerCase() })));
+    } catch (err) {
+      setFailed(errorText(err));
     } finally {
       setBusy(false);
     }
@@ -59,6 +63,11 @@ export function SignUpScreen() {
         <Input ref={emailRef} label="Email" placeholder="you@example.com" value={form.email} onChangeText={set('email')} keyboardType="email-address" autoCapitalize="none" autoComplete="email" returnKeyType="next" onSubmitEditing={() => passwordRef.current?.focus()} error={tried ? errors.email : null} />
         <Input ref={passwordRef} label="Password" placeholder="At least 8 characters" value={form.password} onChangeText={set('password')} secureTextEntry autoComplete="new-password" returnKeyType="done" onSubmitEditing={submit} error={tried ? errors.password : null} />
       </View>
+      {failed && (
+        <Text tone="danger" style={styles.note}>
+          {failed}
+        </Text>
+      )}
       <Text variant="caption" tone="tertiary" style={styles.note}>
         By continuing you agree to Enfinito's terms and privacy policy.
       </Text>

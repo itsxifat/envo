@@ -21,7 +21,7 @@ export function YourNumberScreen() {
   const { account, minActivation } = useSession();
   const [copied, setCopied] = useState(false);
   const number = account?.number ?? '';
-  const groups = formatPhone(number).split(' ');
+  const groups = number ? formatPhone(number).split(' ') : [];
 
   return (
     <Screen
@@ -34,7 +34,7 @@ export function YourNumberScreen() {
       }
     >
       <View style={{ marginTop: space.xl }}>
-        <StepDots step={3} />
+        <StepDots step={4} />
       </View>
       <View style={styles.center}>
         <Animated.View entering={ZoomIn.springify().damping(12)} style={[styles.badge, { backgroundColor: colors.brandSoft }]}>
@@ -42,9 +42,14 @@ export function YourNumberScreen() {
         </Animated.View>
         <Animated.View entering={FadeInDown.delay(150)}>
           <Text variant="title" align="center">
-            This is your number
+            {number ? 'This is your number' : "We're choosing your number"}
           </Text>
         </Animated.View>
+        {!number && (
+          <Text tone="secondary" align="center">
+            Your registration is with us. Support picks your number shortly and we let you know.
+          </Text>
+        )}
         <View style={styles.digits}>
           {groups.map((g, i) => (
             <Animated.View key={i} entering={FadeInDown.delay(300 + i * 160).springify().damping(14)}>
@@ -52,7 +57,7 @@ export function YourNumberScreen() {
             </Animated.View>
           ))}
         </View>
-        <Animated.View entering={FadeInDown.delay(800)}>
+        <Animated.View entering={FadeInDown.delay(800)} style={!number && { display: 'none' }}>
           <Pressable
             accessibilityRole="button"
             onPress={async () => {

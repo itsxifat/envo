@@ -9,6 +9,7 @@ import { Screen } from '@/components/ui/Screen';
 import { Text } from '@/components/ui/Text';
 import { formatDuration, formatPhone, formatWhen } from '@/lib/format';
 import { useCalls } from '@/state/calls';
+import { useContacts } from '@/state/contacts';
 import { useSession, type CallLog } from '@/state/session';
 import { useTheme } from '@/theme/theme';
 import { radius, space } from '@/theme/tokens';
@@ -16,7 +17,10 @@ import { radius, space } from '@/theme/tokens';
 /** Every call in and out, newest first; tap one to call back. */
 export function RecentsScreen() {
   const { colors } = useTheme();
-  const { recents, account, markRecentsSeen } = useSession();
+  const { recents: calls, account, markRecentsSeen } = useSession();
+  const { nameOf } = useContacts();
+  // Calls carry no names: the phone's contacts give them.
+  const recents = useMemo(() => calls.map((c) => (c.name ? c : { ...c, name: nameOf(c.number) })), [calls, nameOf]);
   const { dial } = useCalls();
   const [filter, setFilter] = useState<'all' | 'missed'>('all');
   const list = useMemo(() => (filter === 'missed' ? recents.filter((r) => r.direction === 'missed') : recents), [recents, filter]);

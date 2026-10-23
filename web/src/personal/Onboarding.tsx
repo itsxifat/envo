@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { toast } from 'sonner';
-import { Camera, IdCard, MailCheck, PartyPopper, PauseCircle, UserRound } from 'lucide-react';
+import { Camera, FileText, IdCard, MailCheck, PartyPopper, PauseCircle, UserRound } from 'lucide-react';
 import { api, errorMessage } from '../lib/api';
 import { formatBdt } from '../lib/format';
-import { Button, Field, Input, Notice, Select } from '../components/ui';
+import { toJpeg } from '../lib/images';
+import { Button, Field, Input, Notice, Select, Tabs } from '../components/ui';
 import { ME_KEY, formatNumber, usePhoneConfig, type PhoneMe } from './api';
 import { RechargeHistory, RechargePanel } from './Recharge';
 
@@ -179,7 +180,11 @@ export function RegistrationStep({ me }: { me: PhoneMe }) {
   const [same, setSame] = useState(true);
   const [permanent, setPermanent] = useState<Address>(emptyAddress);
   const [photo, setPhoto] = useState<File | null>(null);
-  const [idDoc, setIdDoc] = useState<File | null>(null);
+  // The NID's two sides (we put them on one page for the operator), or one file that has both.
+  const [idMode, setIdMode] = useState<'sides' | 'one'>('sides');
+  const [idFront, setIdFront] = useState<File | null>(null);
+  const [idBack, setIdBack] = useState<File | null>(null);
+  const [idOne, setIdOne] = useState<File | null>(null);
   const [consent, setConsent] = useState(false);
   const [tried, setTried] = useState(false);
   const set = (k: keyof typeof f) => (v: string) => setF((x) => ({ ...x, [k]: v }));
@@ -194,7 +199,9 @@ export function RegistrationStep({ me }: { me: PhoneMe }) {
     father: f.father.trim().length >= 2 ? null : "Enter your father's name",
     mother: f.mother.trim().length >= 2 ? null : "Enter your mother's name",
     photo: photo ? null : 'Add a photo of yourself',
-    idDoc: idDoc ? null : 'Add a photo of the front of your NID',
+    idFront: idMode === 'one' || idFront ? null : 'Add the front of your NID',
+    idBack: idMode === 'one' || idBack ? null : 'Add the back of your NID',
+    idOne: idMode === 'sides' || idOne ? null : 'Add the file with both sides of your NID',
     consent: consent ? null : 'Tick the box to continue',
   };
   const ready = !Object.values(errors).some(Boolean);
@@ -218,7 +225,12 @@ export function RegistrationStep({ me }: { me: PhoneMe }) {
       );
       body.set('consent', 'true');
       body.set('photo', photo!);
-      body.set('id_document', idDoc!);
+      if (idMode === 'sides') {
+        body.set('id_front', idFront!);
+        body.set('id_back', idBack!);
+      } else {
+        body.set('id_document', idOne!);
+      }
       return api.post<PhoneMe>('/api/phone/kyc', body);
     },
     onSuccess: (next) => {
@@ -300,11 +312,28 @@ export function RegistrationStep({ me }: { me: PhoneMe }) {
           </div>
         </Section>
 
-        <Section title="Two photos">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <PhotoInput file={photo} onFile={setPhoto} icon={<UserRound className="size-6" />} title="Your photo" hint="Face the camera in good light" capture="user" error={show(errors.photo)} />
-            <PhotoInput file={idDoc} onFile={setIdDoc} icon={<IdCard className="size-6" />} title="Your NID, front side" hint="All four corners in the photo" capture="environment" error={show(errors.idDoc)} />
+        <Section title="Photos">
+          <PhotoInput file={photo} onFile={setPhoto} icon={<UserRound className="size-6" />} title="Your photo" hint="Face the camera in good light" accept="image/*" capture="user" error={show(errors.photo)} />
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+            <p className="text-[13px] font-medium text-slate-700">Your NID</p>
+            <Tabs
+              value={idMode}
+              onChange={setIdMode}
+              tabs={[
+                { value: 'sides', label: 'Front and back' },
+                { value: 'one', label: 'One file with both' },
+              ]}
+            />
           </div>
+          {idMode === 'sides' ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <PhotoInput file={idFront} onFile={setIdFront} icon={<IdCard className="size-6" />} title="NID, front" hint="Camera, gallery or a file" accept="image/*,application/pdf" error={show(errors.idFront)} />
+              <PhotoInput file={idBack} onFile={setIdBack} icon={<IdCard className="size-6" />} title="NID, back" hint="Camera, gallery or a file" accept="image/*,application/pdf" error={show(errors.idBack)} />
+            </div>
+          ) : (
+            <PhotoInput file={idOne} onFile={setIdOne} icon={<FileText className="size-6" />} title="NID, both sides" hint="A scan or PDF with the front and back" accept="image/*,application/pdf" error={show(errors.idOne)} />
+          )}
+          <p className="text-[12.5px] text-slate-500">All four corners in each photo, nothing covered. We put both sides on one page for the operator.</p>
         </Section>
 
         <label className={clsx('flex cursor-pointer gap-3 rounded-xl px-4 py-3.5 text-[13.5px] leading-relaxed ring-1', show(errors.consent) ? 'bg-rose-50 text-rose-900 ring-rose-200' : 'bg-slate-50 text-slate-700 ring-slate-200')}>
@@ -358,9 +387,28 @@ function AddressFields({ value, onChange, error }: { value: Address; onChange: (
   );
 }
 
-function PhotoInput({ file, onFile, icon, title, hint, capture, error }: { file: File | null; onFile: (f: File | null) => void; icon: ReactNode; title: string; hint: string; capture: 'user' | 'environment'; error: string | null }) {
+function PhotoInput({
+  file,
+  onFile,
+  icon,
+  title,
+  hint,
+  accept,
+  capture,
+  error,
+}: {
+  file: File | null;
+  onFile: (f: File | null) => void;
+  icon: ReactNode;
+  title: string;
+  hint: string;
+  accept: string;
+  /** Opens the camera straight away on phones (the selfie); without it phones offer camera, gallery or files. */
+  capture?: 'user';
+  error: string | null;
+}) {
   const input = useRef<HTMLInputElement>(null);
-  const preview = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
+  const preview = useMemo(() => (file && file.type.startsWith('image/') ? URL.createObjectURL(file) : null), [file]);
   useEffect(() => () => void (preview && URL.revokeObjectURL(preview)), [preview]);
   return (
     <button
@@ -373,6 +421,10 @@ function PhotoInput({ file, onFile, icon, title, hint, capture, error }: { file:
     >
       {preview ? (
         <img src={preview} alt="" className="size-14 shrink-0 rounded-xl object-cover" />
+      ) : file ? (
+        <span className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+          <FileText className="size-6" />
+        </span>
       ) : (
         <span className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600">{icon}</span>
       )}
@@ -384,13 +436,16 @@ function PhotoInput({ file, onFile, icon, title, hint, capture, error }: { file:
       <input
         ref={input}
         type="file"
-        accept="image/*"
+        accept={accept}
         capture={capture}
         className="hidden"
-        onChange={(e) => {
-          const picked = e.target.files?.[0] ?? null;
-          if (picked && picked.size > 5 * 1024 * 1024) return void toast.error('That photo is over 5 MB. Please take a smaller one.');
-          onFile(picked);
+        onChange={async (e) => {
+          const picked = e.target.files?.[0];
+          if (!picked) return;
+          // Photos are made upright and smaller before they are sent; a PDF goes as it is.
+          const ready = await toJpeg(picked);
+          if (ready.size > 10 * 1024 * 1024) return void toast.error('That file is over 10 MB. Please choose a smaller one.');
+          onFile(ready);
         }}
       />
     </button>

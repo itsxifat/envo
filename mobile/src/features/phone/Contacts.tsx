@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, SectionList, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
-import { Contact, ContactField, ContactsSortOrder, getPermissionsAsync, requestPermissionsAsync } from 'expo-contacts';
 import { BookUser, ChevronDown, ChevronUp, Phone, Search } from 'lucide-react-native';
 
 import { Avatar } from '@/components/ui/Avatar';
@@ -11,54 +10,20 @@ import { Input } from '@/components/ui/Input';
 import { Screen } from '@/components/ui/Screen';
 import { Text } from '@/components/ui/Text';
 import { formatPhone } from '@/lib/format';
-import { isEnvoNumber, useCalls } from '@/state/calls';
+import { isEnvoNumber } from '@/lib/numbers';
+import { useCalls } from '@/state/calls';
+import { useContacts, type Person } from '@/state/contacts';
 import { useSession } from '@/state/session';
 import { useTheme } from '@/theme/theme';
 import { radius, space } from '@/theme/tokens';
-
-interface Person {
-  id: string;
-  name: string;
-  numbers: string[];
-  envo: boolean;
-}
-
-/** "+880 1712-345678" → "01712345678", the way numbers are dialled in Bangladesh. */
-export function normalizeNumber(raw: string): string {
-  let n = raw.replace(/[^\d+]/g, '');
-  if (n.startsWith('+880')) n = `0${n.slice(4)}`;
-  else if (n.startsWith('880') && n.length === 13) n = `0${n.slice(3)}`;
-  return n;
-}
 
 export function ContactsScreen() {
   const { colors } = useTheme();
   const { account } = useSession();
   const { dial } = useCalls();
-  const [allowed, setAllowed] = useState<boolean | null>(null);
-  const [people, setPeople] = useState<Person[]>([]);
+  const { allowed, people, ask } = useContacts();
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    const rows = await Contact.getAllDetails([ContactField.FULL_NAME, ContactField.PHONES], { sortOrder: ContactsSortOrder.GivenName });
-    setPeople(
-      rows
-        .map((r, i) => {
-          // Free Envo numbers first, so they are the ones shown and called.
-          const numbers = [...new Set((r.phones ?? []).map((p) => normalizeNumber(p.number ?? '')).filter((n) => n.length >= 3))].sort((a, b) => Number(isEnvoNumber(b)) - Number(isEnvoNumber(a)));
-          return { id: String(i), name: r.fullName?.trim() || (numbers[0] ? formatPhone(numbers[0]) : 'No name'), numbers, envo: numbers.some(isEnvoNumber) };
-        })
-        .filter((p) => p.numbers.length > 0),
-    );
-  }, []);
-
-  useEffect(() => {
-    void getPermissionsAsync().then((p) => {
-      setAllowed(p.granted);
-      if (p.granted) void load();
-    });
-  }, [load]);
 
   const sections = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -94,11 +59,7 @@ export function ContactsScreen() {
           </Text>
           <Button
             title="Allow access to contacts"
-            onPress={async () => {
-              const p = await requestPermissionsAsync();
-              setAllowed(p.granted);
-              if (p.granted) void load();
-            }}
+            onPress={() => void ask()}
             style={{ marginTop: space.md }}
           />
         </View>

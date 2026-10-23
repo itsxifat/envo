@@ -10,12 +10,15 @@ import { PhoneCall, ShieldCheck, Sparkles } from 'lucide-react-native';
 import { LogoMark } from '@/components/Logo';
 import { Button } from '@/components/ui/Button';
 import { Text } from '@/components/ui/Text';
+import { useSession } from '@/state/session';
 import { AlwaysDark } from '@/theme/theme';
 import { fonts, palette, radius, space } from '@/theme/tokens';
 
 /** The first screen: what Envo Phone is, and the two ways in. Always dark: it is the brand's moment. */
 export function WelcomeScreen() {
   const insets = useSafeAreaInsets();
+  const { config } = useSession();
+  const closed = config ? !config.signups : false;
   const float = useSharedValue(0);
   useEffect(() => {
     float.value = withRepeat(withTiming(1, { duration: 2600, easing: Easing.inOut(Easing.sin) }), -1, true);
@@ -63,7 +66,8 @@ export function WelcomeScreen() {
           </View>
 
           <Animated.View entering={FadeInDown.delay(420).duration(600)} style={styles.actions}>
-            <Button title="Get my number" onPress={() => router.push('/sign-up')} block />
+            {closed && <Text style={styles.closed}>New numbers are not available right now. Please check back soon.</Text>}
+            <Button title="Get my number" onPress={() => router.push('/sign-up')} disabled={closed} block />
             <Button title="I already have an account" variant="ghost" onPress={() => router.push('/sign-in')} block />
           </Animated.View>
         </View>
@@ -112,4 +116,5 @@ const styles = StyleSheet.create({
   pointIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: 'rgba(97,143,250,0.14)', alignItems: 'center', justifyContent: 'center' },
   pointText: { fontFamily: fonts.medium, fontSize: 15, color: 'rgba(255,255,255,0.86)', flex: 1 },
   actions: { gap: space.sm },
+  closed: { fontFamily: fonts.medium, fontSize: 14, color: 'rgba(255,255,255,0.75)', textAlign: 'center', marginBottom: space.sm },
 });

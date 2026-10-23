@@ -6,11 +6,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Check, CheckCircle2, Gem, Hash, Sparkles, Upload, Wallet } from 'lucide-react';
 import { api, errorMessage } from '../lib/api';
 import { formatBdt, timeAgo } from '../lib/format';
+import { toJpeg } from '../lib/images';
 import { useAuth } from '../state/auth';
 import { useTenant } from '../state/tenant';
 import type { CustomerSupplyOptions, Invoice, NumberProvider, NumberRequest, NumberRequestStatus, SubscriberDetails, Topup, TopupStatus } from '../lib/types';
 import { PayDialog } from './billing';
-import { Badge, Button, Card, CardHeader, Field, Input, Modal, Notice, Select, Spinner, useConfirm } from './ui';
+import { Badge, Button, Card, CardHeader, Field, Input, Modal, Notice, Select, Spinner, Tabs, useConfirm } from './ui';
 
 /*
  * Numbers from Enfinito: the customer picks a free number and sends the details the operator needs
@@ -119,7 +120,7 @@ export const REQUEST_STATUS: Record<NumberRequestStatus, { tone: 'blue' | 'amber
 
 export const isOpenRequest = (r: NumberRequest) => r.status === 'submitted' || r.status === 'in_review';
 
-const MAX_FILE = 5 * 1024 * 1024;
+const MAX_FILE = 10 * 1024 * 1024;
 
 type Address = SubscriberDetails['present_address'];
 type FormState = Omit<SubscriberDetails, 'gender' | 'occupation'> & { gender: SubscriberDetails['gender'] | ''; occupation: SubscriberDetails['occupation'] | '' };
@@ -135,7 +136,15 @@ const OCCUPATIONS: { value: SubscriberDetails['occupation']; label: string }[] =
 ];
 
 /** What is still missing before the form can be sent (plain labels). */
-function missingFields(f: FormState, same: boolean, photo: File | null, idDoc: File | null, consent: boolean): string[] {
+/** The ID: the NID's two sides (Envo puts them on one page for the operator), or one file with both. */
+interface IdFiles {
+  mode: 'sides' | 'one';
+  front: File | null;
+  back: File | null;
+  one: File | null;
+}
+
+function missingFields(f: FormState, same: boolean, photo: File | null, id: IdFiles, consent: boolean): string[] {
   const out: string[] = [];
   const addressDone = (a: Address) => a.street.trim().length >= 3 && a.city.trim().length >= 2 && a.postcode.trim().length >= 3;
   if (f.name.trim().length < 2) out.push(f.subscriber_type === 'organization' ? 'organization name' : 'full name');
@@ -151,7 +160,9 @@ function missingFields(f: FormState, same: boolean, photo: File | null, idDoc: F
   if (f.father_name.trim().length < 2) out.push("father's name");
   if (f.mother_name.trim().length < 2) out.push("mother's name");
   if (!photo) out.push('photo');
-  if (!idDoc) out.push('NID or passport scan');
+  if (id.mode === 'sides' && !id.front) out.push('front of the NID');
+  if (id.mode === 'sides' && !id.back) out.push('back of the NID');
+  if (id.mode === 'one' && !id.one) out.push('passport or ID scan');
   if (!consent) out.push('your agreement');
   return out;
 }
@@ -170,10 +181,13 @@ function FilePick({ label, hint, accept, file, onFile }: { label: string; hint: 
         type="file"
         accept={accept}
         className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0] ?? null;
-          if (f && f.size > MAX_FILE) {
-            toast.error('That file is larger than 5 MB. Take a smaller photo or scan.');
+        onChange={async (e) => {
+          const picked = e.target.files?.[0];
+          if (!picked) return;
+          // Photos are made upright and smaller here; a PDF goes as it is.
+          const f = await toJpeg(picked);
+          if (f.size > MAX_FILE) {
+            toast.error('That file is larger than 10 MB. Take a smaller photo or scan.');
             return;
           }
           onFile(f);
@@ -300,7 +314,7 @@ export function GetNumberModal({ onClose, special = false }: { onClose: () => vo
   }));
   const [same, setSame] = useState(true);
   const [photo, setPhoto] = useState<File | null>(null);
-  const [idDoc, setIdDoc] = useState<File | null>(null);
+  const [id, setId] = useState<IdFiles>({ mode: 'sides', front: null, back: null, one: null });
   const [consent, setConsent] = useState(false);
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -310,7 +324,7 @@ export function GetNumberModal({ onClose, special = false }: { onClose: () => vo
     enabled: step === 'choose' && !special && !!provider,
   });
 
-  const missing = missingFields(form, same, photo, idDoc, consent);
+  const missing = missingFields(form, same, photo, id, consent);
   const send = useMutation({
     mutationFn: () => {
       const body = new FormData();
@@ -321,7 +335,12 @@ export function GetNumberModal({ onClose, special = false }: { onClose: () => vo
       body.append('details', JSON.stringify({ ...form, permanent_address: same ? form.present_address : form.permanent_address }));
       body.append('consent', String(consent));
       body.append('photo', photo!);
-      body.append('id_document', idDoc!);
+      if (id.mode === 'sides') {
+        body.append('id_front', id.front!);
+        body.append('id_back', id.back!);
+      } else {
+        body.append('id_document', id.one!);
+      }
       return api.post<{ id: number; number: string }>('/api/number-requests', body);
     },
     onSuccess: () => {
@@ -537,9 +556,28 @@ export function GetNumberModal({ onClose, special = false }: { onClose: () => vo
             </Field>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <FilePick label="Photo of the person" hint="A clear face photo · JPG or PNG, up to 5 MB" accept="image/jpeg,image/png,image/webp" file={photo} onFile={setPhoto} />
-            <FilePick label="NID or passport" hint="Both sides in one photo, or a PDF · up to 5 MB" accept="image/jpeg,image/png,image/webp,application/pdf" file={idDoc} onFile={setIdDoc} />
+          <div className="space-y-3">
+            <FilePick label="Photo of the person" hint="A clear face photo · camera or gallery" accept="image/*" file={photo} onFile={setPhoto} />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[13px] font-medium text-slate-700">ID document</span>
+              <Tabs
+                value={id.mode}
+                onChange={(mode) => setId((x) => ({ ...x, mode }))}
+                tabs={[
+                  { value: 'sides', label: 'NID, both sides' },
+                  { value: 'one', label: 'Passport or one file' },
+                ]}
+              />
+            </div>
+            {id.mode === 'sides' ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <FilePick label="NID, front" hint="Photo or PDF · camera, gallery or files" accept="image/*,application/pdf" file={id.front} onFile={(front) => setId((x) => ({ ...x, front }))} />
+                <FilePick label="NID, back" hint="Photo or PDF · camera, gallery or files" accept="image/*,application/pdf" file={id.back} onFile={(back) => setId((x) => ({ ...x, back }))} />
+              </div>
+            ) : (
+              <FilePick label="Passport, or a scan with both sides" hint="Photo or PDF, up to 10 MB" accept="image/*,application/pdf" file={id.one} onFile={(one) => setId((x) => ({ ...x, one }))} />
+            )}
+            {id.mode === 'sides' && <p className="text-xs text-slate-500">We put both sides on one page for the operator.</p>}
           </div>
 
           {tenants.length > 1 && (

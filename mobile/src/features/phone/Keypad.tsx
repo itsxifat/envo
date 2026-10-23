@@ -10,7 +10,9 @@ import { Clock3, Delete, Phone, Sparkles, Wallet } from 'lucide-react-native';
 import { Badge } from '@/components/ui/Badge';
 import { Text } from '@/components/ui/Text';
 import { formatBdt, formatPhone, formatTyping } from '@/lib/format';
-import { isEnvoNumber, useCalls } from '@/state/calls';
+import { isEnvoNumber } from '@/lib/numbers';
+import { useCalls } from '@/state/calls';
+import { useContacts } from '@/state/contacts';
 import { useSession } from '@/state/session';
 import { useSettings } from '@/state/settings';
 import { Sounds } from '@/state/sounds';
@@ -35,7 +37,8 @@ const KEYS: [string, string][] = [
 export function KeypadScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const { account, recents, minActivation, devActivate } = useSession();
+  const { account, recents, minActivation } = useSession();
+  const { nameOf } = useContacts();
   const { dial } = useCalls();
   const { keypadSounds } = useSettings();
   const [digits, setDigits] = useState('');
@@ -44,7 +47,7 @@ export function KeypadScreen() {
   const stage = account?.stage ?? 'activate';
 
   // A name for the number, when it was called before.
-  const known = useMemo(() => recents.find((r) => r.name && r.number === digits)?.name ?? null, [recents, digits]);
+  const known = useMemo(() => nameOf(digits) ?? recents.find((r) => r.name && r.number === digits)?.name ?? null, [nameOf, recents, digits]);
   const free = isEnvoNumber(digits);
 
   const press = (d: string) => {
@@ -78,7 +81,7 @@ export function KeypadScreen() {
           <View style={[styles.dot, { backgroundColor: stage === 'active' ? colors.call : colors.warning }]} />
           <Text variant="label">{account?.number ? formatPhone(account.number) : 'No number yet'}</Text>
         </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Recharge" onPress={() => router.push('/recharge')} style={[styles.chip, { backgroundColor: colors.brandSoft }]}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Recharge" onPress={() => router.push(stage === 'activate' ? '/activate' : '/recharge')} style={[styles.chip, { backgroundColor: colors.brandSoft }]}>
           <Wallet size={15} color={colors.brand} />
           <Text variant="label" tone="brand">
             {formatBdt(account?.balance ?? 0)}
@@ -109,13 +112,6 @@ export function KeypadScreen() {
               Usually a few hours. We'll let you know when you can call.
             </Text>
           </View>
-          {__DEV__ && (
-            <Pressable onPress={devActivate} hitSlop={8}>
-              <Text variant="small" tone="tertiary">
-                Dev: ready
-              </Text>
-            </Pressable>
-          )}
         </View>
       )}
 

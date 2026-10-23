@@ -1,15 +1,16 @@
-import { Pressable, StyleSheet, Switch, View } from 'react-native';
+import { Alert, Linking, Pressable, StyleSheet, Switch, View } from 'react-native';
 import { router } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BellRing, CircleHelp, Copy, Grid3x3, LogOut, PhoneIncoming, Plus, ShieldCheck, Vibrate } from 'lucide-react-native';
+import { BellRing, CircleHelp, Copy, Grid3x3, KeyRound, LogOut, PhoneIncoming, Plus, ShieldCheck, Trash2, Vibrate } from 'lucide-react-native';
 
 import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
 import { ListGroup, ListRow } from '@/components/ui/ListRow';
 import { Screen } from '@/components/ui/Screen';
 import { Text } from '@/components/ui/Text';
+import { errorText } from '@/lib/api';
 import { formatBdt, formatPhone } from '@/lib/format';
 import { useCalls } from '@/state/calls';
 import { useSession } from '@/state/session';
@@ -18,20 +19,38 @@ import { useTheme } from '@/theme/theme';
 import { fonts, palette, radius, space } from '@/theme/tokens';
 
 const STATUS = {
+  verify: { label: 'Email to confirm', tone: 'warning' },
   kyc: { label: 'Details needed', tone: 'warning' },
   activate: { label: 'Not active yet', tone: 'warning' },
   registering: { label: 'Being registered', tone: 'warning' },
   active: { label: 'Active', tone: 'call' },
+  suspended: { label: 'Paused', tone: 'danger' },
 } as const;
 
 export function AccountScreen() {
   const { colors } = useTheme();
-  const { account, signOut, devActivate } = useSession();
+  const { account, config, signOut, closeAccount } = useSession();
   const { simulateIncoming } = useCalls();
   const settings = useSettings();
   if (!account) return null;
   const status = STATUS[account.stage];
   const tone = RINGTONES.find((r) => r.id === settings.ringtone)?.name ?? 'Envo';
+  const support = [
+    ...(config?.support.phone ? [{ text: `Call ${config.support.phone}`, onPress: () => void Linking.openURL(`tel:${config.support.phone}`) }] : []),
+    ...(config?.support.email ? [{ text: 'Send an email', onPress: () => void Linking.openURL(`mailto:${config.support.email}`) }] : []),
+  ];
+  const confirmClose = () =>
+    Alert.alert('Delete your account?', 'Your number stops working and is given back. Any balance left is settled by support. This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () =>
+          void closeAccount()
+            .then((deleted) => !deleted && Alert.alert('Request sent', "We've got your request and will be in touch to finish closing your account."))
+            .catch((err) => Alert.alert("Couldn't do that", errorText(err))),
+      },
+    ]);
   // Neutral tiles take the page colour so they stand out on the grey list.
   const icon = (node: React.ReactNode, bg = colors.background) => <View style={[styles.rowIcon, { backgroundColor: bg }]}>{node}</View>;
 
@@ -94,15 +113,25 @@ export function AccountScreen() {
         </ListGroup>
 
         <ListGroup title="Account">
-          <ListRow title="Your details" subtitle={`${account.email} · ${account.mobile}`} left={icon(<ShieldCheck size={18} color={colors.text} />)} chevron onPress={() => undefined} />
-          <ListRow title="Help and support" subtitle="Call or message Enfinito" left={icon(<CircleHelp size={18} color={colors.text} />)} chevron onPress={() => undefined} />
+          <ListRow title="Your details" subtitle={`${account.email} · ${account.mobile}`} left={icon(<ShieldCheck size={18} color={colors.text} />)} />
+          <ListRow title="Change password" left={icon(<KeyRound size={18} color={colors.text} />)} chevron onPress={() => router.push('/password')} />
+          <ListRow title="Help and support" subtitle={support.length ? 'Call or email Enfinito' : 'Coming soon'} left={icon(<CircleHelp size={18} color={colors.text} />)} chevron={support.length > 0} onPress={support.length ? () => Alert.alert('Help and support', 'How would you like to reach us?', [...support, { text: 'Cancel', style: 'cancel' }]) : undefined} />
           <ListRow title="Sign out" left={icon(<LogOut size={18} color={colors.danger} />, colors.dangerSoft)} danger onPress={signOut} />
+        </ListGroup>
+
+        <ListGroup>
+          <ListRow
+            title={account.closeRequested ? 'Closing requested' : 'Delete my account'}
+            subtitle={account.closeRequested ? 'We will be in touch' : 'Your number is released and given back'}
+            left={icon(<Trash2 size={18} color={colors.danger} />, colors.dangerSoft)}
+            danger
+            onPress={account.closeRequested ? undefined : confirmClose}
+          />
         </ListGroup>
 
         {__DEV__ && (
           <ListGroup title="For development">
             <ListRow title="Try an incoming call" subtitle="Rings with your ringtone" left={icon(<PhoneIncoming size={18} color={colors.call} />, colors.callSoft)} onPress={() => simulateIncoming()} />
-            {account.stage !== 'active' && <ListRow title="Mark the number as registered" left={icon(<ShieldCheck size={18} color={colors.text} />)} onPress={devActivate} />}
           </ListGroup>
         )}
       </View>

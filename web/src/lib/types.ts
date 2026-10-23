@@ -619,6 +619,11 @@ export interface SupplyOptions {
   topup: { enabled: boolean; min: number; max: number; presets: number[] };
 }
 
+/** What a customer sees: also how many more numbers their package allows (null = no limit). */
+export interface CustomerSupplyOptions extends SupplyOptions {
+  room: number | null;
+}
+
 export interface SupplySettings extends SupplyOptions {
   line: { host: string; port: number; transport: 'udp' | 'tcp' | 'tls' };
 }

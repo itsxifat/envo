@@ -8,7 +8,7 @@ import { api, errorMessage } from '../lib/api';
 import { formatBdt, timeAgo } from '../lib/format';
 import { useAuth } from '../state/auth';
 import { useTenant } from '../state/tenant';
-import type { Invoice, NumberRequest, NumberRequestStatus, SubscriberDetails, SupplyOptions, Topup, TopupStatus } from '../lib/types';
+import type { CustomerSupplyOptions, Invoice, NumberRequest, NumberRequestStatus, SubscriberDetails, Topup, TopupStatus } from '../lib/types';
 import { PayDialog } from './billing';
 import { Badge, Button, Card, CardHeader, Field, Input, Modal, Notice, SearchInput, Select, Spinner, useConfirm } from './ui';
 
@@ -21,7 +21,7 @@ export function useSupplyOptions() {
   const { user } = useAuth();
   return useQuery({
     queryKey: ['number-supply', 'options'],
-    queryFn: () => api.get<SupplyOptions>('/api/number-requests/options'),
+    queryFn: () => api.get<CustomerSupplyOptions>('/api/number-requests/options'),
     enabled: user?.role === 'admin',
     staleTime: 60_000,
   });
@@ -59,6 +59,25 @@ export type NumberSource = 'pool' | 'own' | 'special';
  * Without number supply only "your own" exists, so callers show the connect form directly instead.
  */
 export function NumberChoice({ onChoose }: { onChoose: (source: NumberSource) => void }) {
+  const supply = useSupplyOptions();
+  const { plan, user } = useAuth();
+  // The package has no room for another number: say so now, not after a long registration form.
+  if (supply.data?.room === 0) {
+    const limit = plan?.limits.max_dids ?? 0;
+    return (
+      <Notice tone="warn" title={`${plan?.package?.name ?? 'Your package'} includes ${limit === 1 ? 'one number' : `${limit} numbers`}`}>
+        <p>
+          {limit === 1 ? 'It is' : 'They are all'} already in use or on the way. For another number, move to a package with more numbers
+          {user?.isOwner ? '' : ' (the account owner can do that)'}, or contact us.
+        </p>
+        {user?.isOwner && (
+          <Link to="/billing" className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-amber-900 underline-offset-2 hover:underline">
+            See packages <ArrowRight className="size-3.5" />
+          </Link>
+        )}
+      </Notice>
+    );
+  }
   const options: { value: NumberSource; icon: ReactNode; title: string; desc: string; primary?: boolean }[] = [
     { value: 'pool', icon: <Sparkles className="size-5" />, title: 'Get a number from us', desc: 'Choose one from our list. We register it in your name and connect it for you.', primary: true },
     { value: 'own', icon: <Hash className="size-5" />, title: 'Use my own number', desc: 'Already bought one from an IP phone provider? Connect it in a minute.' },

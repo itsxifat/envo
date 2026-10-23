@@ -181,7 +181,7 @@ export function NumbersPage() {
       </Card>
       {editing && <NumberModal number={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       {adding === 'choose' && (
-        <Modal open onClose={() => setAdding(null)} size="xl" title="Add a phone number" description="Choose how you would like to get it.">
+        <Modal open onClose={() => setAdding(null)} size="xl" title="Add a phone number" description={supply.data?.room === 0 ? undefined : 'Choose how you would like to get it.'}>
           <NumberChoice onChoose={setAdding} />
         </Modal>
       )}

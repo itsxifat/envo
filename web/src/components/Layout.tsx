@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import clsx from 'clsx';
 import {
   Building2,
@@ -16,6 +16,7 @@ import {
   Phone,
   PhoneCall,
   PhoneIncoming,
+  Plus,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -36,6 +37,7 @@ import { usePhone } from '../phone/PhoneProvider';
 import { Button, Field, Input, LiveBars, Menu, Modal, Tooltip } from './ui';
 import { CommandPalette, useCommandPalette } from './CommandPalette';
 import { SETUP_STEPS, useSetupProgress } from '../pages/GetStarted';
+import { useSupplyOptions } from './numberSupply';
 
 /** The website's mark: an ink tile with blue signal bars. */
 export function LogoMark({ className }: { className?: string }) {
@@ -97,6 +99,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { pathname } = useLocation();
   const setup = useSetupProgress({ enabled: !!user && user.role !== 'agent', poll: false });
   const setupDone = setup.count === SETUP_STEPS.length;
+  const supply = useSupplyOptions();
   const [open, setOpen] = useState(readOpenGroups);
   const toggle = (title: string) =>
     setOpen((o) => {
@@ -112,6 +115,19 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col bg-canvas">
       <Logo company={company} />
+      {/* The one thing customers come back for most: a new number, right at the top. */}
+      {user?.role === 'admin' && (
+        <div className="px-2.5 pb-3">
+          <Link
+            to="/numbers?add=1"
+            onClick={onNavigate}
+            className="flex h-10 items-center justify-center gap-2 rounded-[10px] bg-brand-600 px-3 text-[13.5px] font-semibold text-white shadow-[var(--shadow-button)] transition hover:bg-brand-700 active:bg-brand-800 lg:h-9"
+          >
+            <Plus className="size-4" />
+            {supply.data?.enabled === false ? 'Add a number' : 'Buy a number'}
+          </Link>
+        </div>
+      )}
       <nav className="flex-1 space-y-5 overflow-y-auto px-2.5 pt-1 pb-4" aria-label="Main">
         {(user ? visibleNav(user, plan, setupDone) : []).map((group) => {
           const here = group.items.some((i) => onPage(i.to, pathname));

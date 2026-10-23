@@ -103,7 +103,10 @@ labels copied from the header by `lib/tableCards.ts`) — keep tables plain with
   the dashboard card and the menu.
 - Customer menu (`lib/nav.ts`): the first group has no heading and holds the everyday pages; "Call
   handling" and "Settings" fold away (open on one of their pages; open state per browser).
-  "Get started" sits at the top until the setup is done, then under Settings as "Setup guide".
+  "Get started" sits at the top until the setup is done, then under Settings as "Setup guide". Above
+  the menu, admins get a "Buy a number" button (`/numbers?add=1`). `/api/number-requests/options`
+  returns `room` (numbers the package still allows, open requests included) so `NumberChoice` says
+  "your package includes N numbers" before any form; every priced package includes 1 number.
 - People and phones: a login calls from `users.extension_id` (web phone, voicemail, "my calls").
   `PUT /api/users/:id/extension` links one (or `{create:true}` makes the next free number), also for
   yourself; `POST /api/users` can `create_extension` and `invite` (7-day set-password link via

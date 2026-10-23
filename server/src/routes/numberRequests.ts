@@ -8,7 +8,7 @@ import { canAccessTenant, requireOwner, requireRole } from '../auth.js';
 import { badRequest, conflict, forbidden, intParam, notFound } from '../lib/http.js';
 import { audit, bdMobile, phoneNumber } from '../lib/validate.js';
 import { isHost } from '../asterisk/sanitize.js';
-import { assertLimit } from '../billing/plan.js';
+import { assertLimit, getAccountPlan, getUsage } from '../billing/plan.js';
 import { createInvoice } from '../billing/invoices.js';
 import { getSupplySettings, updateSupplySettings } from '../supply/settings.js';
 import { deleteDocuments, documentPath, saveDocument } from '../supply/files.js';
@@ -86,10 +86,24 @@ function accountOf(req: Request): number {
 export const numberRequestsRouter = Router();
 numberRequestsRouter.use(requireRole('admin'));
 
-numberRequestsRouter.get('/options', async (_req, res) => {
+numberRequestsRouter.get('/options', async (req, res) => {
   const s = await getSupplySettings();
-  res.json({ enabled: s.enabled, operator_name: s.operator_name, topup: s.topup });
+  res.json({ enabled: s.enabled, operator_name: s.operator_name, topup: s.topup, room: await numberRoom(accountOf(req)) });
 });
+
+/**
+ * How many more numbers the package allows, counting requests still on their way (null = no limit),
+ * so the customer hears it before filling in a registration that would be refused.
+ */
+async function numberRoom(accountId: number): Promise<number | null> {
+  const [plan, usage, open] = await Promise.all([
+    getAccountPlan(accountId),
+    getUsage(accountId),
+    one<{ count: number }>("SELECT count(*)::int AS count FROM number_requests WHERE account_id = $1 AND status IN ('submitted', 'in_review')", [accountId]),
+  ]);
+  const limit = plan.limits.max_dids;
+  return limit === null ? null : Math.max(0, limit - usage.dids - (open?.count ?? 0));
+}
 
 /** Free numbers to choose from, optionally containing some digits. */
 numberRequestsRouter.get('/pool', async (req, res) => {

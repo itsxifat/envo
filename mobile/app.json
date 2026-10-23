@@ -1,0 +1,72 @@
+{
+  "expo": {
+    "name": "Envo Phone",
+    "slug": "envo-phone",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "envophone",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "icon": "./assets/images/icon.png",
+      "bundleIdentifier": "com.enfinito.envophone"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0B0D12",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.enfinito.envophone",
+      "permissions": [
+        "android.permission.VIBRATE"
+      ],
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.WRITE_CONTACTS"
+      ]
+    },
+    "web": {
+      "output": "server",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0B0D12",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 96
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Envo uses the microphone so the people you call can hear you.",
+          "enableBackgroundPlayback": false
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Envo shows your contacts so you can call them, and marks the ones you can call for free."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Envo takes the photos of you and your NID that the BTRC requires to register your number.",
+          "photosPermission": "Envo uses a photo you choose for your number registration."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

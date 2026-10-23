@@ -88,7 +88,20 @@ labels copied from the header by `lib/tableCards.ts`) — keep tables plain with
   are `topup` invoices (paid like any invoice); a paid one waits in /admin until support adds the
   balance at the operator and marks it added. Off until enabled in its Settings tab. The support
   steps are single functions on purpose: automation can replace them later. Envo never operates the
-  operator's panels itself.
+  operator's panels itself. A special (memorable) number is a request with `special` (the customer's
+  words, no pool number); support checks it and bills any price by hand (Sales & invoices).
+- Onboarding: before the first package, `PlanPicker` asks how many people and calls at the same time,
+  recommends the package and keeps the answers in `accounts.onboarding`; `provisionFirstServer` then
+  makes an extension per person (within the package, at most 50). `pages/GetStarted.tsx` is a
+  one-question-per-step guide: number (`NumberChoice`: pool / own / special) → team
+  (`POST /api/setup/team`: renames, new extensions, removes unused "Extension N" spares, logins and
+  invites for emails, keeps "Everyone" in sync; all checks before any change) → where calls go
+  (`/api/setup/routing` without `number_ids` also stores `tenants.default_dest_*`, which
+  `defaultDestination()` uses for numbers connected later) → test. `useSetupProgress` is shared with
+  the dashboard card and the menu.
+- Customer menu (`lib/nav.ts`): the first group has no heading and holds the everyday pages; "Call
+  handling" and "Settings" fold away (open on one of their pages; open state per browser).
+  "Get started" sits at the top until the setup is done, then under Settings as "Setup guide".
 - People and phones: a login calls from `users.extension_id` (web phone, voicemail, "my calls").
   `PUT /api/users/:id/extension` links one (or `{create:true}` makes the next free number), also for
   yourself; `POST /api/users` can `create_extension` and `invite` (7-day set-password link via

@@ -215,6 +215,43 @@ export function DashboardPage() {
         }
       />
 
+      {setupDone && (
+        <Card className="mb-4 overflow-hidden sm:mb-6">
+          <div className="relative flex flex-wrap items-center justify-between gap-4 overflow-hidden bg-ink-950 px-4 py-5 text-white sm:px-6">
+            <div>
+              <h3 className="font-display text-lg font-semibold tracking-tight">Finish setting up your phone system</h3>
+              <p className="mt-0.5 text-sm text-slate-400">
+                {setup.count} of {SETUP_STEPS.length} steps done
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="h-2 w-40 overflow-hidden rounded-full bg-white/15 sm:w-48">
+                <div className="h-full rounded-full bg-brand-500 transition-all duration-700" style={{ width: `${setupPct}%` }} />
+              </div>
+              <span className="text-sm font-semibold tabular-nums text-white">{setupPct}%</span>
+            </div>
+          </div>
+          <ul className="divide-y divide-slate-100">
+            {SETUP_STEPS.map((st) => {
+              const done = setupDone[st.key];
+              return (
+                <li key={st.key}>
+                  <Link to={`/get-started#${st.key}`} className="group/step flex items-center gap-3 px-4 py-3 text-sm transition-colors hover:bg-slate-50/70 sm:px-6">
+                    {done ? <CheckCircle2 className="size-5 shrink-0 text-emerald-500" /> : <Circle className="size-5 shrink-0 text-slate-300" />}
+                    <span className={clsx('flex-1', done ? 'text-slate-400 line-through' : 'text-slate-700')}>{st.title}</span>
+                    {!done && (
+                      <span className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-700 group-hover/step:text-brand-800">
+                        {st.key === setup.next ? 'Continue' : 'Open'} <ArrowRight className="size-3.5" />
+                      </span>
+                    )}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      )}
+
       <MyPhoneSetup className="mb-4 sm:mb-6" />
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
@@ -308,43 +345,6 @@ export function DashboardPage() {
                 )}
               </li>
             ))}
-          </ul>
-        </Card>
-      )}
-
-      {setupDone && (
-        <Card className="mt-4 overflow-hidden sm:mt-6">
-          <div className="relative flex flex-wrap items-center justify-between gap-4 overflow-hidden bg-ink-950 px-4 py-5 text-white sm:px-6">
-            <div>
-              <h3 className="font-display text-lg font-semibold tracking-tight">Finish setting up your phone system</h3>
-              <p className="mt-0.5 text-sm text-slate-400">
-                {setup.count} of {SETUP_STEPS.length} steps done
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="h-2 w-40 overflow-hidden rounded-full bg-white/15 sm:w-48">
-                <div className="h-full rounded-full bg-brand-500 transition-all duration-700" style={{ width: `${setupPct}%` }} />
-              </div>
-              <span className="text-sm font-semibold tabular-nums text-white">{setupPct}%</span>
-            </div>
-          </div>
-          <ul className="divide-y divide-slate-100">
-            {SETUP_STEPS.map((st) => {
-              const done = setupDone[st.key];
-              return (
-                <li key={st.key}>
-                  <Link to={`/get-started#${st.key}`} className="group/step flex items-center gap-3 px-4 py-3 text-sm transition-colors hover:bg-slate-50/70 sm:px-6">
-                    {done ? <CheckCircle2 className="size-5 shrink-0 text-emerald-500" /> : <Circle className="size-5 shrink-0 text-slate-300" />}
-                    <span className={clsx('flex-1', done ? 'text-slate-400 line-through' : 'text-slate-700')}>{st.title}</span>
-                    {!done && (
-                      <span className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-700 group-hover/step:text-brand-800">
-                        {st.key === setup.next ? 'Continue' : 'Open'} <ArrowRight className="size-3.5" />
-                      </span>
-                    )}
-                  </Link>
-                </li>
-              );
-            })}
           </ul>
         </Card>
       )}
@@ -486,8 +486,8 @@ export function DashboardPage() {
               <div className="grid grid-cols-2 gap-2 p-3">
                 {[
                   { to: '/users?add=1', label: 'Add a person', icon: UserPlus },
-                  { to: '/numbers', label: 'Connect a number', icon: Hash },
-                  { to: '/ivrs', label: 'Build an IVR', icon: PhoneIncoming },
+                  { to: '/numbers?add=1', label: 'Add a number', icon: Hash },
+                  { to: '/get-started#calls', label: 'Where calls go', icon: PhoneIncoming },
                   apiAccess ? { to: '/developers', label: 'API & embed', icon: Code2 } : { to: '/time-conditions', label: 'Set business hours', icon: Clock },
                 ].map((a) => (
                   <Link

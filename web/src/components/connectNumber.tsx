@@ -27,17 +27,19 @@ export interface SetupStatus {
   lines: LineState[];
   outbound_routes: number;
   routed: boolean;
+  /** Where numbers ring, chosen in the guided setup (also before the first number arrives). */
+  default_dest: { dest_type: DestType; dest_target: string } | null;
   has_calls: boolean;
 }
 
-/** How far the current SIP server is from taking calls (GET /api/setup/status). */
-export function useSetupStatus(opts: { fast?: boolean; enabled?: boolean } = {}) {
+/** How far the current SIP server is from taking calls (GET /api/setup/status). poll: false only reads it. */
+export function useSetupStatus(opts: { fast?: boolean; enabled?: boolean; poll?: boolean } = {}) {
   const { tenantId } = useTenant();
   return useQuery({
     queryKey: ['setup', tenantId],
     queryFn: () => api.get<SetupStatus>(scoped('/api/setup/status', tenantId)),
     enabled: !!tenantId && (opts.enabled ?? true),
-    refetchInterval: opts.fast ? 3000 : 15_000,
+    refetchInterval: opts.poll === false ? false : opts.fast ? 3000 : 15_000,
   });
 }
 
@@ -86,10 +88,19 @@ export function ConnectNumberForm({ onDone }: { onDone: (number: string) => void
   const validNumber = /^\+?[0-9]{3,20}$/.test(form.number);
   const ready = validNumber && (existingLine ? !!lineId : !!form.host.trim() && (form.auth_mode === 'ip' || !!form.password));
 
-  // New numbers ring where the others already do, or the first extension, until routing is chosen.
-  const routed = status.data?.numbers.find((n) => n.dest_type !== 'hangup');
+  // New numbers ring where the guided setup said, else where the others already do, else the first extension.
+  const chosen = status.data?.default_dest ?? null;
+  const routed = chosen ?? status.data?.numbers.find((n) => n.dest_type !== 'hangup');
   const firstExt = dest.data?.extension[0]?.value;
   const initial = routed ? { dest_type: routed.dest_type, dest_target: routed.dest_target } : firstExt ? { dest_type: 'extension', dest_target: firstExt } : { dest_type: 'hangup', dest_target: '' };
+  const ringText =
+    initial.dest_type === 'hangup'
+      ? 'nowhere yet; choose where in the next step'
+      : chosen
+        ? 'where you chose for your calls; you can change it any time'
+        : routed
+          ? 'where your other calls do; you can change it any time'
+          : `extension ${initial.dest_target} for now; you can change it any time`;
 
   const submit = async () => {
     setBusy(true);
@@ -208,7 +219,7 @@ export function ConnectNumberForm({ onDone }: { onDone: (number: string) => void
         </>
       )}
 
-      <p className="text-xs text-slate-500">Calls to this number ring {initial.dest_type === 'hangup' ? 'nowhere yet; choose where in the next step' : 'where your other calls do; you can change it any time'}. Outgoing calls to Bangladesh numbers are switched on.</p>
+      <p className="text-xs text-slate-500">Calls to this number ring {ringText}. Outgoing calls to Bangladesh numbers are switched on.</p>
       <div className="flex justify-end">
         <Button variant="primary" loading={busy} disabled={!ready} onClick={submit}>
           Connect number

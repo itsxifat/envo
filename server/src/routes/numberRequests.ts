@@ -103,7 +103,7 @@ numberRequestsRouter.get('/pool', async (req, res) => {
 numberRequestsRouter.get('/', async (req, res) => {
   res.json(
     await many(
-      `SELECT r.id, r.status, r.requested_number, r.reason, r.tenant_id, t.name AS tenant_name, r.number_id, n.number AS connected_number,
+      `SELECT r.id, r.status, r.requested_number, r.special, r.reason, r.tenant_id, t.name AS tenant_name, r.number_id, n.number AS connected_number,
               r.details->>'name' AS subscriber_name, r.created_at, r.updated_at
          FROM number_requests r LEFT JOIN tenants t ON t.id = r.tenant_id LEFT JOIN numbers n ON n.id = r.number_id
         WHERE r.account_id = $1 ORDER BY r.id DESC LIMIT 100`,
@@ -112,7 +112,10 @@ numberRequestsRouter.get('/', async (req, res) => {
   );
 });
 
-/** A new request: the details as JSON, the photo and ID document as files, and the consent. */
+/**
+ * A new request: the details as JSON, the photo and ID document as files, and the consent. Either a
+ * number from the pool, any free one, or a special number described in the customer's own words.
+ */
 numberRequestsRouter.post('/', uploadDocuments, async (req, res) => {
   if (!(await getSupplySettings()).enabled) throw badRequest('New numbers are not available right now');
   const accountId = accountOf(req);
@@ -120,10 +123,13 @@ numberRequestsRouter.post('/', uploadDocuments, async (req, res) => {
     .object({
       tenant_id: z.coerce.number().int().positive(),
       pool_id: z.union([z.literal(''), z.coerce.number().int().positive()]).default(''),
+      special: z.string().trim().max(80, 'describe the number in at most 80 characters').default(''),
       details: z.string().max(20_000),
       consent: z.string().refine((v) => v === 'true', 'agree to share these details with the operator'),
     })
     .parse(req.body);
+  if (body.special && body.pool_id !== '') throw badRequest('Choose a number from the list, or describe a special one, not both');
+  if (body.special && body.special.length < 3) throw badRequest('Tell us which number you would like');
   let raw: unknown;
   try {
     raw = JSON.parse(body.details);
@@ -153,9 +159,9 @@ numberRequestsRouter.post('/', uploadDocuments, async (req, res) => {
       }
       const row = (
         await db.query<{ id: number }>(
-          `INSERT INTO number_requests (account_id, tenant_id, pool_id, requested_number, details, consent_at, created_by)
-           VALUES ($1, $2, $3, $4, $5, now(), $6) RETURNING id`,
-          [accountId, body.tenant_id, body.pool_id === '' ? null : body.pool_id, number, JSON.stringify(details), req.user!.id],
+          `INSERT INTO number_requests (account_id, tenant_id, pool_id, requested_number, special, details, consent_at, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, now(), $7) RETURNING id`,
+          [accountId, body.tenant_id, body.pool_id === '' ? null : body.pool_id, number, body.special, JSON.stringify(details), req.user!.id],
         )
       ).rows[0]!;
       requestId = row.id;
@@ -164,7 +170,7 @@ numberRequestsRouter.post('/', uploadDocuments, async (req, res) => {
       await db.query('UPDATE number_requests SET photo_file = $1, id_file = $2 WHERE id = $3', [photoFile, idFile, row.id]);
       return { id: row.id, number };
     });
-    await audit(req, 'create', 'number_request', created.id, created.number || 'any free number', body.tenant_id);
+    await audit(req, 'create', 'number_request', created.id, body.special ? `special number: ${body.special}` : created.number || 'any free number', body.tenant_id);
     res.status(201).json(created);
   } catch (err) {
     if (requestId) await deleteDocuments(requestId).catch(() => undefined);
@@ -300,7 +306,7 @@ adminSupplyRouter.get('/requests', async (req, res) => {
   const where = filter === 'open' ? "WHERE r.status IN ('submitted', 'in_review')" : filter === 'all' ? '' : 'WHERE r.status = $1';
   res.json(
     await many(
-      `SELECT r.id, r.status, r.requested_number, r.reason, r.created_at, r.updated_at, r.details->>'name' AS subscriber_name,
+      `SELECT r.id, r.status, r.requested_number, r.special, r.reason, r.created_at, r.updated_at, r.details->>'name' AS subscriber_name,
               r.account_id, a.name AS account_name, r.tenant_id, t.name AS tenant_name, n.number AS connected_number
          FROM number_requests r JOIN accounts a ON a.id = r.account_id LEFT JOIN tenants t ON t.id = r.tenant_id
          LEFT JOIN numbers n ON n.id = r.number_id

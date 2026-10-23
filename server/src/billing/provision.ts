@@ -2,13 +2,19 @@ import type pg from 'pg';
 import { randomPassword, randomPin } from '../lib/secrets.js';
 
 /**
- * A customer's first package goes live: give them a SIP server named after the company, a few
- * extensions (within the package) and link the owner's web phone to the first one, so they can make
- * a test call straight away. Does nothing when the account already has a SIP server.
+ * A customer's first package goes live: give them a SIP server named after the company, an extension
+ * for each person they said would use phones (three when they did not say; within the package) and
+ * link the owner's web phone to the first one, so they can make a test call straight away. Does
+ * nothing when the account already has a SIP server.
  */
 export async function provisionFirstServer(db: pg.PoolClient, accountId: number, packageId: number): Promise<number | null> {
   if ((await db.query('SELECT 1 FROM tenants WHERE account_id = $1 LIMIT 1', [accountId])).rowCount) return null;
-  const account = (await db.query<{ name: string }>('SELECT name FROM accounts WHERE id = $1', [accountId])).rows[0];
+  const account = (
+    await db.query<{ name: string; people: number | null }>(
+      `SELECT name, CASE WHEN onboarding->>'people' ~ '^[0-9]{1,4}$' THEN (onboarding->>'people')::int END AS people FROM accounts WHERE id = $1`,
+      [accountId],
+    )
+  ).rows[0];
   const pkg = (await db.query<{ max_extensions: number | null }>('SELECT max_extensions FROM packages WHERE id = $1', [packageId])).rows[0];
   if (!account) return null;
 
@@ -22,7 +28,8 @@ export async function provisionFirstServer(db: pg.PoolClient, accountId: number,
     )
   ).rows[0]!;
 
-  const count = Math.max(1, Math.min(3, pkg?.max_extensions ?? 3));
+  const wanted = account.people ?? 3;
+  const count = Math.max(1, Math.min(wanted, pkg?.max_extensions ?? wanted, 50));
   const owner = (await db.query<{ id: number; name: string }>('SELECT id, name FROM users WHERE account_id = $1 AND is_owner ORDER BY id LIMIT 1', [accountId])).rows[0];
   let first: number | null = null;
   for (let i = 0; i < count; i++) {

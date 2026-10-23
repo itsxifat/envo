@@ -35,6 +35,7 @@ import { Softphone } from '../phone/Softphone';
 import { usePhone } from '../phone/PhoneProvider';
 import { Button, Field, Input, LiveBars, Menu, Modal, Tooltip } from './ui';
 import { CommandPalette, useCommandPalette } from './CommandPalette';
+import { SETUP_STEPS, useSetupProgress } from '../pages/GetStarted';
 
 /** The website's mark: an ink tile with blue signal bars. */
 export function LogoMark({ className }: { className?: string }) {
@@ -76,42 +77,93 @@ function PbxStatus() {
   );
 }
 
+const NAV_OPEN_KEY = 'envo.nav.open';
+
+/** Which folded groups this browser keeps open. */
+function readOpenGroups(): Record<string, boolean> {
+  try {
+    const v = JSON.parse(localStorage.getItem(NAV_OPEN_KEY) ?? '{}') as unknown;
+    return v && typeof v === 'object' ? (v as Record<string, boolean>) : {};
+  } catch {
+    return {};
+  }
+}
+
+const onPage = (to: string, pathname: string) => (to === '/' ? pathname === '/' : pathname === to || pathname.startsWith(`${to}/`));
+
+/** The everyday pages at the top; the rest folded into groups at the bottom, open on one of their pages. */
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { user, plan, company } = useAuth();
+  const { pathname } = useLocation();
+  const setup = useSetupProgress({ enabled: !!user && user.role !== 'agent', poll: false });
+  const setupDone = setup.count === SETUP_STEPS.length;
+  const [open, setOpen] = useState(readOpenGroups);
+  const toggle = (title: string) =>
+    setOpen((o) => {
+      const next = { ...o, [title]: !o[title] };
+      try {
+        localStorage.setItem(NAV_OPEN_KEY, JSON.stringify(next));
+      } catch {
+        /* storage unavailable */
+      }
+      return next;
+    });
+
   return (
     <div className="flex h-full flex-col bg-canvas">
       <Logo company={company} />
       <nav className="flex-1 space-y-5 overflow-y-auto px-2.5 pt-1 pb-4" aria-label="Main">
-        {(user ? visibleNav(user, plan) : []).map((group) => {
-          const items = group.items;
+        {(user ? visibleNav(user, plan, setupDone) : []).map((group) => {
+          const here = group.items.some((i) => onPage(i.to, pathname));
+          const expanded = !group.collapsible || here || !!open[group.title];
+          const heading = 'font-mono text-[10.5px] font-medium tracking-[0.08em] text-slate-400 uppercase';
           return (
-            <div key={group.title}>
-              <div className="mb-1.5 px-2.5 font-mono text-[10.5px] font-medium tracking-[0.08em] text-slate-400 uppercase">{group.title}</div>
-              <div className="space-y-px">
-                {items.map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.to === '/'}
-                    onClick={onNavigate}
-                    className={({ isActive }) =>
-                      clsx(
-                        'group flex items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-[13.5px] font-medium transition duration-150 lg:py-[7px]',
-                        isActive
-                          ? 'bg-white text-slate-950 shadow-[0_1px_2px_rgb(0_0_0/0.06)] ring-1 ring-black/[0.05]'
-                          : 'text-slate-600 hover:bg-black/[0.04] hover:text-slate-950',
-                      )
-                    }
-                  >
-                    {({ isActive }) => (
-                      <>
-                        <item.icon className={clsx('size-[17px] shrink-0 transition', isActive ? 'text-brand-600' : 'text-slate-400 group-hover:text-slate-700')} />
-                        <span className="truncate">{item.label}</span>
-                      </>
-                    )}
-                  </NavLink>
-                ))}
-              </div>
+            <div key={group.title || 'main'}>
+              {group.collapsible ? (
+                <button
+                  type="button"
+                  onClick={() => !here && toggle(group.title)}
+                  aria-expanded={expanded}
+                  className={clsx(heading, 'mb-1.5 flex w-full items-center justify-between rounded-md px-2.5 py-0.5 text-left transition', here ? 'cursor-default' : 'hover:text-slate-700')}
+                >
+                  {group.title}
+                  {!here && <ChevronDown className={clsx('size-3.5 transition', expanded && 'rotate-180')} />}
+                </button>
+              ) : (
+                group.title && <div className={clsx(heading, 'mb-1.5 px-2.5')}>{group.title}</div>
+              )}
+              {expanded && (
+                <div className="space-y-px">
+                  {group.items.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      end={item.to === '/'}
+                      onClick={onNavigate}
+                      className={({ isActive }) =>
+                        clsx(
+                          'group flex items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-[13.5px] font-medium transition duration-150 lg:py-[7px]',
+                          isActive
+                            ? 'bg-white text-slate-950 shadow-[0_1px_2px_rgb(0_0_0/0.06)] ring-1 ring-black/[0.05]'
+                            : 'text-slate-600 hover:bg-black/[0.04] hover:text-slate-950',
+                        )
+                      }
+                    >
+                      {({ isActive }) => (
+                        <>
+                          <item.icon className={clsx('size-[17px] shrink-0 transition', isActive ? 'text-brand-600' : 'text-slate-400 group-hover:text-slate-700')} />
+                          <span className="truncate">{item.label}</span>
+                          {item.to === '/get-started' && setup.done && !setupDone && (
+                            <span className="ml-auto rounded-full bg-brand-50 px-1.5 py-px text-[11px] font-semibold text-brand-700 tabular-nums ring-1 ring-brand-100">
+                              {setup.count}/{SETUP_STEPS.length}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </NavLink>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
@@ -132,7 +184,7 @@ function TabBar({ onMore }: { onMore: () => void }) {
   const tabs = [
     { to: '/', label: 'Home', icon: LayoutDashboard },
     { to: '/calls', label: 'Calls', icon: History },
-    admin ? { to: '/extensions', label: 'Extensions', icon: Users } : { to: '/voicemail', label: 'Voicemail', icon: VoicemailIcon },
+    admin ? { to: '/extensions', label: 'Team', icon: Users } : { to: '/voicemail', label: 'Voicemail', icon: VoicemailIcon },
   ];
   // Recordings live next to the call logs, under the same tab.
   const { pathname } = useLocation();

@@ -125,7 +125,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         list.push({
           id: `nav:${item.to}`,
           label: item.label,
-          hint: group.title,
+          hint: group.title || undefined,
           group: 'Go to',
           keywords: item.keywords,
           icon: <item.icon className="size-4" />,

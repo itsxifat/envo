@@ -90,7 +90,7 @@ export function ExtensionsPage() {
   return (
     <div>
       <PageHeader
-        title="Extensions & phones"
+        title="Team & phones"
         icon={<Users className="size-5" />}
         description={list.data ? `${list.data.length} extensions · ${online} online${tenant ? ` · ${tenant.name}` : ''}` : 'Phone accounts for desk phones, phone apps and the web phone'}
         actions={

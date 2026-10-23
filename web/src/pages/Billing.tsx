@@ -9,6 +9,7 @@ import { ACCOUNT_STATUS, formatBdt, formatDate } from '../lib/format';
 import type { CheckoutResult, Invoice, Package } from '../lib/types';
 import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, Notice, PageHeader, Textarea, useConfirm } from '../components/ui';
 import { PaymentResult, PayDialog, PlanPicker } from '../components/billing';
+import { SETUP_STEPS, useSetupProgress } from './GetStarted';
 
 const KIND: Record<string, string> = { subscription: 'Package', renewal: 'Renewal', upgrade: 'Upgrade', manual: 'Other', topup: 'Top-up' };
 
@@ -22,6 +23,9 @@ export function BillingPage() {
   const [picking, setPicking] = useState(false);
   const invoices = useQuery({ queryKey: ['account', 'invoices'], queryFn: () => api.get<Invoice[]>('/api/account/billing/invoices') });
   const packages = useQuery({ queryKey: ['account', 'packages'], queryFn: () => api.get<Package[]>('/api/account/packages') });
+  // Just paid for the first package: the setup is the next thing to do.
+  const setup = useSetupProgress({ enabled: result === 'paid' && plan?.status === 'active', poll: false });
+  const setupLeft = result === 'paid' && !!setup.done && setup.count < SETUP_STEPS.length;
 
   // Straight from sign-up: start paying for the package picked on the website.
   const chose = useRef(false);
@@ -88,6 +92,19 @@ export function BillingPage() {
             Dismiss
           </button>
         </div>
+      )}
+      {setupLeft && (
+        <Card className="mb-5 flex flex-wrap items-center justify-between gap-4 border-brand-200 p-4 sm:p-5">
+          <div>
+            <p className="font-semibold tracking-tight text-slate-950">Next: set up your phone system</p>
+            <p className="mt-0.5 text-sm text-slate-500">Choose your number and add your team. It takes a few minutes.</p>
+          </div>
+          <Link to="/get-started">
+            <Button variant="primary">
+              Set it up <ArrowRight className="size-4" />
+            </Button>
+          </Link>
+        </Card>
       )}
 
       {open.length > 0 && (

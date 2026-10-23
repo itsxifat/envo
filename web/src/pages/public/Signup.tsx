@@ -9,7 +9,7 @@ import { useAuth } from '../../state/auth';
 import type { Package } from '../../lib/types';
 import { AuthShell, FormError, FormNote, PasswordInput, SiteField, SiteInput, Spinner, SubmitButton, TextLink } from './auth';
 
-const taka = (p: Package) => (p.price_monthly === null ? 'Custom' : `৳${Number(p.price_monthly).toLocaleString('en-US')}`);
+const taka = (p: Package) => (p.price_monthly === null ? 'Custom' : `BDT ${Number(p.price_monthly).toLocaleString('en-US')}`);
 const many = (v: number | null, one: string, more = `${one}s`) => (v === null ? `Unlimited ${more}` : `${v} ${v === 1 ? one : more}`);
 
 /** The SIP server name the first payment creates (same rule as the server's provisioning). */

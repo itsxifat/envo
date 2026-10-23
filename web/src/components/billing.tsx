@@ -6,8 +6,8 @@ import { Check, CreditCard, Landmark, Minus, Smartphone, Star } from 'lucide-rea
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../state/auth';
 import { IVR_TIER_LABELS, formatBdt, limitLabel } from '../lib/format';
-import type { CheckoutResult, Invoice, Package, PaymentOptions } from '../lib/types';
-import { Badge, Button, Field, Input, Modal, Notice, Select, Tabs } from './ui';
+import type { CheckoutResult, Invoice, Onboarding, Package, PaymentOptions } from '../lib/types';
+import { Badge, Button, Field, Input, Modal, Notice, Select, Stepper, Tabs } from './ui';
 
 const MONTHS = [1, 3, 6, 12] as const;
 
@@ -20,7 +20,11 @@ function Row({ on, children }: { on: boolean; children: React.ReactNode }) {
   );
 }
 
-/** Package cards with the right action for this customer: choose, renew, upgrade or switch at renewal. */
+/**
+ * Package cards with the right action for this customer: choose, renew, upgrade or switch at renewal.
+ * Before the first package, two questions (people, calls at the same time) point to the one that fits;
+ * the answers also decide how many extensions the new phone system starts with.
+ */
 export function PlanPicker({ onInvoice, onDone }: { onInvoice: (inv: Invoice) => void; onDone?: () => void }) {
   const qc = useQueryClient();
   const { plan, refresh } = useAuth();
@@ -30,10 +34,18 @@ export function PlanPicker({ onInvoice, onDone }: { onInvoice: (inv: Invoice) =>
   const sub = plan?.subscription ?? null;
   const currentId = sub ? plan?.package?.id : null;
   const currentPrice = sub?.price ?? 0;
+  const first = !sub;
+  const answers = useQuery({ queryKey: ['account', 'onboarding'], queryFn: () => api.get<Onboarding>('/api/account/onboarding'), enabled: first });
+  const [people, setPeople] = useState<number | null>(null);
+  const [calls, setCalls] = useState<number | null>(null);
+  const peopleValue = people ?? answers.data?.people ?? 3;
+  const callsValue = calls ?? answers.data?.calls ?? 1;
 
   const choose = async (p: Package) => {
     setBusy(p.id);
     try {
+      // The first package sets the phone system up for this many people.
+      if (first) await api.put('/api/account/onboarding', { people: peopleValue, calls: callsValue }).catch(() => undefined);
       const r = await api.post<CheckoutResult>('/api/account/billing/checkout', { package_id: p.id, months });
       void qc.invalidateQueries({ queryKey: ['account'] });
       if (r.action === 'invoice') onInvoice(r.invoice);
@@ -50,8 +62,35 @@ export function PlanPicker({ onInvoice, onDone }: { onInvoice: (inv: Invoice) =>
   };
 
   const list = packages.data ?? [];
+  // The cheapest package with room for both answers; one with a custom price when none has.
+  const fits = (p: Package) => (p.max_extensions === null || p.max_extensions >= peopleValue) && (p.max_channels === null || p.max_channels >= callsValue);
+  const best = first
+    ? ([...list].filter((p) => fits(p) && p.price_monthly !== null).sort((a, b) => Number(a.price_monthly) - Number(b.price_monthly))[0] ?? list.find(fits) ?? null)
+    : null;
   return (
     <div>
+      {first && (
+        <div className="mb-5 rounded-2xl bg-slate-50 p-4 ring-1 ring-black/[0.04] sm:p-5">
+          <p className="text-sm font-semibold text-slate-900">Find the right package</p>
+          <div className="mt-3 grid gap-x-6 gap-y-3 md:grid-cols-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-slate-700">How many people will make and take calls?</span>
+              <Stepper value={peopleValue} onChange={setPeople} min={1} max={1000} label="People who make and take calls" />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-slate-700">How many calls at the same time, at most?</span>
+              <Stepper value={callsValue} onChange={setCalls} min={1} max={500} label="Calls at the same time" />
+            </div>
+          </div>
+          {best && (
+            <p className="mt-3 text-sm text-slate-600">
+              Best fit: <strong className="font-semibold text-slate-900">{best.name}</strong>
+              {best.price_monthly !== null ? `, ${formatBdt(best.price_monthly)} a month.` : '. Talk to us and we make a package for you.'} Your phone system starts with an
+              extension for each person.
+            </p>
+          )}
+        </div>
+      )}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-slate-500">Prices are per month in BDT. Upgrades start right away; you pay only the difference for the rest of this period.</p>
         <Tabs value={String(months)} onChange={(v) => setMonths(Number(v) as (typeof MONTHS)[number])} tabs={MONTHS.map((m) => ({ value: String(m), label: m === 1 ? 'Monthly' : `${m} months` }))} />
@@ -62,12 +101,27 @@ export function PlanPicker({ onInvoice, onDone }: { onInvoice: (inv: Invoice) =>
           const custom = p.price_monthly === null;
           const price = Number(p.price_monthly ?? 0);
           const label = custom ? 'Contact us' : current ? `Renew ${months === 1 ? '1 month' : `${months} months`}` : !sub ? 'Choose' : price > currentPrice ? 'Upgrade now' : 'Switch at renewal';
+          const isBest = best?.id === p.id;
           return (
-            <div key={p.id} className={clsx('relative flex flex-col rounded-2xl border bg-white p-5', current ? 'border-brand-500 ring-4 ring-brand-500/10' : p.highlight ? 'border-brand-300' : 'border-slate-200')}>
-              {p.highlight && !current && (
+            <div
+              key={p.id}
+              className={clsx(
+                'relative flex flex-col rounded-2xl border bg-white p-5',
+                current || isBest ? 'border-brand-500 ring-4 ring-brand-500/10' : p.highlight && !best ? 'border-brand-300' : 'border-slate-200',
+              )}
+            >
+              {isBest ? (
                 <span className="absolute -top-2.5 left-5 inline-flex items-center gap-1 rounded-full bg-brand-600 px-2.5 py-0.5 text-[11px] font-medium text-white">
-                  <Star className="size-3" /> Most popular
+                  <Check className="size-3" /> Best fit for you
                 </span>
+              ) : (
+                p.highlight &&
+                !current &&
+                !best && (
+                  <span className="absolute -top-2.5 left-5 inline-flex items-center gap-1 rounded-full bg-brand-600 px-2.5 py-0.5 text-[11px] font-medium text-white">
+                    <Star className="size-3" /> Most popular
+                  </span>
+                )
               )}
               <div className="flex items-start justify-between gap-2">
                 <div>
@@ -81,9 +135,12 @@ export function PlanPicker({ onInvoice, onDone }: { onInvoice: (inv: Invoice) =>
                 {!custom && <span className="text-sm text-slate-500">/ month</span>}
               </div>
               {!custom && months > 1 && (current || !sub) && <p className="text-xs text-slate-500">{formatBdt(price * months)} for {months} months</p>}
+              {first && !fits(p) && <p className="mt-2 text-xs font-medium text-amber-700">Smaller than what you need</p>}
               <ul className="mt-4 space-y-1.5">
-                <Row on>{limitLabel(p.max_extensions)} extensions</Row>
-                <Row on>{limitLabel(p.max_channels)} concurrent calls</Row>
+                <Row on>{limitLabel(p.max_extensions)} people (extensions)</Row>
+                <Row on>
+                  {limitLabel(p.max_channels)} call{p.max_channels === 1 ? '' : 's'} at the same time
+                </Row>
                 <Row on>
                   {limitLabel(p.max_dids)} number{p.max_dids === 1 ? '' : 's'} · {limitLabel(p.max_servers)} SIP server{p.max_servers === 1 ? '' : 's'}
                 </Row>
@@ -95,7 +152,7 @@ export function PlanPicker({ onInvoice, onDone }: { onInvoice: (inv: Invoice) =>
               <div className="mt-auto pt-5">
                 <Button
                   className="w-full"
-                  variant={current || p.highlight || (sub && price > currentPrice) ? 'primary' : 'secondary'}
+                  variant={current || isBest || (p.highlight && !best) || (sub && price > currentPrice) ? 'primary' : 'secondary'}
                   disabled={custom}
                   loading={busy === p.id}
                   onClick={() => void choose(p)}

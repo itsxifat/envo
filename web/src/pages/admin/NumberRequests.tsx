@@ -39,6 +39,8 @@ interface RequestRow {
   id: number;
   status: NumberRequestStatus;
   requested_number: string;
+  /** A special number the customer applied for, in their words; '' for an ordinary request. */
+  special: string;
   reason: string;
   created_at: string;
   updated_at: string;
@@ -188,7 +190,9 @@ function RequestsTab() {
                     </Link>
                   </td>
                   <td className="text-sm text-slate-700">{r.subscriber_name ?? '—'}</td>
-                  <td className="font-mono text-sm font-semibold text-slate-900">{r.connected_number || r.requested_number || <span className="font-sans font-normal text-slate-500">Any free number</span>}</td>
+                  <td className="font-mono text-sm font-semibold text-slate-900">
+                    {r.connected_number || r.requested_number || (r.special ? <SpecialWish text={r.special} /> : <span className="font-sans font-normal text-slate-500">Any free number</span>)}
+                  </td>
                   <td>
                     <Badge tone={STATUS[r.status].tone} dot>
                       {STATUS[r.status].label}
@@ -210,6 +214,16 @@ function RequestsTab() {
       )}
       {openId !== null && <RequestModal id={openId} onClose={() => setOpenId(null)} />}
     </Card>
+  );
+}
+
+/** A special number application: what the customer asked for, in their words. */
+function SpecialWish({ text }: { text: string }) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5 font-sans">
+      <Badge tone="violet">Special</Badge>
+      <span className="text-sm font-medium text-slate-800">{text}</span>
+    </span>
   );
 }
 
@@ -281,7 +295,7 @@ function RequestModal({ id, onClose }: { id: number; onClose: () => void }) {
 
   const open = d && (d.status === 'submitted' || d.status === 'in_review');
   const rows = d ? detailRows(d.details) : [];
-  const asText = d ? [`Number: ${d.requested_number || 'any free number'}`, ...rows.map(([k, v]) => `${k}: ${v}`)].join('\n') : '';
+  const asText = d ? [`Number: ${d.special ? `special, wants ${d.special}` : d.requested_number || 'any free number'}`, ...rows.map(([k, v]) => `${k}: ${v}`)].join('\n') : '';
   const line = settings.data?.line;
   const operator = settings.data?.operator_name ?? 'the operator';
   const canConnect = !!form.number && (form.mode === 'existing' ? !!form.trunk_id : !!line?.host && !!form.password);
@@ -303,10 +317,20 @@ function RequestModal({ id, onClose }: { id: number; onClose: () => void }) {
             <Badge tone={STATUS[d.status].tone} dot>
               {STATUS[d.status].label}
             </Badge>
-            <span className="font-mono text-sm font-semibold text-slate-900">{d.connected_number || d.requested_number || 'Any free number'}</span>
+            {d.connected_number || d.requested_number || !d.special ? (
+              <span className="font-mono text-sm font-semibold text-slate-900">{d.connected_number || d.requested_number || 'Any free number'}</span>
+            ) : (
+              <SpecialWish text={d.special} />
+            )}
             {d.decided_by_name && <span className="text-xs text-slate-500">· handled by {d.decided_by_name}</span>}
           </div>
           {d.status === 'rejected' && d.reason && <Notice tone="danger" title="Rejected">{d.reason}</Notice>}
+          {open && d.special && (
+            <Notice title={`Special number wanted: ${d.special}`}>
+              Check with {operator} that it is free. If it costs extra, send the customer an invoice under Sales & invoices first. If it is taken, reject the request and say so;
+              they can apply again.
+            </Notice>
+          )}
 
           <div className="grid gap-6 lg:grid-cols-[1.3fr_1fr]">
             <div>

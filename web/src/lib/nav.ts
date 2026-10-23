@@ -39,7 +39,7 @@ export interface NavItem {
   icon: ComponentType<{ className?: string }>;
   roles?: Role[];
   /** Shown only when the customer's package includes it. */
-  feature?: 'call_monitoring' | 'api_access';
+  feature?: 'call_monitoring' | 'api_access' | 'recording_days';
   /** Customers only (platform admins have no account of their own). */
   customer?: boolean;
   /** The account owner only. */
@@ -51,59 +51,59 @@ export interface NavItem {
 }
 
 export interface NavGroup {
+  /** '' for the everyday pages at the top, which have no heading. */
   title: string;
+  /** Folded away at the bottom of the menu until opened (it opens by itself on one of its pages). */
+  collapsible?: boolean;
   items: NavItem[];
 }
 
 const ADMINS: Role[] = ['superadmin', 'admin'];
 
-/** The customer portal. Names say what a thing does for the caller, not what it is called in SIP. */
+const GET_STARTED = '/get-started';
+
+/**
+ * The customer portal. Names say what a thing does for the caller, not what it is called in SIP. The
+ * everyday pages come first; everything else is folded into two groups at the bottom.
+ */
 export const NAV: NavGroup[] = [
   {
-    title: 'Overview',
+    title: '',
     items: [
-      { to: '/', label: 'Dashboard', icon: LayoutDashboard, keywords: 'home overview stats' },
-      { to: '/get-started', label: 'Get started', icon: Rocket, roles: ADMINS, keywords: 'setup guide wizard onboarding first steps connect number' },
-      { to: '/live', label: 'Live calls', icon: Activity, roles: ADMINS, feature: 'call_monitoring', keywords: 'active channels monitor spy whisper barge' },
-      { to: '/calls', label: 'Call history', icon: History, keywords: 'cdr call logs history' },
-      { to: '/recordings', label: 'Recordings', icon: AudioLines, keywords: 'call recordings audio listen play download retention days left storage' },
+      { to: GET_STARTED, label: 'Get started', icon: Rocket, roles: ADMINS, keywords: 'setup guide wizard onboarding first steps connect number team' },
+      { to: '/', label: 'Home', icon: LayoutDashboard, keywords: 'dashboard overview stats' },
+      { to: '/calls', label: 'Call history', icon: History, keywords: 'call history cdr call logs' },
+      { to: '/recordings', label: 'Recordings', icon: AudioLines, feature: 'recording_days', keywords: 'call recordings audio listen play download retention days left storage' },
       { to: '/voicemail', label: 'Voicemail', icon: Voicemail, keywords: 'messages inbox' },
+      { to: '/numbers', label: 'Phone numbers', icon: Hash, roles: ADMINS, keywords: 'did inbound connect number get a new number buy special number top up recharge balance' },
+      { to: '/extensions', label: 'Team & phones', icon: Users, roles: ADMINS, keywords: 'extensions people sip accounts phones desk softphone credentials add a person' },
+      { to: '/billing', label: 'Billing', icon: CreditCard, roles: ['admin'], customer: true, owner: true, keywords: 'invoice pay payment bkash card renew upgrade package top-up' },
     ],
   },
   {
-    title: 'People',
+    title: 'Call handling',
+    collapsible: true,
     items: [
-      { to: '/extensions', label: 'Extensions & phones', icon: Users, roles: ADMINS, keywords: 'extensions sip accounts users phones desk softphone credentials' },
-      { to: '/users', label: 'Team logins', icon: UserRound, roles: ADMINS, keywords: 'team users people logins roles admin agent password invite' },
-    ],
-  },
-  {
-    title: 'Incoming calls',
-    items: [
-      { to: '/numbers', label: 'Phone numbers', icon: Hash, roles: ADMINS, keywords: 'did inbound routing msisdn connect number' },
-      { to: '/ivrs', label: 'IVR menus', icon: ListTree, roles: ADMINS, keywords: 'auto attendant press 1 menu greeting' },
+      { to: '/ivrs', label: 'IVR menus', icon: ListTree, roles: ADMINS, keywords: 'call menu auto attendant press 1 greeting' },
       { to: '/ring-groups', label: 'Ring groups', icon: Network, roles: ADMINS, keywords: 'hunt group ring all team everyone' },
       { to: '/queues', label: 'Call queues', icon: Gauge, roles: ADMINS, keywords: 'call center agents hold music queues' },
       { to: '/time-conditions', label: 'Business hours', icon: Clock, roles: ADMINS, keywords: 'time conditions office hours schedule holiday open closed' },
-      { to: '/conferences', label: 'Conference rooms', icon: Presentation, roles: ADMINS, keywords: 'meeting bridge room pin' },
       { to: '/sounds', label: 'Greetings & sounds', icon: FileAudio, roles: ADMINS, keywords: 'prompts greetings music on hold tts upload sounds' },
+      { to: '/conferences', label: 'Conference rooms', icon: Presentation, roles: ADMINS, keywords: 'meeting bridge room pin' },
       { to: '/blocked', label: 'Blocked callers', icon: ShieldBan, roles: ADMINS, keywords: 'blacklist spam reject' },
+      { to: '/live', label: 'Live calls', icon: Activity, roles: ADMINS, feature: 'call_monitoring', keywords: 'active channels monitor spy whisper barge' },
     ],
   },
   {
-    title: 'Outgoing calls',
+    title: 'Settings',
+    collapsible: true,
     items: [
+      { to: '/users', label: 'Team logins', icon: UserRound, roles: ADMINS, keywords: 'team users people logins roles admin agent password invite' },
       { to: '/trunks', label: 'Phone lines', icon: Server, roles: ADMINS, keywords: 'sip trunks provider iptsp carrier register gateway lines' },
       { to: '/routes', label: 'Calling rules', icon: PhoneOutgoing, roles: ADMINS, keywords: 'outbound routes dial patterns prefix least cost' },
-    ],
-  },
-  {
-    title: 'Account',
-    items: [
       { to: '/servers', label: 'SIP servers', icon: Building2, roles: ADMINS, keywords: 'tenants multi tenant pbx instance phone system settings timezone' },
-      { to: '/developers', label: 'Developers', icon: Code2, roles: ADMINS, feature: 'api_access', keywords: 'api keys webhooks embed widget integration commerce' },
       { to: '/account', label: 'Plan & usage', icon: Gem, roles: ['admin'], customer: true, keywords: 'package subscription limits upgrade' },
-      { to: '/billing', label: 'Billing', icon: CreditCard, roles: ['admin'], customer: true, owner: true, keywords: 'invoice pay payment bkash card renew upgrade package' },
+      { to: '/developers', label: 'Developers', icon: Code2, roles: ADMINS, feature: 'api_access', keywords: 'api keys webhooks embed widget integration commerce' },
     ],
   },
 ];
@@ -147,9 +147,18 @@ function allowed(item: NavItem, user: User, plan: Plan | null): boolean {
   return true;
 }
 
-/** Navigation groups this user may see: role, package features and customer-only pages applied. */
-export function visibleNav(user: User, plan: Plan | null): NavGroup[] {
-  return NAV.map((g) => ({ ...g, items: g.items.filter((i) => allowed(i, user, plan)) })).filter((g) => g.items.length > 0);
+/**
+ * Navigation groups this user may see: role, package features and customer-only pages applied. Once
+ * the setup is done, "Get started" leaves the top and waits under Settings as the setup guide.
+ */
+export function visibleNav(user: User, plan: Plan | null, setupDone = false): NavGroup[] {
+  const guide = NAV[0]!.items.find((i) => i.to === GET_STARTED)!;
+  const groups = NAV.map((g) => ({
+    ...g,
+    items: setupDone ? g.items.filter((i) => i !== guide) : g.items,
+  }));
+  if (setupDone) groups[groups.length - 1]!.items = [...groups[groups.length - 1]!.items, { ...guide, label: 'Setup guide' }];
+  return groups.map((g) => ({ ...g, items: g.items.filter((i) => allowed(i, user, plan)) })).filter((g) => g.items.length > 0);
 }
 
 /** Flat list of the pages this user may open. */

@@ -47,3 +47,26 @@ accountRouter.put('/', requireOwner, async (req, res) => {
 accountRouter.get('/packages', async (_req, res) => {
   res.json(await many('SELECT * FROM packages WHERE active AND public ORDER BY sort_order, id'));
 });
+
+const onboardingSchema = z.object({
+  /** People who make and take calls: the first SIP server gets an extension for each (within the package). */
+  people: z.number().int().min(1).max(1000),
+  /** Calls at the same time: picks the package. */
+  calls: z.number().int().min(1).max(500),
+});
+
+/** The answers from "Find the right package", kept so the setup can continue from them. */
+accountRouter.get('/onboarding', async (req, res) => {
+  const user = req.user!;
+  if (user.accountId === null) throw badRequest('Platform administrators have no customer account');
+  const row = await one<{ onboarding: Record<string, unknown> }>('SELECT onboarding FROM accounts WHERE id = $1', [user.accountId]);
+  res.json(row?.onboarding ?? {});
+});
+
+accountRouter.put('/onboarding', requireOwner, async (req, res) => {
+  const user = req.user!;
+  if (user.accountId === null) throw badRequest('Platform administrators have no customer account');
+  const data = onboardingSchema.parse(req.body);
+  await exec('UPDATE accounts SET onboarding = onboarding || $1::jsonb, updated_at = now() WHERE id = $2', [JSON.stringify(data), user.accountId]);
+  res.json(data);
+});

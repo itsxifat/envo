@@ -1,13 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { Hash, Pencil, Plus, Sparkles, Trash2, Wallet } from 'lucide-react';
+import { Hash, Pencil, Plus, Trash2, Wallet } from 'lucide-react';
 import { useList, useRemove, useSave } from '../lib/hooks';
 import { useAuth } from '../state/auth';
 import { useLive } from '../state/live';
 import type { PhoneNumber, Trunk } from '../lib/types';
 import { DestLabel, DestinationPicker } from '../components/DestinationPicker';
 import { ConnectNumberModal } from '../components/connectNumber';
-import { GetNumberModal, NumberRequestsCard, TopupDialog, useNumberRequests, useSupplyOptions } from '../components/numberSupply';
+import { GetNumberModal, NumberChoice, NumberRequestsCard, TopupDialog, useNumberRequests, useSupplyOptions, type NumberSource } from '../components/numberSupply';
 import {
   Badge,
   Button,
@@ -46,13 +47,22 @@ export function NumbersPage() {
   const confirm = useConfirm();
   const { user } = useAuth();
   const { groups } = useLive();
+  const [params, setParams] = useSearchParams();
   const [editing, setEditing] = useState<PhoneNumber | 'new' | null>(null);
-  const [connecting, setConnecting] = useState(false);
-  const [getting, setGetting] = useState(false);
+  // "Add a number": first the three ways to get one, then that way's form.
+  const [adding, setAdding] = useState<NumberSource | 'choose' | null>(null);
   const [topup, setTopup] = useState<PhoneNumber | null>(null);
   const supply = useSupplyOptions();
   const requests = useNumberRequests();
   const offer = !!supply.data?.enabled;
+  const add = () => setAdding(offer ? 'choose' : 'own');
+
+  // Linked from elsewhere (the dashboard) with ?add=1.
+  useEffect(() => {
+    if (!params.get('add') || supply.isLoading) return;
+    setParams({}, { replace: true });
+    setAdding(offer ? 'choose' : 'own');
+  }, [params, setParams, supply.isLoading, offer]);
   const isSuper = user?.role === 'superadmin';
   // Numbers Enfinito provided (through a request) can be topped up here by the account owner.
   const fromEnfinito = useMemo(() => new Set((requests.data ?? []).filter((r) => r.status === 'connected' && r.number_id).map((r) => r.number_id)), [requests.data]);
@@ -73,17 +83,12 @@ export function NumbersPage() {
           <>
             {isSuper && (
               <Button icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>
-                Add number
+                Add number by hand
               </Button>
             )}
-            <Button variant={offer ? 'secondary' : 'primary'} icon={<Plus className="size-4" />} onClick={() => setConnecting(true)}>
-              {offer ? 'Connect my own number' : 'Connect a number'}
+            <Button variant="primary" icon={<Plus className="size-4" />} onClick={add}>
+              {offer ? 'Add a number' : 'Connect a number'}
             </Button>
-            {offer && (
-              <Button variant="primary" icon={<Sparkles className="size-4" />} onClick={() => setGetting(true)}>
-                Get a new number
-              </Button>
-            )}
           </>
         }
       />
@@ -94,13 +99,24 @@ export function NumbersPage() {
         ) : list.error ? (
           <ErrorBlock error={list.error} />
         ) : !list.data?.length ? (
-          <EmptyState
-            icon={<Hash className="size-5" />}
-            title="No phone numbers yet"
-            description={offer ? 'Get a new number from Enfinito, or connect one you bought from an IP phone provider.' : 'Connect the number you bought from your IP phone provider, then choose where its calls ring.'}
-            action={offer ? <Button variant="primary" onClick={() => setGetting(true)}>Get a new number</Button> : <Button variant="primary" onClick={() => setConnecting(true)}>Connect a number</Button>}
-            secondary={offer && <Button onClick={() => setConnecting(true)}>Connect my own number</Button>}
-          />
+          offer ? (
+            <div className="p-4 sm:p-6">
+              <h2 className="text-base font-semibold tracking-tight text-slate-950">No phone numbers yet</h2>
+              <p className="mt-0.5 mb-4 text-sm text-slate-500">How would you like to get one?</p>
+              <NumberChoice onChoose={setAdding} />
+            </div>
+          ) : (
+            <EmptyState
+              icon={<Hash className="size-5" />}
+              title="No phone numbers yet"
+              description="Connect the number you bought from your IP phone provider, then choose where its calls ring."
+              action={
+                <Button variant="primary" onClick={add}>
+                  Connect a number
+                </Button>
+              }
+            />
+          )
         ) : (
           <div className="overflow-x-auto">
             <table className="table-base">
@@ -109,8 +125,8 @@ export function NumbersPage() {
                   <th>Number</th>
                   <th>Line</th>
                   <th>Incoming calls go to</th>
-                  <th>Channels</th>
-                  <th className="w-32" />
+                  <th>Calls now</th>
+                  <th className="w-44" />
                 </tr>
               </thead>
               <tbody>
@@ -133,11 +149,11 @@ export function NumbersPage() {
                       <span className="text-slate-400"> / {n.max_channels || '∞'}</span>
                     </td>
                     <td>
-                      <div className="flex justify-end gap-0.5">
+                      <div className="flex items-center justify-end gap-0.5">
                         {canTopUp(n) && (
-                          <IconButton label="Top up" tone="brand" onClick={() => setTopup(n)}>
-                            <Wallet className="size-4" />
-                          </IconButton>
+                          <Button size="sm" className="mr-1" icon={<Wallet className="size-3.5" />} onClick={() => setTopup(n)}>
+                            Top up
+                          </Button>
                         )}
                         <IconButton label="Edit" onClick={() => setEditing(n)}>
                           <Pencil className="size-4" />
@@ -163,8 +179,13 @@ export function NumbersPage() {
         )}
       </Card>
       {editing && <NumberModal number={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
-      {connecting && <ConnectNumberModal onClose={() => setConnecting(false)} />}
-      {getting && <GetNumberModal onClose={() => setGetting(false)} />}
+      {adding === 'choose' && (
+        <Modal open onClose={() => setAdding(null)} size="xl" title="Add a phone number" description="Choose how you would like to get it.">
+          <NumberChoice onChoose={setAdding} />
+        </Modal>
+      )}
+      {adding === 'own' && <ConnectNumberModal onClose={() => setAdding(null)} />}
+      {(adding === 'pool' || adding === 'special') && <GetNumberModal special={adding === 'special'} onClose={() => setAdding(null)} />}
       {topup && <TopupDialog numberId={topup.id} number={topup.number} onClose={() => setTopup(null)} />}
     </div>
   );

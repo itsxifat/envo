@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { toast } from 'sonner';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, CheckCircle2, Upload } from 'lucide-react';
+import { ArrowRight, Check, CheckCircle2, Gem, Hash, Sparkles, Upload } from 'lucide-react';
 import { api, errorMessage } from '../lib/api';
 import { formatBdt, timeAgo } from '../lib/format';
 import { useAuth } from '../state/auth';
@@ -26,14 +26,57 @@ export function useSupplyOptions() {
   });
 }
 
-export function useNumberRequests() {
+export function useNumberRequests(opts: { enabled?: boolean; poll?: boolean } = {}) {
   const { user } = useAuth();
   return useQuery({
     queryKey: ['list', 'number-requests'],
     queryFn: () => api.get<NumberRequest[]>('/api/number-requests'),
-    enabled: user?.role === 'admin',
-    refetchInterval: 30_000,
+    enabled: user?.role === 'admin' && (opts.enabled ?? true),
+    refetchInterval: opts.poll === false ? false : 30_000,
   });
+}
+
+/** How a request names its number: the special one asked for, the chosen one, or "any free number". */
+export function requestLabel(r: NumberRequest): string {
+  return r.connected_number || (r.special ? `Special: ${r.special}` : r.requested_number) || 'Any free number';
+}
+
+export type NumberSource = 'pool' | 'own' | 'special';
+
+/**
+ * The ways to get a phone number, as three big choices: one from Enfinito, your own, or a special one.
+ * Without number supply only "your own" exists, so callers show the connect form directly instead.
+ */
+export function NumberChoice({ onChoose }: { onChoose: (source: NumberSource) => void }) {
+  const options: { value: NumberSource; icon: ReactNode; title: string; desc: string; primary?: boolean }[] = [
+    { value: 'pool', icon: <Sparkles className="size-5" />, title: 'Get a number from us', desc: 'Choose one from our list. We register it in your name and connect it for you.', primary: true },
+    { value: 'own', icon: <Hash className="size-5" />, title: 'Use my own number', desc: 'Already bought one from an IP phone provider? Connect it in a minute.' },
+    { value: 'special', icon: <Gem className="size-5" />, title: 'Apply for a special number', desc: 'An easy number to remember, like one ending in 7777. We check if it is free.' },
+  ];
+  return (
+    <div className="grid gap-2.5 sm:grid-cols-3">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          onClick={() => onChoose(o.value)}
+          className={clsx(
+            'group flex flex-col gap-3 rounded-2xl border p-4 text-left transition',
+            o.primary ? 'border-brand-500 bg-brand-50/50 ring-3 ring-brand-500/10 hover:bg-brand-50' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60',
+          )}
+        >
+          <span className={clsx('flex size-10 items-center justify-center rounded-xl', o.primary ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600')}>{o.icon}</span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-semibold tracking-tight text-slate-950">{o.title}</span>
+            <span className="mt-1 block text-[13px] text-slate-500">{o.desc}</span>
+          </span>
+          <span className={clsx('inline-flex items-center gap-1 text-[13px] font-medium', o.primary ? 'text-brand-700' : 'text-slate-600 group-hover:text-slate-900')}>
+            {o.value === 'own' ? 'Connect it' : o.value === 'special' ? 'Apply' : 'Choose a number'} <ArrowRight className="size-3.5" />
+          </span>
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export const REQUEST_STATUS: Record<NumberRequestStatus, { tone: 'blue' | 'amber' | 'green' | 'red' | 'gray'; label: string }> = {
@@ -126,8 +169,11 @@ function AddressFields({ value, onChange }: { value: Address; onChange: (a: Addr
   );
 }
 
-/** "Get a new number": choose a number, fill in the registration, send. */
-export function GetNumberModal({ onClose }: { onClose: () => void }) {
+/**
+ * "Get a new number": choose a number (or, for a special one, say which), fill in the registration,
+ * send.
+ */
+export function GetNumberModal({ onClose, special = false }: { onClose: () => void; special?: boolean }) {
   const { user } = useAuth();
   const { tenants, tenantId } = useTenant();
   const qc = useQueryClient();
@@ -136,6 +182,7 @@ export function GetNumberModal({ onClose }: { onClose: () => void }) {
   const [step, setStep] = useState<'choose' | 'details' | 'done'>('choose');
   const [q, setQ] = useState('');
   const [picked, setPicked] = useState<{ id: number; number: string } | 'any' | null>(null);
+  const [wish, setWish] = useState('');
   const [server, setServer] = useState<number | null>(tenantId);
   const [form, setForm] = useState<FormState>(() => ({
     subscriber_type: 'individual',
@@ -164,7 +211,7 @@ export function GetNumberModal({ onClose }: { onClose: () => void }) {
   const pool = useQuery({
     queryKey: ['number-supply', 'pool', q],
     queryFn: () => api.get<{ id: number; number: string }[]>(`/api/number-requests/pool?q=${encodeURIComponent(q)}`),
-    enabled: step === 'choose',
+    enabled: step === 'choose' && !special,
   });
 
   const missing = missingFields(form, same, photo, idDoc, consent);
@@ -172,7 +219,8 @@ export function GetNumberModal({ onClose }: { onClose: () => void }) {
     mutationFn: () => {
       const body = new FormData();
       body.append('tenant_id', String(server ?? ''));
-      body.append('pool_id', picked && picked !== 'any' ? String(picked.id) : '');
+      body.append('pool_id', !special && picked && picked !== 'any' ? String(picked.id) : '');
+      body.append('special', special ? wish.trim() : '');
       body.append('details', JSON.stringify({ ...form, permanent_address: same ? form.present_address : form.permanent_address }));
       body.append('consent', String(consent));
       body.append('photo', photo!);
@@ -187,7 +235,7 @@ export function GetNumberModal({ onClose }: { onClose: () => void }) {
     onError: (err) => toast.error(errorMessage(err)),
   });
 
-  const chosen = picked === 'any' ? 'any free number' : (picked?.number ?? '');
+  const chosen = special ? wish.trim() : picked === 'any' ? 'any free number' : (picked?.number ?? '');
   const serverName = tenants.find((t) => t.id === server)?.name ?? 'your phone system';
 
   return (
@@ -195,13 +243,15 @@ export function GetNumberModal({ onClose }: { onClose: () => void }) {
       open
       onClose={onClose}
       size="lg"
-      title={step === 'done' ? 'Request sent' : step === 'choose' ? 'Choose your number' : 'Register the number'}
-      description={step === 'details' ? `${operator} needs these details to register ${chosen} in your name, as the BTRC requires.` : undefined}
+      title={step === 'done' ? (special ? 'Application sent' : 'Request sent') : step === 'choose' ? (special ? 'Apply for a special number' : 'Choose your number') : 'Register the number'}
+      description={
+        step === 'details' ? `${operator} needs these details to register ${special ? 'the number' : chosen} in your name, as the BTRC requires.` : undefined
+      }
       footer={
         step === 'choose' ? (
           <>
             <Button onClick={onClose}>Cancel</Button>
-            <Button variant="primary" disabled={!picked} onClick={() => setStep('details')}>
+            <Button variant="primary" disabled={special ? wish.trim().length < 3 : !picked} onClick={() => setStep('details')}>
               Next
             </Button>
           </>
@@ -219,7 +269,16 @@ export function GetNumberModal({ onClose }: { onClose: () => void }) {
         )
       }
     >
-      {step === 'choose' && (
+      {step === 'choose' && special && (
+        <div className="space-y-4">
+          <Field label="Which number would you like?" hint="The whole number, or the digits it should end with">
+            <Input value={wish} onChange={(e) => setWish(e.target.value)} placeholder="e.g. 09639437777, or ending in 7777" maxLength={80} autoFocus />
+          </Field>
+          <Notice>Special numbers can cost extra. We check with {operator} that it is free, and tell you the price (if any) before we register it.</Notice>
+        </div>
+      )}
+
+      {step === 'choose' && !special && (
         <div className="space-y-4">
           <button
             type="button"
@@ -404,9 +463,14 @@ export function GetNumberModal({ onClose }: { onClose: () => void }) {
         <div className="flex items-start gap-3">
           <CheckCircle2 className="mt-0.5 size-6 shrink-0 text-emerald-500" />
           <div className="text-sm text-slate-600">
-            <p className="text-[15px] font-semibold text-slate-900">We have your request for {chosen}</p>
+            <p className="text-[15px] font-semibold text-slate-900">
+              We have your {special ? 'application' : 'request'} for {chosen}
+            </p>
             <p className="mt-1">
-              We register it with {operator} and connect it to {serverName}. This usually takes one working day. You can follow it on the Phone numbers page.
+              {special
+                ? `We check with ${operator} that it is free and tell you the price, if any. Then we register it and connect it to ${serverName}.`
+                : `We register it with ${operator} and connect it to ${serverName}. This usually takes one working day.`}{' '}
+              You can follow it on the Phone numbers page.
             </p>
           </div>
         </div>
@@ -437,10 +501,10 @@ export function NumberRequestsCard({ requests }: { requests: NumberRequest[] }) 
           const st = REQUEST_STATUS[r.status];
           return (
             <li key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 sm:px-5">
-              {r.connected_number || r.requested_number ? (
+              {r.connected_number || (r.requested_number && !r.special) ? (
                 <span className="font-mono text-[15px] font-semibold text-slate-900">{r.connected_number || r.requested_number}</span>
               ) : (
-                <span className="text-sm font-semibold text-slate-900">Any free number</span>
+                <span className="text-sm font-semibold text-slate-900">{requestLabel(r)}</span>
               )}
               <Badge tone={st.tone} dot>
                 {st.label}

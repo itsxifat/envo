@@ -78,6 +78,12 @@ export interface Package extends Omit<PlanLimits, never> {
   subscribers?: number;
 }
 
+/** The answers from "Find the right package" (people who use phones, calls at the same time). */
+export interface Onboarding {
+  people?: number;
+  calls?: number;
+}
+
 export interface AccountRow {
   id: number;
   name: string;
@@ -595,6 +601,8 @@ export interface NumberRequest {
   id: number;
   status: NumberRequestStatus;
   requested_number: string;
+  /** A special number the customer applied for, in their words; '' for an ordinary request. */
+  special: string;
   reason: string;
   tenant_id: number | null;
   tenant_name: string | null;

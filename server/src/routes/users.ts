@@ -112,7 +112,7 @@ async function load(req: Request): Promise<UserRow> {
 }
 
 /** A one-time "choose your password" link, emailed to the person and handed back to the admin. */
-async function sendInvite(req: Request, user: { id: number; name: string; email: string; account_id: number | null; extension_id: number | null }) {
+export async function sendInvite(req: Request, user: { id: number; name: string; email: string; account_id: number | null; extension_id: number | null }) {
   const token = await issueToken(null, user.id, 'reset', INVITE_TTL);
   const url = `${config.publicUrl}/reset?invite=1&token=${token}`;
   const account = user.account_id ? await one<{ name: string }>('SELECT name FROM accounts WHERE id = $1', [user.account_id]) : null;

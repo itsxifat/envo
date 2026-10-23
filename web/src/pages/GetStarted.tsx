@@ -1,77 +1,90 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import clsx from 'clsx';
 import { toast } from 'sonner';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Check, ChevronDown, Hash, ListTree, Mail, Pencil, Phone, PhoneCall, Plus, Rocket, Smartphone, Sparkles, UserPlus, Users, Voicemail, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ListTree, Phone, PhoneCall, Plus, Rocket, Smartphone, Users, Voicemail, X } from 'lucide-react';
 import { api, errorMessage, scoped } from '../lib/api';
-import { useDestinations, useList, useSave } from '../lib/hooks';
+import { useDestinations, useList } from '../lib/hooks';
 import { useAuth } from '../state/auth';
 import { useTenant } from '../state/tenant';
-import { useContactsByEndpoint } from '../state/live';
 import { usePhone } from '../phone/PhoneProvider';
-import type { DestType, Destinations, Extension, Ivr, IvrOption, Option, RingGroup, Sound } from '../lib/types';
+import type { DestType, Destinations, Extension, Ivr, IvrOption, NumberRequest, Option, RingGroup, Sound } from '../lib/types';
 import { ConnectNumberForm, LineProgress, useSetupStatus, type LineState, type SetupStatus } from '../components/connectNumber';
 import { GreetingMaker } from '../components/greeting';
-import { AddPersonModal, InviteDone, MyPhoneSetup, type InviteResult } from '../components/people';
+import { MyPhoneSetup } from '../components/people';
 import { DestLabel } from '../components/DestinationPicker';
-import { GetNumberModal, isOpenRequest, useNumberRequests, useSupplyOptions } from '../components/numberSupply';
-import { Badge, Button, Card, CopyButton, ErrorBlock, Field, IconButton, Input, LoadingBlock, Notice, PageHeader, Select, StatusDot } from '../components/ui';
+import { GetNumberModal, NumberChoice, REQUEST_STATUS, isOpenRequest, requestLabel, useNumberRequests, useSupplyOptions, type NumberSource } from '../components/numberSupply';
+import { Badge, Button, Card, CopyButton, ErrorBlock, Field, IconButton, Input, LoadingBlock, Notice, PageHeader, Select, StatusDot, Stepper } from '../components/ui';
 
 /*
- * The guided setup: four steps from a fresh SIP server to a working phone system, in plain words.
- * Each step has its own anchor (#team #number #calls #test) so the dashboard can link straight to it.
+ * The guided setup, one question at a time: the phone number (from Enfinito, the customer's own, or a
+ * special one), the team, where calls go, and a test call. Envo does the technical part. Each step has
+ * its own anchor (#number #team #calls #test) so the dashboard can link straight to it.
  */
 
-export type SetupStep = 'team' | 'number' | 'calls' | 'test';
+export type SetupStep = 'number' | 'team' | 'calls' | 'test';
 
-export const SETUP_STEPS: { key: SetupStep; title: string }[] = [
-  { key: 'team', title: 'Add your team' },
-  { key: 'number', title: 'Connect your phone number' },
-  { key: 'calls', title: 'Choose where calls go' },
-  { key: 'test', title: 'Make a test call' },
+export const SETUP_STEPS: { key: SetupStep; title: string; short: string }[] = [
+  { key: 'number', title: 'Get your phone number', short: 'Number' },
+  { key: 'team', title: 'Add your team', short: 'Team' },
+  { key: 'calls', title: 'Choose where calls go', short: 'Calls' },
+  { key: 'test', title: 'Make a test call', short: 'Test' },
 ];
 
-const isStep = (v: string): v is SetupStep => SETUP_STEPS.some((s) => s.key === v);
-const stepAfter = (step: SetupStep): SetupStep | null => SETUP_STEPS[SETUP_STEPS.findIndex((s) => s.key === step) + 1]?.key ?? null;
+/** Each step asks one question. */
+const QUESTIONS: Record<SetupStep, { title: string; desc: string }> = {
+  number: { title: 'How will customers call you?', desc: 'Choose the phone number people dial to reach you.' },
+  team: { title: 'Who will take calls?', desc: 'Everyone gets an extension: a short number that rings their phone.' },
+  calls: { title: 'What happens when someone calls?', desc: 'You can change this any time.' },
+  test: { title: 'Make a test call', desc: 'Check that everything works.' },
+};
 
+const isStep = (v: string): v is SetupStep => SETUP_STEPS.some((s) => s.key === v);
+const stepAt = (step: SetupStep, offset: number): SetupStep | null => SETUP_STEPS[SETUP_STEPS.findIndex((s) => s.key === step) + offset]?.key ?? null;
+
+const TEAM_KEY = 'envo.setup.team';
+// Earlier versions remembered "just me for now" under this key.
 const SOLO_KEY = 'envo.setup.solo';
 
-/** "Just me for now": the team step counts as done for this SIP server in this browser. */
-function soloChosen(tenantId: number | null): boolean {
+/** The team step was saved for this SIP server in this browser. */
+function teamConfirmed(tenantId: number | null): boolean {
   try {
-    return !!tenantId && localStorage.getItem(`${SOLO_KEY}.${tenantId}`) === '1';
+    return !!tenantId && (localStorage.getItem(`${TEAM_KEY}.${tenantId}`) === '1' || localStorage.getItem(`${SOLO_KEY}.${tenantId}`) === '1');
   } catch {
     return false;
   }
 }
 
-/** How far the current SIP server is through the guide; shared with the dashboard's setup card. */
-export function useSetupProgress(opts: { enabled?: boolean } = {}) {
+/** How far the current SIP server is through the guide; shared with the dashboard and the menu. */
+export function useSetupProgress(opts: { enabled?: boolean; poll?: boolean } = {}) {
   const { tenantId } = useTenant();
   const status = useSetupStatus(opts);
+  const requests = useNumberRequests(opts);
   const [, rerender] = useState(0);
   const s = status.data;
+  // A number on its way counts: the customer did their part, Enfinito does the rest.
+  const waiting = (requests.data ?? []).filter((r) => isOpenRequest(r) && r.tenant_id === tenantId);
   const done: Record<SetupStep, boolean> | null = s
     ? {
-        // New servers start with the owner on the first extension, so the team step wants one more.
-        team: s.people > 1 || s.named > 1 || soloChosen(tenantId),
-        number: s.numbers.length > 0,
-        calls: s.numbers.length > 0 && s.routed,
+        number: s.numbers.length > 0 || waiting.length > 0,
+        // New servers start with an extension per person; the step is done once they have names.
+        team: s.extensions > 0 && (s.named >= s.extensions || s.people > 1 || teamConfirmed(tenantId)),
+        calls: s.default_dest !== null || (s.numbers.length > 0 && s.routed),
         test: s.has_calls,
       }
     : null;
   const count = done ? SETUP_STEPS.filter((st) => done[st.key]).length : 0;
   const next = done ? (SETUP_STEPS.find((st) => !done[st.key])?.key ?? null) : null;
-  const skipTeam = () => {
+  const confirmTeam = () => {
     try {
-      localStorage.setItem(`${SOLO_KEY}.${tenantId}`, '1');
+      localStorage.setItem(`${TEAM_KEY}.${tenantId}`, '1');
     } catch {
       /* storage unavailable */
     }
     rerender((n) => n + 1);
   };
-  return { status, done, count, next, skipTeam };
+  return { status, done, count, next, waiting, confirmTeam };
 }
 
 /** One line on what happens to a call, e.g. "Calls ring everyone at once". */
@@ -99,51 +112,59 @@ function destText(type: DestType, target: string, dest: Destinations | undefined
   }
 }
 
-function routingText(numbers: SetupStatus['numbers'], dest: Destinations | undefined, everyoneId: number | undefined): string {
-  const first = numbers[0];
-  if (!first) return 'Connect a number first';
-  if (numbers.some((n) => n.dest_type !== first.dest_type || n.dest_target !== first.dest_target)) return 'Your numbers ring different places';
+function routingText(status: SetupStatus, dest: Destinations | undefined, everyoneId: number | undefined): string {
+  const first = status.numbers[0];
+  if (!first) return status.default_dest ? destText(status.default_dest.dest_type, status.default_dest.dest_target, dest, everyoneId) : 'Connect a number first';
+  if (status.numbers.some((n) => n.dest_type !== first.dest_type || n.dest_target !== first.dest_target)) return 'Your numbers ring different places';
   return destText(first.dest_type, first.dest_target, dest, everyoneId);
 }
 
 export function GetStartedPage() {
   const { tenant } = useTenant();
-  const { status, done, count, skipTeam, next } = useSetupProgress();
+  const { status, done, count, next, waiting, confirmTeam } = useSetupProgress();
   const dest = useDestinations();
   const groups = useList<RingGroup>('ring-groups');
   const location = useLocation();
   const navigate = useNavigate();
   const hash = location.hash.slice(1);
   const hashStep = isStep(hash) ? hash : null;
-  // undefined until we know which step to open; null once the user closed them all.
-  const [open, setOpen] = useState<SetupStep | null | undefined>(hashStep ?? undefined);
-  const loaded = !!status.data;
+  // null until we know which step to show.
+  const [step, setStep] = useState<SetupStep | null>(hashStep);
+  const top = useRef<HTMLDivElement>(null);
 
-  // A link to a step (the dashboard's setup card, Continue) opens and shows it.
+  // A link to a step (the dashboard's setup card) opens it.
   useEffect(() => {
-    if (!hashStep || !loaded) return;
-    setOpen(hashStep);
-    requestAnimationFrame(() => document.getElementById(hashStep)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-  }, [hashStep, loaded]);
+    if (hashStep) setStep(hashStep);
+  }, [hashStep]);
 
   // Otherwise the first step that is not done yet.
   useEffect(() => {
-    if (open === undefined && done) setOpen(next ?? 'test');
-  }, [open, done, next]);
+    if (step === null && done) setStep(next ?? 'test');
+  }, [step, done, next]);
 
-  const show = (step: SetupStep | null) => {
-    setOpen(step);
-    void navigate({ hash: step ? `#${step}` : '' }, { replace: true });
+  const go = (target: SetupStep) => {
+    setStep(target);
+    void navigate({ hash: `#${target}` }, { replace: true });
+    requestAnimationFrame(() => top.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   };
-  const toggle = (step: SetupStep) => () => show(open === step ? null : step);
-  const advance = (step: SetupStep) => () => show(stepAfter(step));
+  const forward = (from: SetupStep) => () => go(stepAt(from, 1) ?? 'test');
+  const backFrom = (from: SetupStep) => {
+    const prev = stepAt(from, -1);
+    return prev ? () => go(prev) : undefined;
+  };
 
   const s = status.data;
   const everyoneId = groups.data?.find((g) => g.name === 'Everyone')?.id;
+  const current = step ?? (done ? (next ?? 'test') : 'number');
+  const index = SETUP_STEPS.findIndex((st) => st.key === current);
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHeader title="Get started" icon={<Rocket className="size-5" />} description={`Set up ${tenant?.name ?? 'your phone system'} in four steps. No technical knowledge needed.`} />
+      <PageHeader
+        title="Get started"
+        icon={<Rocket className="size-5" />}
+        description={`Set up ${tenant?.name ?? 'your phone system'} in a few minutes. Answer a few questions; we do the technical part.`}
+      />
       {status.isLoading ? (
         <LoadingBlock />
       ) : status.error ? (
@@ -151,285 +172,111 @@ export function GetStartedPage() {
       ) : (
         s &&
         done && (
-          <>
-            <Progress count={count} />
-            <div className="space-y-3">
-              <StepCard
-                step="team"
-                index={0}
-                done={done.team}
-                open={open === 'team'}
-                onToggle={toggle('team')}
-                summary={`${s.extensions} extension${s.extensions === 1 ? '' : 's'} · ${s.online} online now`}
-              >
-                <TeamStep
-                  done={done.team}
-                  onContinue={() => {
-                    if (!done.team) skipTeam();
-                    advance('team')();
-                  }}
-                />
-              </StepCard>
-              <StepCard
-                step="number"
-                index={1}
-                done={done.number}
-                open={open === 'number'}
-                onToggle={toggle('number')}
-                summary={s.numbers.length ? s.numbers.map((n) => n.number).join(', ') : 'The number your customers dial'}
-              >
-                <NumberStep status={s} onContinue={advance('number')} />
-              </StepCard>
-              <StepCard step="calls" index={2} done={done.calls} open={open === 'calls'} onToggle={toggle('calls')} summary={routingText(s.numbers, dest.data, everyoneId)}>
-                <CallsStep status={s} onDone={advance('calls')} onConnect={() => show('number')} />
-              </StepCard>
-              <StepCard step="test" index={3} done={done.test} open={open === 'test'} onToggle={toggle('test')} summary={s.has_calls ? 'Calls are working' : 'Check that everything works'}>
-                <TestStep status={s} routing={routingText(s.numbers, dest.data, everyoneId)} />
-              </StepCard>
-            </div>
-          </>
+          <div ref={top} className="scroll-mt-4">
+            <StepBar current={current} done={done} onGo={go} />
+            {count === SETUP_STEPS.length && (
+              <Notice tone="success" title="All done. Your phone system is ready." className="mb-4">
+                Come back here whenever you want to change your number, your team or where calls go.
+              </Notice>
+            )}
+            <Card className="overflow-hidden">
+              <div className="border-b border-black/[0.06] px-4 py-4 sm:px-6">
+                <p className="font-mono text-[11px] font-medium tracking-[0.08em] text-slate-400 uppercase">
+                  Step {index + 1} of {SETUP_STEPS.length}
+                </p>
+                <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-950">{QUESTIONS[current].title}</h2>
+                <p className="mt-0.5 text-sm text-slate-500">{QUESTIONS[current].desc}</p>
+              </div>
+              <div className="px-4 py-5 sm:px-6">
+                {current === 'number' && <NumberStep status={s} waiting={waiting} onContinue={forward('number')} />}
+                {current === 'team' && (
+                  <TeamStep
+                    onBack={backFrom('team')}
+                    onDone={() => {
+                      confirmTeam();
+                      forward('team')();
+                    }}
+                  />
+                )}
+                {current === 'calls' && <CallsStep status={s} onBack={backFrom('calls')} onDone={forward('calls')} />}
+                {current === 'test' && <TestStep status={s} waiting={waiting.length > 0} routing={routingText(s, dest.data, everyoneId)} onBack={backFrom('test')} />}
+              </div>
+            </Card>
+          </div>
         )
       )}
     </div>
   );
 }
 
-function Progress({ count }: { count: number }) {
-  const pct = Math.round((count / SETUP_STEPS.length) * 100);
+/** The four steps across the top: done ones ticked, any one can be opened. */
+function StepBar({ current, done, onGo }: { current: SetupStep; done: Record<SetupStep, boolean>; onGo: (step: SetupStep) => void }) {
   return (
-    <Card className="mb-4 p-4 sm:mb-5 sm:p-5">
-      <div className="flex items-baseline justify-between gap-3">
-        <p className="text-sm font-medium text-slate-900">{count === SETUP_STEPS.length ? 'All done. Your phone system is ready.' : `${count} of ${SETUP_STEPS.length} steps done`}</p>
-        <span className="text-sm font-semibold text-slate-900 tabular-nums">{pct}%</span>
-      </div>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-label="Setup progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
-        <div className="h-full rounded-full bg-brand-500 transition-all duration-700" style={{ width: `${pct}%` }} />
-      </div>
-    </Card>
+    <ol className="mb-4 grid grid-cols-4 gap-2 sm:mb-5 sm:gap-3">
+      {SETUP_STEPS.map((st, i) => {
+        const active = st.key === current;
+        const ok = done[st.key];
+        return (
+          <li key={st.key}>
+            <button type="button" onClick={() => onGo(st.key)} aria-current={active ? 'step' : undefined} className="group flex w-full flex-col gap-2 text-left">
+              <span className={clsx('h-1.5 rounded-full transition', active ? 'bg-ink-950' : ok ? 'bg-emerald-500' : 'bg-slate-200 group-hover:bg-slate-300')} />
+              <span className="flex min-w-0 items-center gap-1.5 text-[13px] font-medium">
+                <span
+                  className={clsx(
+                    'flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold',
+                    ok ? 'bg-emerald-500 text-white' : active ? 'bg-ink-950 text-white' : 'bg-slate-100 text-slate-500',
+                  )}
+                >
+                  {ok ? <Check className="size-3" /> : i + 1}
+                </span>
+                <span className={clsx('truncate', active ? 'text-slate-950' : 'text-slate-500 group-hover:text-slate-800')}>{st.short}</span>
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
-function StepCard({
-  step,
-  index,
-  done,
-  open,
-  onToggle,
-  summary,
-  children,
+function StepFooter({
+  onBack,
+  onContinue,
+  label = 'Continue',
+  busy,
+  disabled,
+  extra,
+  hint,
 }: {
-  step: SetupStep;
-  index: number;
-  done: boolean;
-  open: boolean;
-  onToggle: () => void;
-  summary: string;
-  children: ReactNode;
+  onBack?: () => void;
+  onContinue?: () => void;
+  label?: string;
+  busy?: boolean;
+  disabled?: boolean;
+  extra?: ReactNode;
+  hint?: ReactNode;
 }) {
   return (
-    <section id={step} className="card scroll-mt-4 overflow-hidden">
-      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-3.5 px-4 py-4 text-left transition hover:bg-slate-50/60 sm:px-5">
-        <span
-          className={clsx(
-            'flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold',
-            done ? 'bg-emerald-500 text-white' : open ? 'bg-ink-950 text-white' : 'bg-slate-100 text-slate-500',
-          )}
-        >
-          {done ? <Check className="size-4" /> : index + 1}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[15px] font-semibold tracking-tight text-slate-950">{SETUP_STEPS[index]!.title}</span>
-          <span className="block text-[13px] text-slate-500">{summary}</span>
-        </span>
-        <ChevronDown className={clsx('size-4 shrink-0 text-slate-400 transition', open && 'rotate-180')} />
-      </button>
-      {open && <div className="border-t border-black/[0.06] px-4 py-5 sm:px-5">{children}</div>}
-    </section>
-  );
-}
-
-function StepFooter({ onContinue, hint, extra }: { onContinue: () => void; hint?: ReactNode; extra?: ReactNode }) {
-  return (
-    <div className="flex flex-col-reverse gap-3 border-t border-black/[0.06] pt-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="mt-6 flex flex-col-reverse gap-3 border-t border-black/[0.06] pt-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex flex-wrap items-center gap-2">
+        {onBack && (
+          <Button variant="ghost" icon={<ArrowLeft className="size-4" />} onClick={onBack}>
+            Back
+          </Button>
+        )}
         {extra}
         {hint && <p className="text-xs text-slate-500">{hint}</p>}
       </div>
-      <Button variant="primary" onClick={onContinue}>
-        Continue <ArrowRight className="size-4" />
-      </Button>
-    </div>
-  );
-}
-
-// ------------------------------------------------------------------ 1. team
-const PLACEHOLDER_NAME = /^Extension \d+$/;
-
-function TeamStep({ done, onContinue }: { done: boolean; onContinue: () => void }) {
-  const list = useList<Extension>('extensions');
-  const contacts = useContactsByEndpoint();
-  const [inviting, setInviting] = useState<number | null>(null);
-  return (
-    <div className="space-y-5">
-      <p className="text-sm text-slate-600">Everyone who takes calls gets an extension: a short number that rings their phone. Name each one after the person who uses it.</p>
-      {list.isLoading ? (
-        <div className="skeleton h-32 rounded-xl" />
-      ) : list.error ? (
-        <ErrorBlock error={list.error} />
-      ) : (
-        !!list.data?.length && (
-          <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
-            {list.data.map((e) => (
-              <TeamRow key={e.id} ext={e} online={contacts.has(e.sip_username) || contacts.has(`${e.sip_username}_web`)} onInvite={() => setInviting(e.id)} />
-            ))}
-          </ul>
-        )
-      )}
-      <AddPerson />
-      <StepFooter onContinue={onContinue} hint={done ? undefined : 'Just you for now? That is fine, you can add people later.'} />
-      {inviting !== null && <AddPersonModal extensionId={inviting} onClose={() => setInviting(null)} />}
-    </div>
-  );
-}
-
-function TeamRow({ ext, online, onInvite }: { ext: Extension; online: boolean; onInvite: () => void }) {
-  const save = useSave<Extension>('extensions', { updated: 'Name saved' });
-  const [editing, setEditing] = useState(false);
-  const [name, setName] = useState('');
-  const unnamed = PLACEHOLDER_NAME.test(ext.name);
-  const users = ext.users ?? [];
-
-  const start = () => {
-    setName(unnamed ? '' : ext.name);
-    setEditing(true);
-  };
-  const submit = async () => {
-    const value = name.trim();
-    if (!value || value === ext.name) return setEditing(false);
-    // The whole extension goes back unchanged apart from the name; the server keeps the voicemail PIN.
-    const ok = await save.mutateAsync({ id: ext.id, data: { ...ext, name: value } }).catch(() => null);
-    if (ok) setEditing(false);
-  };
-
-  return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5 sm:px-4">
-      <span className="flex h-7 min-w-11 items-center justify-center rounded-lg bg-slate-100 px-2 font-mono text-[13px] font-semibold text-slate-700">{ext.number}</span>
-      {editing ? (
-        <form
-          className="flex min-w-0 flex-1 basis-56 items-center gap-1.5"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void submit();
-          }}
-        >
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Escape' && setEditing(false)}
-            placeholder="e.g. Ayesha or Front desk"
-            maxLength={60}
-            aria-label={`Name for extension ${ext.number}`}
-            autoFocus
-          />
-          <Button type="submit" size="sm" variant="primary" loading={save.isPending} disabled={!name.trim()}>
-            Save
-          </Button>
-          <IconButton label="Cancel" onClick={() => setEditing(false)}>
-            <X className="size-4" />
-          </IconButton>
-        </form>
-      ) : (
-        <button type="button" onClick={start} className="group flex min-w-0 flex-1 basis-40 items-center gap-1.5 text-left">
-          <span className={clsx('truncate text-sm', unnamed ? 'text-slate-400' : 'font-medium text-slate-900')}>{unnamed ? 'Add a name' : ext.name}</span>
-          <Pencil className="size-3.5 shrink-0 text-slate-300 transition group-hover:text-slate-500" />
-        </button>
-      )}
-      {!editing && (
-        <div className="flex items-center gap-2">
-          <Badge tone={online ? 'green' : 'gray'} dot>
-            {online ? 'Online' : 'Offline'}
-          </Badge>
-          {users.length ? (
-            <span className="max-w-40 truncate text-xs text-slate-500">Used by {users.map((u) => u.name).join(', ')}</span>
-          ) : (
-            <Button size="sm" variant="ghost" icon={<Mail className="size-3.5" />} onClick={onInvite}>
-              Invite
-            </Button>
-          )}
-        </div>
-      )}
-    </li>
-  );
-}
-
-/** A name, and optionally an email: with one they get a login and an invite, without one just an extension. */
-function AddPerson() {
-  const { tenantId } = useTenant();
-  const qc = useQueryClient();
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [invited, setInvited] = useState<{ name: string; email: string; result: InviteResult } | null>(null);
-  const withEmail = email.trim() !== '';
-
-  const add = useMutation({
-    mutationFn: async (): Promise<{ invite: InviteResult } | { ext: Extension }> => {
-      if (withEmail) {
-        const body = { name: name.trim(), email: email.trim(), role: 'agent', tenant_id: tenantId, create_extension: true, invite: true };
-        return { invite: await api.post<InviteResult>(scoped('/api/users', tenantId), body) };
-      }
-      const { number } = await api.get<{ number: string }>(scoped('/api/extensions/next-number', tenantId));
-      return { ext: await api.post<Extension>(scoped('/api/extensions', tenantId), { number, name: name.trim() }) };
-    },
-    onSuccess: (r) => {
-      for (const key of [['list'], ['setup'], ['dashboard'], ['account']]) void qc.invalidateQueries({ queryKey: key });
-      if ('invite' in r) setInvited({ name: name.trim(), email: email.trim(), result: r.invite });
-      else toast.success(`${r.ext.name} has extension ${r.ext.number}`);
-      setName('');
-      setEmail('');
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-
-  if (invited) {
-    return (
-      <div className="rounded-xl border border-slate-200 p-4">
-        <InviteDone {...invited} />
-        <Button size="sm" className="mt-4" icon={<UserPlus className="size-4" />} onClick={() => setInvited(null)}>
-          Add someone else
+      {onContinue && (
+        <Button variant="primary" loading={busy} disabled={disabled} onClick={onContinue}>
+          {label} <ArrowRight className="size-4" />
         </Button>
-      </div>
-    );
-  }
-  return (
-    <div className="rounded-xl bg-slate-50 p-4 ring-1 ring-black/[0.05]">
-      <p className="mb-3 text-sm font-semibold text-slate-900">Add a person</p>
-      <form
-        className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
-        onSubmit={(e) => {
-          e.preventDefault();
-          add.mutate();
-        }}
-      >
-        <Field label="Name">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ayesha Rahman" maxLength={60} />
-        </Field>
-        <Field label="Email (optional)">
-          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="ayesha@company.com" />
-        </Field>
-        <Button type="submit" variant="primary" loading={add.isPending} disabled={!name.trim() || (withEmail && !/\S+@\S+\.\S+/.test(email))} icon={<Plus className="size-4" />}>
-          Add
-        </Button>
-      </form>
-      <p className="mt-2 text-xs text-slate-500">
-        {withEmail
-          ? 'They get an email to choose a password. Then they can make and take calls in their browser.'
-          : 'Without an email they get an extension for a desk phone or a phone app. Add an email so they can sign in too.'}
-      </p>
+      )}
     </div>
   );
 }
 
-// ------------------------------------------------------------------ 2. number
+// ------------------------------------------------------------------ 1. number
 const HEALTH: Record<LineState['health'], { tone: 'green' | 'red' | 'amber' | 'gray'; label: string }> = {
   ok: { tone: 'green', label: 'Connected' },
   failing: { tone: 'red', label: 'Not accepted' },
@@ -447,54 +294,62 @@ function LineBadge({ line }: { line: LineState | null }) {
   );
 }
 
-function NumberStep({ status, onContinue }: { status: SetupStatus; onContinue: () => void }) {
+/** What happens next with the numbers on their way. */
+function waitingText(waiting: NumberRequest[]): string {
+  const special = waiting.filter((r) => r.special).length;
+  if (special === waiting.length) {
+    return `We check that your special number${special > 1 ? 's are' : ' is'} free and tell you the price, if any. Then we register ${special > 1 ? 'them' : 'it'} and connect ${special > 1 ? 'them' : 'it'} for you.`;
+  }
+  const many = waiting.length > 1;
+  return `We register your number${many ? 's' : ''} with the operator and connect ${many ? 'them' : 'it'} for you, usually within one working day.${special ? ' For a special number we first check that it is free and tell you the price, if any.' : ''}`;
+}
+
+function NumberStep({ status, waiting, onContinue }: { status: SetupStatus; waiting: NumberRequest[]; onContinue: () => void }) {
   const supply = useSupplyOptions();
-  const requests = useNumberRequests();
+  const [source, setSource] = useState<NumberSource | null>(null);
   const [connected, setConnected] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [own, setOwn] = useState(false);
-  const [getting, setGetting] = useState(false);
-  const numbers = status.numbers;
   const offer = !!supply.data?.enabled;
-  const waiting = (requests.data ?? []).filter(isOpenRequest);
-  const pending = waiting.length > 0 && (
-    <Notice title={waiting.length === 1 ? 'Your number is on its way' : `${waiting.length} numbers are on their way`}>
-      We are registering {waiting.map((r) => r.requested_number || 'a free number').join(', ')} with the operator and connect {waiting.length === 1 ? 'it' : 'them'} for you. You
-      can follow this on the Phone numbers page.
-    </Notice>
+  const numbers = status.numbers;
+  const has = numbers.length > 0 || waiting.length > 0;
+  const modal = (source === 'pool' || source === 'special') && (
+    <GetNumberModal
+      special={source === 'special'}
+      onClose={() => {
+        setSource(null);
+        setAdding(false);
+      }}
+    />
   );
-  const getModal = getting && <GetNumberModal onClose={() => setGetting(false)} />;
+  const another = (
+    <Button
+      icon={<Plus className="size-4" />}
+      onClick={() => {
+        setConnected(null);
+        setSource(null);
+        setAdding(true);
+      }}
+    >
+      Add another number
+    </Button>
+  );
 
+  // The modal stays in one place in the tree: a request it sends changes what the step shows behind it,
+  // and it must not start over then (it still has to say "Request sent").
+  let body: ReactNode;
   if (connected) {
-    return (
-      <div className="space-y-4">
-        {pending}
+    body = (
+      <>
         <LineProgress number={connected} />
-        <StepFooter
-          onContinue={onContinue}
-          extra={
-            <Button
-              icon={<Plus className="size-4" />}
-              onClick={() => {
-                setConnected(null);
-                setAdding(true);
-              }}
-            >
-              Connect another number
-            </Button>
-          }
-        />
-        {getModal}
-      </div>
+        <StepFooter onContinue={onContinue} extra={another} />
+      </>
     );
-  }
-  if (numbers.length && !adding) {
-    return (
-      <div className="space-y-4">
-        {pending}
+  } else if (has && !adding) {
+    body = (
+      <>
         <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
           {numbers.map((n) => (
-            <li key={n.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
+            <li key={`n${n.id}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
               <span className="font-mono text-[15px] font-semibold text-slate-900">{n.number}</span>
               {n.label && <span className="text-sm text-slate-500">{n.label}</span>}
               <span className="ml-auto">
@@ -502,93 +357,231 @@ function NumberStep({ status, onContinue }: { status: SetupStatus; onContinue: (
               </span>
             </li>
           ))}
-        </ul>
-        {numbers
-          .filter((n) => n.line && !n.line.shared && n.line.health === 'failing')
-          .map((n) => (
-            <LineProgress key={n.id} number={n.number} />
+          {waiting.map((r) => (
+            <li key={`r${r.id}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
+              <span className={clsx('text-[15px] font-semibold text-slate-900', r.requested_number && !r.special && 'font-mono')}>{requestLabel(r)}</span>
+              <span className="ml-auto">
+                <Badge tone={REQUEST_STATUS[r.status].tone} dot>
+                  {REQUEST_STATUS[r.status].label}
+                </Badge>
+              </span>
+            </li>
           ))}
+        </ul>
+        {waiting.length > 0 && <p className="mt-3 text-sm text-slate-600">{waitingText(waiting)} Carry on with the next steps meanwhile.</p>}
+        <div className="mt-3 space-y-3 empty:hidden">
+          {numbers
+            .filter((n) => n.line && !n.line.shared && n.line.health === 'failing')
+            .map((n) => (
+              <LineProgress key={n.id} number={n.number} />
+            ))}
+        </div>
+        <StepFooter onContinue={onContinue} extra={another} />
+      </>
+    );
+  } else {
+    // Choosing a number: the three ways, or straight to the form when Enfinito offers none.
+    const own = !offer || source === 'own';
+    body = (
+      <>
+        {own ? <ConnectNumberForm onDone={setConnected} /> : <NumberChoice onChoose={setSource} />}
         <StepFooter
-          onContinue={onContinue}
+          onBack={offer && source === 'own' ? () => setSource(null) : has ? () => setAdding(false) : undefined}
+          hint={!has && !(offer && source === 'own') ? 'No number yet? Your team can already call each other.' : undefined}
           extra={
-            <>
-              {offer && (
-                <Button icon={<Sparkles className="size-4" />} onClick={() => setGetting(true)}>
-                  Get a new number
-                </Button>
-              )}
-              <Button icon={<Plus className="size-4" />} onClick={() => setAdding(true)}>
-                Connect another number
+            !has && (
+              <Button variant="ghost" onClick={onContinue}>
+                Skip for now
               </Button>
-            </>
+            )
           }
         />
-        {getModal}
-      </div>
+      </>
     );
   }
   return (
-    <div className="space-y-4">
-      {pending}
-      <p className="text-sm text-slate-600">
-        {offer
-          ? 'This is the number your customers dial. Get a new one from Enfinito, or connect one you bought from an IP phone provider (IPTSP).'
-          : 'This is the number your customers dial. You buy it from an IP phone provider (IPTSP), and they give you a few details to type in here.'}
-      </p>
-      {offer && !own ? (
-        <div className="grid gap-2 sm:grid-cols-2">
-          <button
-            type="button"
-            onClick={() => setGetting(true)}
-            className="flex items-start gap-3 rounded-xl border border-brand-500 bg-brand-50/60 p-3.5 text-left ring-3 ring-brand-500/10 transition hover:bg-brand-50"
-          >
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white">
-              <Sparkles className="size-4" />
-            </span>
-            <span>
-              <span className="block text-sm font-medium text-slate-900">Get a new number from Enfinito</span>
-              <span className="mt-0.5 block text-xs text-slate-500">Choose a number and send your details. We register and connect it for you.</span>
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setOwn(true)}
-            className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3.5 text-left transition hover:border-slate-300"
-          >
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
-              <Hash className="size-4" />
-            </span>
-            <span>
-              <span className="block text-sm font-medium text-slate-900">I already have a number</span>
-              <span className="mt-0.5 block text-xs text-slate-500">Bought from an IP phone provider? Type in the details they gave you.</span>
-            </span>
-          </button>
+    <>
+      {body}
+      {modal}
+    </>
+  );
+}
+
+// ------------------------------------------------------------------ 2. team
+const PLACEHOLDER_NAME = /^Extension \d+$/;
+
+interface PersonRow {
+  key: string;
+  extensionId: number | null;
+  number: string | null;
+  name: string;
+  email: string;
+  /** The login that already calls from this extension. */
+  login: string | null;
+  /** Named or signed in to: it stays, so the count cannot go below it. */
+  locked: boolean;
+}
+
+interface TeamResult {
+  people: { extension_id: number; number: string; name: string; email: string; invite_url?: string; invite_status?: 'sent' | 'failed' | 'skipped' }[];
+  removed: number;
+}
+
+let rowKey = 0;
+const newRow = (): PersonRow => ({ key: `new${++rowKey}`, extensionId: null, number: null, name: '', email: '', login: null, locked: false });
+
+/** "N people" or "any number of people", for what a package includes. */
+const upTo = (n: number | null, one: string, many: string) => (n === null ? `any number of ${many}` : `up to ${n} ${n === 1 ? one : many}`);
+
+function TeamStep({ onBack, onDone }: { onBack?: () => void; onDone: () => void }) {
+  const { tenantId } = useTenant();
+  const { user, plan } = useAuth();
+  const qc = useQueryClient();
+  const list = useList<Extension>('extensions');
+  const [rows, setRows] = useState<PersonRow[] | null>(null);
+  const [count, setCount] = useState(1);
+  const [result, setResult] = useState<TeamResult | null>(null);
+
+  // One row per extension, as the server has them now (not a cached copy from before a save).
+  useEffect(() => {
+    if (!list.data || rows || !list.isFetchedAfterMount) return;
+    const loaded = list.data.map((e): PersonRow => {
+      const placeholder = PLACEHOLDER_NAME.test(e.name);
+      const login = e.users?.find((u) => u.email)?.email ?? null;
+      return { key: `e${e.id}`, extensionId: e.id, number: e.number, name: placeholder ? '' : e.name, email: '', login, locked: !!e.users?.length || !placeholder };
+    });
+    setRows(loaded.length ? loaded : [newRow()]);
+    setCount(Math.max(1, loaded.length));
+  }, [list.data, list.isFetchedAfterMount, rows]);
+
+  const limit = plan?.limits.max_extensions ?? null;
+  const max = Math.max(1, Math.min(limit ?? 200, 200));
+  const min = Math.max(1, (rows ?? []).reduce((m, r, i) => (r.locked ? i + 1 : m), 0));
+  const visible = (rows ?? []).slice(0, count);
+  const resize = (n: number) => {
+    setCount(n);
+    setRows((rs) => {
+      const out = [...(rs ?? [])];
+      while (out.length < n) out.push(newRow());
+      return out;
+    });
+  };
+  const update = (key: string, patch: Partial<PersonRow>) => setRows((rs) => rs && rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  const withEmail = visible.filter((r) => !r.login && r.email.trim());
+  const badEmail = withEmail.some((r) => !/^\S+@\S+\.\S+$/.test(r.email.trim()));
+  const noName = withEmail.some((r) => !r.name.trim());
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.post<TeamResult>(scoped('/api/setup/team', tenantId), {
+        people: visible.map((r) => ({ extension_id: r.extensionId, name: r.name.trim(), email: r.login ? '' : r.email.trim() })),
+        // People who are not coming after all: their spare extensions go.
+        remove: (rows ?? []).slice(count).flatMap((r) => (r.extensionId !== null && !r.locked ? [r.extensionId] : [])),
+      }),
+    onSuccess: (r) => {
+      for (const key of [['list'], ['setup'], ['dashboard'], ['account'], ['webphone']]) void qc.invalidateQueries({ queryKey: key });
+      setRows(null);
+      const sent = r.people.filter((p) => p.invite_status === 'sent').length;
+      if (sent) toast.success(`We emailed ${sent === 1 ? 'one person' : `${sent} people`} a link to sign in`);
+      if (r.people.some((p) => p.invite_url && p.invite_status !== 'sent')) {
+        setResult(r);
+        return;
+      }
+      toast.success('Your team is set up');
+      onDone();
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  if (result) {
+    const unsent = result.people.filter((p) => p.invite_url && p.invite_status !== 'sent');
+    return (
+      <>
+        <Notice tone="warn" title="Send these sign-in links yourself">
+          {unsent.some((p) => p.invite_status === 'failed') ? 'The invitation emails could not be sent.' : 'Email is not set up yet, so nothing was sent.'} Share each link with its person
+          (WhatsApp, chat…). A link works once, for 7 days.
+        </Notice>
+        <ul className="mt-4 space-y-3">
+          {unsent.map((p) => (
+            <li key={p.extension_id}>
+              <p className="mb-1.5 truncate text-sm font-medium text-slate-900">
+                {p.name} <span className="font-normal text-slate-500">· {p.email}</span>
+              </p>
+              <div className="flex items-center gap-1 rounded-[10px] border border-slate-200 bg-slate-50/70 py-1 pr-1 pl-3">
+                <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{p.invite_url}</span>
+                <CopyButton value={p.invite_url!} label={`Copy the link for ${p.name}`} />
+              </div>
+            </li>
+          ))}
+        </ul>
+        <StepFooter onContinue={onDone} />
+      </>
+    );
+  }
+
+  if (!rows) return list.error ? <ErrorBlock error={list.error} onRetry={() => void list.refetch()} /> : <div className="skeleton h-40 rounded-xl" />;
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 rounded-xl bg-slate-50 p-4 ring-1 ring-black/[0.04]">
+        <div className="min-w-0 flex-1 basis-60">
+          <p className="text-sm font-medium text-slate-900">How many people will make and take calls?</p>
+          {plan?.package && (
+            <p className="mt-0.5 text-[13px] text-slate-500">
+              {plan.package.name} includes {upTo(limit, 'person', 'people')} and {upTo(plan.limits.max_channels, 'call', 'calls')} at the same time.
+              {user?.isOwner && (
+                <Link to="/billing" className="ml-1 font-medium text-brand-700 hover:text-brand-800">
+                  Need more?
+                </Link>
+              )}
+            </p>
+          )}
         </div>
-      ) : (
-        <ConnectNumberForm onDone={setConnected} />
-      )}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-black/[0.06] pt-4">
-        {adding || (offer && own) ? (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setAdding(false);
-              setOwn(false);
-            }}
-          >
-            {offer && own && !adding ? 'Back' : 'Cancel'}
-          </Button>
-        ) : (
-          <>
-            <p className="text-xs text-slate-500">No number yet? Your team can still call each other.</p>
-            <Button variant="ghost" onClick={onContinue}>
-              Skip for now
-            </Button>
-          </>
-        )}
+        <Stepper value={count} onChange={resize} min={min} max={max} label="Number of people" />
       </div>
-      {getModal}
-    </div>
+
+      <div className="mt-5">
+        <div className="mb-2 hidden grid-cols-[4.5rem_1fr_1fr] gap-3 px-0.5 text-xs font-medium text-slate-500 sm:grid">
+          <span>Extension</span>
+          <span>Name</span>
+          <span>Email, to sign in (optional)</span>
+        </div>
+        <ul className="space-y-2">
+          {visible.map((r, i) => (
+            <li key={r.key} className="grid items-center gap-2 rounded-xl border border-slate-200 p-2.5 sm:grid-cols-[4.5rem_1fr_1fr] sm:gap-3 sm:border-0 sm:p-0">
+              <span className="flex h-9 w-16 items-center justify-center rounded-lg bg-slate-100 font-mono text-[13px] font-semibold text-slate-700 sm:w-auto">
+                {r.number ?? <span className="font-sans text-xs font-medium text-slate-500">New</span>}
+              </span>
+              <Input value={r.name} onChange={(e) => update(r.key, { name: e.target.value })} placeholder={i === 0 ? 'Your name' : 'Name, e.g. Front desk'} maxLength={60} aria-label={`Name of person ${i + 1}`} />
+              {r.login ? (
+                <span className="truncate px-0.5 text-[13px] text-slate-500">{r.login === user?.email ? 'You (signed in)' : `Signs in as ${r.login}`}</span>
+              ) : (
+                <Input
+                  type="email"
+                  value={r.email}
+                  onChange={(e) => update(r.key, { email: e.target.value })}
+                  placeholder="name@company.com"
+                  aria-label={`Email of person ${i + 1}`}
+                  invalid={!!r.email.trim() && !/^\S+@\S+\.\S+$/.test(r.email.trim())}
+                />
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <p className="mt-3 text-xs text-slate-500">
+        With an email, a person gets a login: they make and take calls in the browser and see their own calls. We email them a link to choose a password. Without one, they use a desk
+        phone or a phone app. Names can stay empty and be added later.
+      </p>
+      <StepFooter
+        onBack={onBack}
+        onContinue={() => save.mutate()}
+        label="Save and continue"
+        busy={save.isPending}
+        disabled={badEmail || noName}
+        hint={noName ? 'Add a name for everyone with an email.' : badEmail ? 'One of the emails is not complete.' : undefined}
+      />
+    </>
   );
 }
 
@@ -611,7 +604,7 @@ const PLANS: { value: CallPlan; icon: ReactNode; title: string; desc: string }[]
 /** "101 · Ayesha" → "Ayesha". */
 const nameOf = (options: Option[], value: string) => options.find((o) => o.value === value)?.label.split(' · ').pop() ?? value;
 
-function CallsStep({ status, onDone, onConnect }: { status: SetupStatus; onDone: () => void; onConnect: () => void }) {
+function CallsStep({ status, onBack, onDone }: { status: SetupStatus; onBack?: () => void; onDone: () => void }) {
   const { tenantId, tenant } = useTenant();
   const { plan: pkg } = useAuth();
   const qc = useQueryClient();
@@ -623,18 +616,19 @@ function CallsStep({ status, onDone, onConnect }: { status: SetupStatus; onDone:
   const everyoneId = groups.data?.find((g) => g.name === 'Everyone')?.id;
   const menu = ivrs.data?.find((i) => i.name === MENU_NAME) ?? null;
   const numbers = status.numbers;
-  const first = numbers[0];
+  // What calls do now: the first number's routing, or the choice saved before any number arrived.
+  const now = numbers[0] ? { dest_type: numbers[0].dest_type, dest_target: numbers[0].dest_target } : status.default_dest;
 
   // What the numbers do now, when it is one of the four simple choices.
-  const current: CallPlan | null = !first
+  const current: CallPlan | null = !now
     ? null
-    : first.dest_type === 'ring_group' && first.dest_target === String(everyoneId)
+    : now.dest_type === 'ring_group' && now.dest_target === String(everyoneId)
       ? 'everyone'
-      : first.dest_type === 'extension'
+      : now.dest_type === 'extension'
         ? 'person'
-        : first.dest_type === 'voicemail'
+        : now.dest_type === 'voicemail'
           ? 'voicemail'
-          : first.dest_type === 'ivr' && menu && first.dest_target === String(menu.id)
+          : now.dest_type === 'ivr' && menu && now.dest_target === String(menu.id)
             ? 'menu'
             : null;
 
@@ -646,8 +640,8 @@ function CallsStep({ status, onDone, onConnect }: { status: SetupStatus; onDone:
   const [keys, setKeys] = useState<MenuKey[] | null>(null);
 
   const chosen = plan ?? current ?? 'everyone';
-  const personValue = person ?? (current === 'person' ? first!.dest_target : (people[0]?.value ?? ''));
-  const mailboxValue = mailbox ?? (current === 'voicemail' ? first!.dest_target : (mailboxes[0]?.value ?? ''));
+  const personValue = person ?? (current === 'person' ? now!.dest_target : (people[0]?.value ?? ''));
+  const mailboxValue = mailbox ?? (current === 'voicemail' ? now!.dest_target : (mailboxes[0]?.value ?? ''));
   const greeting = greetingId === undefined ? (menu?.greeting_sound_id ?? null) : greetingId;
   const menuKeys: MenuKey[] =
     keys ??
@@ -661,7 +655,6 @@ function CallsStep({ status, onDone, onConnect }: { status: SetupStatus; onDone:
   const menuIncluded = !!menu || pkg?.limits.max_ivrs !== 0;
 
   const ready =
-    numbers.length > 0 &&
     only?.length !== 0 &&
     (chosen === 'everyone' ||
       (chosen === 'person' && !!personValue) ||
@@ -702,26 +695,16 @@ function CallsStep({ status, onDone, onConnect }: { status: SetupStatus; onDone:
         const saved = menu ? await api.put<Ivr>(scoped(`/api/ivrs/${menu.id}`, tenantId), body) : await api.post<Ivr>(scoped('/api/ivrs', tenantId), body);
         target = { dest_type: 'ivr', dest_target: String(saved.id) };
       }
+      // Every number (and numbers that arrive later) unless only some were picked.
       await api.post(scoped('/api/setup/routing', tenantId), { ...target, number_ids: only ?? undefined });
     },
     onSuccess: () => {
       for (const key of [['setup'], ['list'], ['dashboard'], ['account']]) void qc.invalidateQueries({ queryKey: key });
-      toast.success('Saved. New calls follow it right away.');
+      toast.success(numbers.length ? 'Saved. New calls follow it right away.' : 'Saved. Your number follows it once it is connected.');
       onDone();
     },
     onError: (err) => toast.error(errorMessage(err)),
   });
-
-  if (!numbers.length) {
-    return (
-      <Notice title="Connect a number first">
-        <p>Once your phone number is connected, you choose here what happens when someone calls it.</p>
-        <Button size="sm" className="mt-3" onClick={onConnect}>
-          Connect a number
-        </Button>
-      </Notice>
-    );
-  }
 
   const toggleNumber = (id: number) => {
     const ids = only ?? numbers.map((n) => n.id);
@@ -730,109 +713,113 @@ function CallsStep({ status, onDone, onConnect }: { status: SetupStatus; onDone:
   };
 
   return (
-    <div className="space-y-5">
-      <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="When someone calls">
-        {PLANS.map((p) => {
-          const unavailable = p.value === 'voicemail' ? (mailboxes.length ? null : 'No extension has voicemail on') : p.value === 'menu' && !menuIncluded ? 'Not in your package' : null;
-          return (
-            <button
-              key={p.value}
-              type="button"
-              role="radio"
-              aria-checked={chosen === p.value}
-              disabled={!!unavailable}
-              onClick={() => setPlan(p.value)}
-              className={clsx(
-                'flex items-start gap-3 rounded-xl border p-3.5 text-left transition disabled:cursor-not-allowed disabled:opacity-50',
-                chosen === p.value ? 'border-brand-500 bg-brand-50/60 ring-3 ring-brand-500/10' : 'border-slate-200 bg-white hover:border-slate-300',
-              )}
-            >
-              <span className={clsx('flex size-8 shrink-0 items-center justify-center rounded-lg', chosen === p.value ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-500')}>{p.icon}</span>
-              <span className="min-w-0">
-                <span className="flex items-center gap-2 text-sm font-medium text-slate-900">
-                  {p.title}
-                  {current === p.value && <Badge tone="green">Now</Badge>}
+    <>
+      <div className="space-y-5">
+        {!numbers.length && <Notice>Your number is not connected yet. As soon as it is, its calls follow what you choose here.</Notice>}
+        <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="When someone calls">
+          {PLANS.map((p) => {
+            const unavailable = p.value === 'voicemail' ? (mailboxes.length ? null : 'No extension has voicemail on') : p.value === 'menu' && !menuIncluded ? 'Not in your package' : null;
+            return (
+              <button
+                key={p.value}
+                type="button"
+                role="radio"
+                aria-checked={chosen === p.value}
+                disabled={!!unavailable}
+                onClick={() => setPlan(p.value)}
+                className={clsx(
+                  'flex items-start gap-3 rounded-xl border p-3.5 text-left transition disabled:cursor-not-allowed disabled:opacity-50',
+                  chosen === p.value ? 'border-brand-500 bg-brand-50/60 ring-3 ring-brand-500/10' : 'border-slate-200 bg-white hover:border-slate-300',
+                )}
+              >
+                <span className={clsx('flex size-8 shrink-0 items-center justify-center rounded-lg', chosen === p.value ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-500')}>{p.icon}</span>
+                <span className="min-w-0">
+                  <span className="flex items-center gap-2 text-sm font-medium text-slate-900">
+                    {p.title}
+                    {current === p.value && <Badge tone="green">Now</Badge>}
+                  </span>
+                  <span className="mt-0.5 block text-xs text-slate-500">{unavailable ?? p.desc}</span>
                 </span>
-                <span className="mt-0.5 block text-xs text-slate-500">{unavailable ?? p.desc}</span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {chosen === 'everyone' && (
-        <p className="text-sm text-slate-600">
-          All {status.extensions} extensions ring together{mailboxes.length ? '. If nobody answers, the caller can leave a voicemail.' : '.'} People you add later are included when you save this again.
-        </p>
-      )}
-      {chosen === 'person' && (
-        <Field label="Who answers" className="sm:w-1/2">
-          <Select value={personValue} onChange={(e) => setPerson(e.target.value)}>
-            {people.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      )}
-      {chosen === 'voicemail' && (
-        <Field label="Whose voicemail" hint="Listen on the Voicemail page, or dial *97 from that phone" className="sm:w-1/2">
-          <Select value={mailboxValue} onChange={(e) => setMailbox(e.target.value)}>
-            {mailboxes.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      )}
-      {chosen === 'menu' && (
-        <MenuEditor
-          keys={menuKeys}
-          onKeys={setKeys}
-          greeting={greeting}
-          onGreeting={setGreetingId}
-          people={people}
-          mailboxes={mailboxes}
-          company={pkg?.accountName ?? tenant?.name ?? 'us'}
-        />
-      )}
-
-      {numbers.length > 1 && (
-        <div>
-          <div className="label">For these numbers</div>
-          <div className="flex flex-wrap gap-2">
-            {numbers.map((n) => {
-              const on = !only || only.includes(n.id);
-              return (
-                <button
-                  key={n.id}
-                  type="button"
-                  role="checkbox"
-                  aria-checked={on}
-                  onClick={() => toggleNumber(n.id)}
-                  className={clsx(
-                    'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 font-mono text-[13px] transition',
-                    on ? 'border-brand-500 bg-brand-50 text-brand-800' : 'border-slate-200 text-slate-500 hover:border-slate-300',
-                  )}
-                >
-                  {on && <Check className="size-3.5" />}
-                  {n.number}
-                </button>
-              );
-            })}
-          </div>
+              </button>
+            );
+          })}
         </div>
-      )}
 
-      <div className="flex flex-col-reverse gap-3 border-t border-black/[0.06] pt-4 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-slate-500">{chosen === 'menu' && !greeting ? 'Make the greeting first: callers need to hear which key to press.' : 'You can change this any time.'}</p>
-        <Button variant="primary" loading={save.isPending} disabled={!ready} onClick={() => save.mutate()}>
-          Save and continue <ArrowRight className="size-4" />
-        </Button>
+        {chosen === 'everyone' && (
+          <p className="text-sm text-slate-600">
+            All {status.extensions} extensions ring together{mailboxes.length ? '. If nobody answers, the caller can leave a voicemail.' : '.'} People you add later ring too.
+          </p>
+        )}
+        {chosen === 'person' && (
+          <Field label="Who answers" className="sm:w-1/2">
+            <Select value={personValue} onChange={(e) => setPerson(e.target.value)}>
+              {people.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
+        {chosen === 'voicemail' && (
+          <Field label="Whose voicemail" hint="Listen on the Voicemail page, or dial *97 from that phone" className="sm:w-1/2">
+            <Select value={mailboxValue} onChange={(e) => setMailbox(e.target.value)}>
+              {mailboxes.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
+        {chosen === 'menu' && (
+          <MenuEditor
+            keys={menuKeys}
+            onKeys={setKeys}
+            greeting={greeting}
+            onGreeting={setGreetingId}
+            people={people}
+            mailboxes={mailboxes}
+            company={pkg?.accountName ?? tenant?.name ?? 'us'}
+          />
+        )}
+
+        {numbers.length > 1 && (
+          <div>
+            <div className="label">For these numbers</div>
+            <div className="flex flex-wrap gap-2">
+              {numbers.map((n) => {
+                const on = !only || only.includes(n.id);
+                return (
+                  <button
+                    key={n.id}
+                    type="button"
+                    role="checkbox"
+                    aria-checked={on}
+                    onClick={() => toggleNumber(n.id)}
+                    className={clsx(
+                      'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 font-mono text-[13px] transition',
+                      on ? 'border-brand-500 bg-brand-50 text-brand-800' : 'border-slate-200 text-slate-500 hover:border-slate-300',
+                    )}
+                  >
+                    {on && <Check className="size-3.5" />}
+                    {n.number}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
-    </div>
+      <StepFooter
+        onBack={onBack}
+        onContinue={() => save.mutate()}
+        label="Save and continue"
+        busy={save.isPending}
+        disabled={!ready}
+        hint={chosen === 'menu' && !greeting ? 'Make the greeting first: callers need to hear which key to press.' : undefined}
+      />
+    </>
   );
 }
 
@@ -964,17 +951,18 @@ function MenuEditor({
 }
 
 // ------------------------------------------------------------------ 4. test
-function TestStep({ status, routing }: { status: SetupStatus; routing: string }) {
+function TestStep({ status, waiting, routing, onBack }: { status: SetupStatus; waiting: boolean; routing: string; onBack?: () => void }) {
   const { user } = useAuth();
   const phone = usePhone();
+  const navigate = useNavigate();
   const disabled = phone.config && !phone.config.enabled ? phone.config.reason : null;
   const regTone = phone.reg === 'registered' ? 'green' : phone.reg === 'failed' ? 'red' : 'amber';
   const regText = phone.reg === 'registered' ? 'Your web phone is ready' : phone.reg === 'failed' ? 'Your web phone could not connect' : 'Your web phone is connecting…';
 
   return (
-    <div className="space-y-4">
+    <>
       {status.has_calls && (
-        <Notice tone="success" title="Calls are working">
+        <Notice tone="success" title="Calls are working" className="mb-4">
           Your phone system has made its first call. You are all set.
         </Notice>
       )}
@@ -1012,26 +1000,18 @@ function TestStep({ status, routing }: { status: SetupStatus; routing: string })
               </div>
             </>
           ) : (
-            <p>Connect a number in step 2 first.</p>
+            <p>{waiting ? 'Your number is on its way. Once it is connected, call it from a mobile to try it.' : 'Connect a number in step 1 first.'}</p>
           )}
         </TestItem>
         <TestItem icon={<Phone className="size-4" />} title="Set up desk phones and phone apps">
           <p>Each extension has step-by-step settings for desk phones (Yealink, Grandstream…) and apps like Zoiper.</p>
           <Link to="/extensions" className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-brand-700 hover:text-brand-800">
-            Open Extensions & phones <ArrowRight className="size-3.5" />
+            Open Team & phones <ArrowRight className="size-3.5" />
           </Link>
         </TestItem>
       </ol>
-      {status.has_calls && (
-        <div className="flex justify-end border-t border-black/[0.06] pt-4">
-          <Link to="/">
-            <Button variant="primary">
-              Go to the dashboard <ArrowRight className="size-4" />
-            </Button>
-          </Link>
-        </div>
-      )}
-    </div>
+      <StepFooter onBack={onBack} onContinue={() => void navigate('/')} label="Go to the dashboard" />
+    </>
   );
 }
 

@@ -65,20 +65,27 @@ PostgreSQL with an append-only database role.
 ## Selling Envo (accounts, packages, billing)
 
 Envo is sold as monthly packages. The public website at `/` shows the pricing (generated from the
-packages), and customers sign up, confirm their email, choose a package and pay — then a SIP server
-with three extensions is created for them and the owner's web phone works right away.
+packages), and customers sign up, confirm their email, answer two questions (how many people use
+phones, how many calls at the same time) that point to the package that fits, and pay — then a SIP
+server with an extension for each person is created and the owner's web phone works right away.
+**Get started** then takes them through the rest one question at a time: their number (one from
+Enfinito, their own, or a special one), their team (names; an email gives a login and an invitation),
+where calls go, and a test call.
 
 | Who | Where | What |
 |---|---|---|
 | Visitors | `/`, `/signup` | Landing page with live pricing, sign-up, email confirmation, password reset |
 | Customers (owner) | Billing, Plan & usage | Choose / renew / upgrade (prorated) / switch at renewal, pay online or report a bKash/bank transfer, invoices, billing details |
 | Customers (admins) | Everything PBX | Their account's SIP servers, extensions, numbers, trunks, team — within the package |
-| Customers (admins), support | Phone numbers → Get a new number; /admin → Number requests | Customers choose a number from Enfinito's allocation and send the operator's registration (NID, photo); support registers it, connects it in one step, and adds paid top-ups |
+| Customers (admins), support | Phone numbers → Add a number; /admin → Number requests | Customers choose a number from Enfinito's allocation (or apply for a special one) and send the operator's registration (NID, photo); support registers it, connects it in one step, and adds paid top-ups |
 | Enfinito (platform admins) | Business → Customers, Sales, Packages, Email | Customers (suspend, close, package, custom limits, open their PBX), revenue and invoices, payments to confirm, package editor, payment and email settings |
 
 - **Packages** limit SIP servers, IP numbers, extensions, concurrent calls (account-wide), IVR menus,
   recording days and storage, and switch call monitoring / developer API on or off. Enfinito's own
   account is internal and unlimited.
+- **The customer menu** shows the everyday pages first (calls, voicemail, numbers, team, billing);
+  call handling (IVR menus, ring groups, queues, business hours…) and settings are folded away at the
+  bottom and open by themselves on one of their pages.
 - **Billing** runs by itself every hour: renewal invoices 7 days before a period ends, past due at
   the end, suspension after a 3-day grace (both adjustable), and a "payment received" email on
   every payment. A suspended account keeps its data; its phones stop until it pays.

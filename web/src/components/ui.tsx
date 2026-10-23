@@ -28,6 +28,8 @@ import {
   EyeOff,
   Info,
   LoaderCircle,
+  Minus,
+  Plus,
   Search,
   TrendingDown,
   TrendingUp,
@@ -221,6 +223,32 @@ export function NumberInput({
       onChange={(e) => onChange(e.target.value === '' ? 0 : Number(e.target.value))}
       {...rest}
     />
+  );
+}
+
+/** A count with − and + buttons ("How many people?"); typing a number works too. */
+export function Stepper({ value, onChange, min = 1, max, label }: { value: number; onChange: (v: number) => void; min?: number; max?: number | null; label: string }) {
+  const clamp = (v: number) => Math.max(min, max == null ? v : Math.min(max, v));
+  const button = 'flex size-10 shrink-0 items-center justify-center text-slate-500 transition hover:bg-slate-50 hover:text-slate-950 disabled:pointer-events-none disabled:opacity-35';
+  return (
+    <div role="group" aria-label={label} className="inline-flex items-center overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
+      <button type="button" className={button} aria-label={`Fewer (${label})`} disabled={value <= min} onClick={() => onChange(clamp(value - 1))}>
+        <Minus className="size-4" />
+      </button>
+      <input
+        inputMode="numeric"
+        aria-label={label}
+        value={value}
+        onChange={(e) => {
+          const digits = e.target.value.replace(/\D/g, '').slice(0, 4);
+          if (digits) onChange(clamp(Number(digits)));
+        }}
+        className="h-10 w-14 border-x border-slate-200 text-center text-[15px] font-semibold text-slate-900 tabular-nums outline-none focus:bg-brand-50/40"
+      />
+      <button type="button" className={button} aria-label={`More (${label})`} disabled={max != null && value >= max} onClick={() => onChange(clamp(value + 1))}>
+        <Plus className="size-4" />
+      </button>
+    </div>
   );
 }
 

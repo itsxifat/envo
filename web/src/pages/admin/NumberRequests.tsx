@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { ExternalLink, FileText, Inbox, Plus, Trash2 } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api';
 import { formatBdt, formatDateTime, timeAgo } from '../../lib/format';
-import type { NumberRequestStatus, SubscriberDetails, SupplyCounts, SupplySettings, TopupStatus } from '../../lib/types';
+import type { NumberRequestStatus, SubscriberDetails, SupplyCounts, SupplyProvider, SupplySettings, TopupStatus } from '../../lib/types';
 import {
   Badge,
   Button,
@@ -38,8 +38,10 @@ import {
 interface RequestRow {
   id: number;
   status: NumberRequestStatus;
+  /** The provider the number comes from (its id in the settings). */
+  provider: string;
   requested_number: string;
-  /** A special number the customer applied for, in their words; '' for an ordinary request. */
+  /** A special number the customer applied for; '' for an ordinary request. */
   special: string;
   reason: string;
   created_at: string;
@@ -217,12 +219,12 @@ function RequestsTab() {
   );
 }
 
-/** A special number application: what the customer asked for, in their words. */
+/** A special number application: the number the customer asked for. */
 function SpecialWish({ text }: { text: string }) {
   return (
     <span className="inline-flex flex-wrap items-center gap-1.5 font-sans">
       <Badge tone="violet">Special</Badge>
-      <span className="text-sm font-medium text-slate-800">{text}</span>
+      <span className={/^\d+$/.test(text) ? 'font-mono text-sm font-semibold text-slate-900' : 'text-sm font-medium text-slate-800'}>{text}</span>
     </span>
   );
 }
@@ -260,9 +262,13 @@ function RequestModal({ id, onClose }: { id: number; onClose: () => void }) {
   const [reason, setReason] = useState('');
   const [form, setForm] = useState({ number: '', label: '', mode: 'own' as 'own' | 'existing', trunk_id: 0, username: '', password: '' });
   const d = q.data;
+  const provider = settings.data?.providers.find((p) => p.id === d?.provider) ?? null;
+  // The number to connect: the one chosen, the special one asked for, or the provider's prefix to finish.
   useEffect(() => {
-    if (d) setForm((f) => (f.number ? f : { ...f, number: d.requested_number, username: d.requested_number.replace(/^\+/, ''), trunk_id: d.lines[0]?.id ?? 0 }));
-  }, [d]);
+    if (!d) return;
+    const start = d.requested_number || (/^\d+$/.test(d.special) ? d.special : '') || provider?.prefix || '';
+    setForm((f) => (f.number ? f : { ...f, number: start, username: start.length >= 10 ? start.replace(/^\+/, '') : '', trunk_id: d.lines[0]?.id ?? 0 }));
+  }, [d, provider]);
 
   const done = (message: string) => {
     void qc.invalidateQueries({ queryKey: KEY });
@@ -295,9 +301,11 @@ function RequestModal({ id, onClose }: { id: number; onClose: () => void }) {
 
   const open = d && (d.status === 'submitted' || d.status === 'in_review');
   const rows = d ? detailRows(d.details) : [];
-  const asText = d ? [`Number: ${d.special ? `special, wants ${d.special}` : d.requested_number || 'any free number'}`, ...rows.map(([k, v]) => `${k}: ${v}`)].join('\n') : '';
-  const line = settings.data?.line;
-  const operator = settings.data?.operator_name ?? 'the operator';
+  const operator = provider?.name ?? 'the provider';
+  const asText = d
+    ? [`Provider: ${operator}`, `Number: ${d.special ? `special, wants ${d.special}` : d.requested_number || 'any free number'}`, ...rows.map(([k, v]) => `${k}: ${v}`)].join('\n')
+    : '';
+  const line = provider?.line;
   const canConnect = !!form.number && (form.mode === 'existing' ? !!form.trunk_id : !!line?.host && !!form.password);
 
   return (
@@ -322,6 +330,7 @@ function RequestModal({ id, onClose }: { id: number; onClose: () => void }) {
             ) : (
               <SpecialWish text={d.special} />
             )}
+            <span className="text-xs text-slate-500">from {operator}</span>
             {d.decided_by_name && <span className="text-xs text-slate-500">· handled by {d.decided_by_name}</span>}
           </div>
           {d.status === 'rejected' && d.reason && <Notice tone="danger" title="Rejected">{d.reason}</Notice>}
@@ -434,7 +443,7 @@ function RequestModal({ id, onClose }: { id: number; onClose: () => void }) {
                             Registers to <span className="font-mono">{line.host}:{line.port}</span> ({line.transport.toUpperCase()}). Calls ring where the customer's other numbers do.
                           </>
                         ) : (
-                          <span className="text-rose-700">Add {operator}'s SIP server under Settings first.</span>
+                          <span className="text-rose-700">Add {operator}'s SIP server under Settings → Providers first.</span>
                         )}
                       </p>
                     </>
@@ -747,7 +756,7 @@ function SettingsTab() {
     }
   }, [q.data, form]);
   const save = useMutation({
-    mutationFn: (data: SupplySettings) => api.put<SupplySettings>(`${base}/settings`, data),
+    mutationFn: (data: Pick<SupplySettings, 'enabled' | 'topup'>) => api.put<SupplySettings>(`${base}/settings`, data),
     onSuccess: (saved) => {
       setForm(saved);
       void qc.invalidateQueries({ queryKey: KEY });
@@ -758,7 +767,7 @@ function SettingsTab() {
   if (!form) return q.error ? <ErrorBlock error={q.error} /> : <LoadingBlock />;
   const submit = () =>
     save.mutate({
-      ...form,
+      enabled: form.enabled,
       topup: {
         ...form.topup,
         presets: presets
@@ -770,6 +779,7 @@ function SettingsTab() {
     });
   return (
     <div className="space-y-4 sm:space-y-6">
+      <ProvidersCard />
       <div className="grid gap-4 sm:gap-6 xl:grid-cols-2">
         <Card className="overflow-hidden">
           <CardHeader title="Offer numbers to customers" />
@@ -778,29 +788,8 @@ function SettingsTab() {
               checked={form.enabled}
               onChange={(v) => setForm({ ...form, enabled: v })}
               label="Customers can ask for a new number"
-              description="Adds “Get a new number” to their Phone numbers page and setup guide"
+              description="Shows “Buy a number” in their menu, on their Phone numbers page and in their setup guide"
             />
-            <Field label="Operator" hint="Named when customers agree to share their details">
-              <Input value={form.operator_name} onChange={(e) => setForm({ ...form, operator_name: e.target.value })} maxLength={80} />
-            </Field>
-          </div>
-        </Card>
-        <Card className="overflow-hidden">
-          <CardHeader title="Operator's SIP server" description="Where each new number registers, with its own username and password" />
-          <div className="grid gap-4 p-4 sm:grid-cols-6 sm:p-5">
-            <Field label="Server" className="sm:col-span-6" hint="Ask the operator. ICC's panel lists 103.15.140.151 as its gateway.">
-              <Input value={form.line.host} onChange={(e) => setForm({ ...form, line: { ...form.line, host: e.target.value.trim() } })} placeholder="sip.operator.com" />
-            </Field>
-            <Field label="Port" className="sm:col-span-2">
-              <NumberInput value={form.line.port} onChange={(v) => setForm({ ...form, line: { ...form.line, port: v } })} min={1} max={65535} />
-            </Field>
-            <Field label="Transport" className="sm:col-span-4">
-              <Select value={form.line.transport} onChange={(e) => setForm({ ...form, line: { ...form.line, transport: e.target.value as SupplySettings['line']['transport'] } })}>
-                <option value="udp">UDP (most operators)</option>
-                <option value="tcp">TCP</option>
-                <option value="tls">TLS (encrypted)</option>
-              </Select>
-            </Field>
           </div>
         </Card>
         <Card className="overflow-hidden">
@@ -827,5 +816,179 @@ function SettingsTab() {
         </Button>
       </div>
     </div>
+  );
+}
+
+// ------------------------------------------------------------------ providers
+/** An id for a new provider from its name: "Banglalink IP" → "banglalink-ip" (made unique). */
+function providerId(name: string, taken: string[]): string {
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24) || 'provider';
+  let id = base.length >= 2 ? base : `${base}-1`;
+  for (let i = 2; taken.includes(id); i++) id = `${base.slice(0, 24)}-${i}`;
+  return id;
+}
+
+/**
+ * Where numbers come from (today ICC): each provider's name, number prefix, digits and SIP server.
+ * Customers buying or applying for a special number see the prefix fixed and type only the rest.
+ */
+function ProvidersCard() {
+  const qc = useQueryClient();
+  const confirm = useConfirm();
+  const q = useQuery({ queryKey: [...KEY, 'settings'], queryFn: () => api.get<SupplySettings>(`${base}/settings`) });
+  const [editing, setEditing] = useState<SupplyProvider | 'new' | null>(null);
+  const providers = q.data?.providers ?? [];
+  const save = useMutation({
+    mutationFn: (list: SupplyProvider[]) => api.put<SupplySettings>(`${base}/providers`, { providers: list }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: KEY });
+      void qc.invalidateQueries({ queryKey: ['number-supply'] });
+      toast.success('Providers saved');
+      setEditing(null);
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader
+        title="Providers"
+        description="Where your numbers come from. Customers see the provider's prefix fixed and choose the rest of the number."
+        actions={
+          <Button size="sm" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>
+            Add a provider
+          </Button>
+        }
+      />
+      {q.isLoading ? (
+        <TableSkeleton rows={1} cols={3} />
+      ) : q.error ? (
+        <ErrorBlock error={q.error} />
+      ) : providers.length ? (
+        <ul className="divide-y divide-slate-100">
+          {providers.map((p) => (
+            <li key={p.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5 sm:px-5">
+              <div className="min-w-0 flex-1 basis-60">
+                <p className="flex flex-wrap items-center gap-2 font-medium text-slate-900">
+                  {p.name}
+                  {!p.enabled && <Badge>Off</Badge>}
+                </p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Numbers{' '}
+                  <span className="font-mono font-medium text-slate-700">
+                    {p.prefix}
+                    {'•'.repeat(p.length - p.prefix.length)}
+                  </span>{' '}
+                  ·{' '}
+                  {p.line.host ? (
+                    <>
+                      SIP server <span className="font-mono">{p.line.host}:{p.line.port}</span>
+                    </>
+                  ) : (
+                    <span className="text-amber-700">SIP server not set yet</span>
+                  )}
+                </p>
+              </div>
+              <div className="flex gap-1">
+                <Button size="sm" onClick={() => setEditing(p)}>
+                  Edit
+                </Button>
+                <IconButton
+                  label={`Remove ${p.name}`}
+                  tone="danger"
+                  onClick={async () => {
+                    if (
+                      await confirm({
+                        title: `Remove ${p.name}?`,
+                        message: 'Customers can no longer get numbers from it. To pause it instead, edit it and turn it off.',
+                        confirmLabel: 'Remove',
+                        danger: true,
+                      })
+                    )
+                      save.mutate(providers.filter((x) => x.id !== p.id));
+                  }}
+                >
+                  <Trash2 className="size-4" />
+                </IconButton>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <EmptyState title="No providers yet" description="Add the operator you resell numbers from, such as ICC." />
+      )}
+      {editing && (
+        <ProviderModal
+          provider={editing === 'new' ? null : editing}
+          saving={save.isPending}
+          onClose={() => setEditing(null)}
+          onSave={(saved) =>
+            save.mutate(
+              editing === 'new'
+                ? [...providers, { ...saved, id: providerId(saved.name, providers.map((x) => x.id)) }]
+                : providers.map((x) => (x.id === editing.id ? { ...saved, id: editing.id } : x)),
+            )
+          }
+        />
+      )}
+    </Card>
+  );
+}
+
+function ProviderModal({ provider, saving, onSave, onClose }: { provider: SupplyProvider | null; saving: boolean; onSave: (p: SupplyProvider) => void; onClose: () => void }) {
+  const [form, setForm] = useState<SupplyProvider>(
+    () => provider ?? { id: '', name: '', prefix: '', length: 11, enabled: true, line: { host: '', port: 5060, transport: 'udp' } },
+  );
+  const rest = form.length - form.prefix.length;
+  const valid = form.name.trim().length >= 2 && /^\d{2,10}$/.test(form.prefix) && rest >= 1;
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="lg"
+      title={provider ? `Edit ${provider.name}` : 'Add a provider'}
+      description="An operator you resell numbers from"
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" loading={saving} disabled={!valid} onClick={() => onSave({ ...form, name: form.name.trim(), line: { ...form.line, host: form.line.host.trim() } })}>
+            {provider ? 'Save' : 'Add provider'}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-4 sm:grid-cols-6">
+        <Field label="Name" hint="Customers see it, and agree to share their details with it" className="sm:col-span-6">
+          <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="ICC Communication Ltd." maxLength={80} autoFocus />
+        </Field>
+        <Field label="Number prefix" hint="How every number from them starts" className="sm:col-span-3">
+          <Input value={form.prefix} onChange={(e) => setForm({ ...form, prefix: e.target.value.replace(/\D/g, '').slice(0, 10) })} placeholder="09639" inputMode="numeric" className="font-mono" />
+        </Field>
+        <Field label="Digits in a whole number" hint={rest >= 1 && form.prefix ? `Customers type the last ${rest}` : 'Prefix included; 11 in Bangladesh'} className="sm:col-span-3">
+          <NumberInput value={form.length} onChange={(v) => setForm({ ...form, length: v })} min={4} max={15} />
+        </Field>
+        {form.prefix && rest >= 1 && (
+          <p className="text-sm text-slate-600 sm:col-span-6">
+            Customers will see <span className="font-mono font-semibold text-slate-900">{form.prefix}</span>
+            <span className="font-mono text-slate-400">{'•'.repeat(rest)}</span> and choose the last {rest} digits.
+          </p>
+        )}
+        <Field label="SIP server" hint="Where each new number registers, with its own username and password. ICC's panel lists 103.15.140.151." className="sm:col-span-6">
+          <Input value={form.line.host} onChange={(e) => setForm({ ...form, line: { ...form.line, host: e.target.value } })} placeholder="sip.provider.com" />
+        </Field>
+        <Field label="Port" className="sm:col-span-2">
+          <NumberInput value={form.line.port} onChange={(v) => setForm({ ...form, line: { ...form.line, port: v } })} min={1} max={65535} />
+        </Field>
+        <Field label="Transport" className="sm:col-span-4">
+          <Select value={form.line.transport} onChange={(e) => setForm({ ...form, line: { ...form.line, transport: e.target.value as SupplyProvider['line']['transport'] } })}>
+            <option value="udp">UDP (most providers)</option>
+            <option value="tcp">TCP</option>
+            <option value="tls">TLS (encrypted)</option>
+          </Select>
+        </Field>
+        <div className="sm:col-span-6">
+          <Toggle checked={form.enabled} onChange={(v) => setForm({ ...form, enabled: v })} label="Customers can get numbers from it" description="Turn it off to pause it without losing its settings" />
+        </div>
+      </div>
+    </Modal>
   );
 }

@@ -8,9 +8,9 @@ import { api, errorMessage } from '../lib/api';
 import { formatBdt, timeAgo } from '../lib/format';
 import { useAuth } from '../state/auth';
 import { useTenant } from '../state/tenant';
-import type { CustomerSupplyOptions, Invoice, NumberRequest, NumberRequestStatus, SubscriberDetails, Topup, TopupStatus } from '../lib/types';
+import type { CustomerSupplyOptions, Invoice, NumberProvider, NumberRequest, NumberRequestStatus, SubscriberDetails, Topup, TopupStatus } from '../lib/types';
 import { PayDialog } from './billing';
-import { Badge, Button, Card, CardHeader, Field, Input, Modal, Notice, SearchInput, Select, Spinner, useConfirm } from './ui';
+import { Badge, Button, Card, CardHeader, Field, Input, Modal, Notice, Select, Spinner, useConfirm } from './ui';
 
 /*
  * Numbers from Enfinito: the customer picks a free number and sends the details the operator needs
@@ -200,19 +200,85 @@ function AddressFields({ value, onChange }: { value: Address; onChange: (a: Addr
 }
 
 /**
- * "Get a new number": choose a number (or, for a special one, say which), fill in the registration,
- * send.
+ * A number whose start is fixed (the provider's prefix, e.g. 09639): only the digits after it can be
+ * typed.
+ */
+function PrefixedDigits({ prefix, value, onChange, max, placeholder, label, autoFocus }: { prefix: string; value: string; onChange: (v: string) => void; max: number; placeholder?: string; label: string; autoFocus?: boolean }) {
+  return (
+    <div className="flex h-10 items-stretch overflow-hidden rounded-[10px] border border-slate-200 bg-white shadow-[0_1px_1px_rgb(0_0_0/0.03)] transition focus-within:border-brand-500 focus-within:ring-4 focus-within:ring-brand-500/10 hover:border-slate-300 sm:h-9.5">
+      <span className="flex items-center border-r border-slate-200 bg-slate-50 px-3 font-mono text-[15px] font-semibold text-slate-600 select-none">{prefix}</span>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, max))}
+        inputMode="numeric"
+        maxLength={max}
+        placeholder={placeholder}
+        aria-label={label}
+        autoFocus={autoFocus}
+        className="min-w-0 flex-1 bg-transparent px-3 font-mono text-[15px] tracking-wider text-slate-900 outline-none placeholder:font-sans placeholder:tracking-normal placeholder:text-slate-400"
+      />
+    </div>
+  );
+}
+
+/** Which provider a number comes from, when there is more than one to choose. */
+function ProviderPicker({ providers, value, onChange }: { providers: NumberProvider[]; value: string | undefined; onChange: (id: string) => void }) {
+  if (providers.length < 2) return null;
+  return (
+    <div>
+      <div className="label">Provider</div>
+      <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Provider">
+        {providers.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            role="radio"
+            aria-checked={value === p.id}
+            onClick={() => onChange(p.id)}
+            className={clsx(
+              'rounded-xl border p-3 text-left transition',
+              value === p.id ? 'border-brand-500 bg-brand-50/60 ring-3 ring-brand-500/10' : 'border-slate-200 hover:border-slate-300',
+            )}
+          >
+            <span className="block text-sm font-medium text-slate-900">{p.name}</span>
+            <span className="mt-0.5 block font-mono text-xs text-slate-500">
+              {p.prefix}
+              {'•'.repeat(p.length - p.prefix.length)}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "Get a new number": choose a number from a provider (or, for a special one, the digits after its
+ * prefix), fill in the registration, send.
  */
 export function GetNumberModal({ onClose, special = false }: { onClose: () => void; special?: boolean }) {
   const { user } = useAuth();
   const { tenants, tenantId } = useTenant();
   const qc = useQueryClient();
   const options = useSupplyOptions();
-  const operator = options.data?.operator_name ?? 'the operator';
+  const providers = options.data?.providers ?? [];
+  const [providerId, setProviderId] = useState<string | null>(null);
+  const provider = providers.find((p) => p.id === providerId) ?? providers[0] ?? null;
+  const operator = provider?.name ?? 'the operator';
+  const prefix = provider?.prefix ?? '';
+  // Digits that come after the prefix in a whole number (6 for ICC's 09639).
+  const rest = provider ? provider.length - provider.prefix.length : 0;
   const [step, setStep] = useState<'choose' | 'details' | 'done'>('choose');
   const [q, setQ] = useState('');
   const [picked, setPicked] = useState<{ id: number; number: string } | 'any' | null>(null);
-  const [wish, setWish] = useState('');
+  const [digits, setDigits] = useState('');
+  const wanted = prefix + digits;
+  const chooseProvider = (id: string) => {
+    setProviderId(id);
+    setPicked(null);
+    setDigits('');
+    setQ('');
+  };
   const [server, setServer] = useState<number | null>(tenantId);
   const [form, setForm] = useState<FormState>(() => ({
     subscriber_type: 'individual',
@@ -239,9 +305,9 @@ export function GetNumberModal({ onClose, special = false }: { onClose: () => vo
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   const pool = useQuery({
-    queryKey: ['number-supply', 'pool', q],
-    queryFn: () => api.get<{ id: number; number: string }[]>(`/api/number-requests/pool?q=${encodeURIComponent(q)}`),
-    enabled: step === 'choose' && !special,
+    queryKey: ['number-supply', 'pool', provider?.id, q],
+    queryFn: () => api.get<{ id: number; number: string }[]>(`/api/number-requests/pool?provider=${encodeURIComponent(provider!.id)}&q=${encodeURIComponent(q)}`),
+    enabled: step === 'choose' && !special && !!provider,
   });
 
   const missing = missingFields(form, same, photo, idDoc, consent);
@@ -249,8 +315,9 @@ export function GetNumberModal({ onClose, special = false }: { onClose: () => vo
     mutationFn: () => {
       const body = new FormData();
       body.append('tenant_id', String(server ?? ''));
+      body.append('provider', provider?.id ?? '');
       body.append('pool_id', !special && picked && picked !== 'any' ? String(picked.id) : '');
-      body.append('special', special ? wish.trim() : '');
+      body.append('special', special ? wanted : '');
       body.append('details', JSON.stringify({ ...form, permanent_address: same ? form.present_address : form.permanent_address }));
       body.append('consent', String(consent));
       body.append('photo', photo!);
@@ -265,7 +332,7 @@ export function GetNumberModal({ onClose, special = false }: { onClose: () => vo
     onError: (err) => toast.error(errorMessage(err)),
   });
 
-  const chosen = special ? wish.trim() : picked === 'any' ? 'any free number' : (picked?.number ?? '');
+  const chosen = special ? wanted : picked === 'any' ? 'any free number' : (picked?.number ?? '');
   const serverName = tenants.find((t) => t.id === server)?.name ?? 'your phone system';
 
   return (
@@ -281,7 +348,7 @@ export function GetNumberModal({ onClose, special = false }: { onClose: () => vo
         step === 'choose' ? (
           <>
             <Button onClick={onClose}>Cancel</Button>
-            <Button variant="primary" disabled={special ? wish.trim().length < 3 : !picked} onClick={() => setStep('details')}>
+            <Button variant="primary" disabled={!provider || (special ? digits.length !== rest : !picked)} onClick={() => setStep('details')}>
               Next
             </Button>
           </>
@@ -299,17 +366,24 @@ export function GetNumberModal({ onClose, special = false }: { onClose: () => vo
         )
       }
     >
-      {step === 'choose' && special && (
+      {step === 'choose' && special && provider && (
         <div className="space-y-4">
-          <Field label="Which number would you like?" hint="The whole number, or the digits it should end with">
-            <Input value={wish} onChange={(e) => setWish(e.target.value)} placeholder="e.g. 09639437777, or ending in 7777" maxLength={80} autoFocus />
+          <ProviderPicker providers={providers} value={provider.id} onChange={chooseProvider} />
+          <Field label="Which number would you like?" hint={`${prefix} stays the same. Type the ${rest} digits that come after it.`}>
+            <PrefixedDigits prefix={prefix} value={digits} onChange={setDigits} max={rest} placeholder={`${rest} digits`} label={`The ${rest} digits after ${prefix}`} autoFocus />
           </Field>
+          {digits.length === rest && (
+            <p className="text-sm text-slate-600">
+              You are applying for <span className="font-mono text-[15px] font-semibold text-slate-900">{wanted}</span>.
+            </p>
+          )}
           <Notice>Special numbers can cost extra. We check with {operator} that it is free, and tell you the price (if any) before we register it.</Notice>
         </div>
       )}
 
-      {step === 'choose' && !special && (
+      {step === 'choose' && !special && provider && (
         <div className="space-y-4">
+          <ProviderPicker providers={providers} value={provider.id} onChange={chooseProvider} />
           <button
             type="button"
             onClick={() => setPicked('any')}
@@ -324,8 +398,8 @@ export function GetNumberModal({ onClose, special = false }: { onClose: () => vo
             </span>
             {picked === 'any' && <Check className="size-4 text-brand-600" />}
           </button>
-          <Field label="Or choose one" hint="Type digits you like, for example 786">
-            <SearchInput value={q} onChange={(v) => setQ(v.replace(/\D/g, ''))} placeholder="Search digits" className="sm:max-w-none" />
+          <Field label="Or choose one" hint={`Every number starts with ${prefix}. Type digits you like after it, for example 786.`}>
+            <PrefixedDigits prefix={prefix} value={q} onChange={setQ} max={rest} placeholder="Search digits" label={`Digits after ${prefix} to search for`} />
           </Field>
           {pool.isLoading ? (
             <div className="flex justify-center py-6">
@@ -345,7 +419,8 @@ export function GetNumberModal({ onClose, special = false }: { onClose: () => vo
                       on ? 'border-brand-500 bg-brand-50 text-brand-800 ring-3 ring-brand-500/10' : 'border-slate-200 text-slate-800 hover:border-slate-300',
                     )}
                   >
-                    {n.number}
+                    <span className="text-slate-400">{n.number.slice(0, prefix.length)}</span>
+                    {n.number.slice(prefix.length)}
                   </button>
                 );
               })}

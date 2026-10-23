@@ -10,7 +10,7 @@ import { audit, bdMobile, phoneNumber } from '../lib/validate.js';
 import { isHost } from '../asterisk/sanitize.js';
 import { assertLimit, getAccountPlan, getUsage } from '../billing/plan.js';
 import { createInvoice } from '../billing/invoices.js';
-import { getSupplySettings, updateSupplySettings } from '../supply/settings.js';
+import { activeProviders, getSupplySettings, providerOfNumber, updateSupplySettings, type SupplyProvider, type SupplySettings } from '../supply/settings.js';
 import { deleteDocuments, documentPath, saveDocument } from '../supply/files.js';
 import { supplyCounts } from '../supply/counts.js';
 import { connectLine, defaultDestination, lineInput } from './setup.js';
@@ -88,8 +88,22 @@ numberRequestsRouter.use(requireRole('admin'));
 
 numberRequestsRouter.get('/options', async (req, res) => {
   const s = await getSupplySettings();
-  res.json({ enabled: s.enabled, operator_name: s.operator_name, topup: s.topup, room: await numberRoom(accountOf(req)) });
+  const providers = activeProviders(s).map(({ id, name, prefix, length }) => ({ id, name, prefix, length }));
+  res.json({ enabled: s.enabled && providers.length > 0, providers, topup: s.topup, room: await numberRoom(accountOf(req)) });
 });
+
+/** A provider customers can get a number from now: the one named, or the first on offer. */
+async function offeredProvider(id: string): Promise<SupplyProvider> {
+  const s = await getSupplySettings();
+  const list = activeProviders(s);
+  if (!s.enabled || !list.length) throw badRequest('New numbers are not available right now');
+  const p = id ? list.find((x) => x.id === id) : list[0];
+  if (!p) throw badRequest('Choose one of the providers on offer');
+  return p;
+}
+
+/** Lower-cased SIP servers of all providers: a line to one of them carries a number from Enfinito. */
+const providerHosts = (s: SupplySettings) => s.providers.map((p) => p.line.host.toLowerCase()).filter(Boolean);
 
 /**
  * How many more numbers the package allows, counting requests still on their way (null = no limit),
@@ -105,12 +119,17 @@ async function numberRoom(accountId: number): Promise<number | null> {
   return limit === null ? null : Math.max(0, limit - usage.dids - (open?.count ?? 0));
 }
 
-/** Free numbers to choose from, optionally containing some digits. */
+/** Free numbers of one provider to choose from, optionally with some digits after its prefix. */
 numberRequestsRouter.get('/pool', async (req, res) => {
-  if (!(await getSupplySettings()).enabled) throw badRequest('New numbers are not available right now');
+  const p = await offeredProvider(String(req.query.provider ?? ''));
   const q = String(req.query.q ?? '').replace(/\D/g, '').slice(0, 15);
   res.json(
-    await many("SELECT id, number FROM number_pool WHERE status = 'available' AND ($1 = '' OR number LIKE '%' || $1 || '%') ORDER BY number LIMIT 60", [q]),
+    await many(
+      `SELECT id, number FROM number_pool
+        WHERE status = 'available' AND number LIKE $1 || '%' AND ($2 = '' OR substr(number, $3) LIKE '%' || $2 || '%')
+        ORDER BY number LIMIT 60`,
+      [p.prefix, q, p.prefix.length + 1],
+    ),
   );
 });
 
@@ -128,22 +147,29 @@ numberRequestsRouter.get('/', async (req, res) => {
 
 /**
  * A new request: the details as JSON, the photo and ID document as files, and the consent. Either a
- * number from the pool, any free one, or a special number described in the customer's own words.
+ * number from the provider's pool, any free one, or a special number (the provider's prefix and the
+ * digits the customer wants after it).
  */
 numberRequestsRouter.post('/', uploadDocuments, async (req, res) => {
-  if (!(await getSupplySettings()).enabled) throw badRequest('New numbers are not available right now');
   const accountId = accountOf(req);
   const body = z
     .object({
       tenant_id: z.coerce.number().int().positive(),
+      provider: z.string().trim().max(40).default(''),
       pool_id: z.union([z.literal(''), z.coerce.number().int().positive()]).default(''),
-      special: z.string().trim().max(80, 'describe the number in at most 80 characters').default(''),
+      special: z.string().trim().max(20).default(''),
       details: z.string().max(20_000),
       consent: z.string().refine((v) => v === 'true', 'agree to share these details with the operator'),
     })
     .parse(req.body);
-  if (body.special && body.pool_id !== '') throw badRequest('Choose a number from the list, or describe a special one, not both');
-  if (body.special && body.special.length < 3) throw badRequest('Tell us which number you would like');
+  const provider = await offeredProvider(body.provider);
+  if (body.special && body.pool_id !== '') throw badRequest('Choose a number from the list, or ask for a special one, not both');
+  if (body.special) {
+    if (!/^\d+$/.test(body.special) || !body.special.startsWith(provider.prefix) || body.special.length !== provider.length) {
+      throw badRequest(`Enter the ${provider.length - provider.prefix.length} digits after ${provider.prefix}`);
+    }
+    if (await one('SELECT 1 FROM numbers WHERE number = $1', [body.special])) throw conflict(`${body.special} is already taken. Please try another number.`);
+  }
   let raw: unknown;
   try {
     raw = JSON.parse(body.details);
@@ -169,13 +195,14 @@ numberRequestsRouter.post('/', uploadDocuments, async (req, res) => {
       if (body.pool_id !== '') {
         const p = (await db.query<{ number: string }>("UPDATE number_pool SET status = 'reserved', updated_at = now() WHERE id = $1 AND status = 'available' RETURNING number", [body.pool_id])).rows[0];
         if (!p) throw conflict('Someone else just took that number. Please choose another one.');
+        if (!p.number.startsWith(provider.prefix)) throw badRequest(`Choose a number that starts with ${provider.prefix}`);
         number = p.number;
       }
       const row = (
         await db.query<{ id: number }>(
-          `INSERT INTO number_requests (account_id, tenant_id, pool_id, requested_number, special, details, consent_at, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, now(), $7) RETURNING id`,
-          [accountId, body.tenant_id, body.pool_id === '' ? null : body.pool_id, number, body.special, JSON.stringify(details), req.user!.id],
+          `INSERT INTO number_requests (account_id, tenant_id, provider, pool_id, requested_number, special, details, consent_at, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8) RETURNING id`,
+          [accountId, body.tenant_id, provider.id, body.pool_id === '' ? null : body.pool_id, number, body.special, JSON.stringify(details), req.user!.id],
         )
       ).rows[0]!;
       requestId = row.id;
@@ -225,23 +252,23 @@ numberRequestsRouter.post('/:id/cancel', async (req, res) => {
 
 /**
  * The account's numbers that Enfinito provides, so their calling balance can be topped up here: ones
- * connected through a request, and ones on a line to the operator's SIP server (connected another way).
+ * connected through a request, and ones on a line to a provider's SIP server (connected another way).
  */
-async function topupNumbers(accountId: number, operatorHost: string): Promise<{ id: number; number: string; tenant_name: string }[]> {
+async function topupNumbers(accountId: number, hosts: string[]): Promise<{ id: number; number: string; tenant_name: string }[]> {
   return many(
     `SELECT n.id, n.number, t.name AS tenant_name
        FROM numbers n JOIN tenants t ON t.id = n.tenant_id LEFT JOIN trunks k ON k.id = n.trunk_id
       WHERE t.account_id = $1
         AND (EXISTS (SELECT 1 FROM number_requests r WHERE r.number_id = n.id AND r.account_id = $1 AND r.status = 'connected')
-             OR ($2 <> '' AND lower(k.host) = lower($2)))
+             OR lower(k.host) = ANY($2::text[]))
       ORDER BY n.number`,
-    [accountId, operatorHost],
+    [accountId, hosts],
   );
 }
 
 numberRequestsRouter.get('/topup-numbers', requireOwner, async (req, res) => {
   const s = await getSupplySettings();
-  res.json(s.topup.enabled ? await topupNumbers(accountOf(req), s.line.host) : []);
+  res.json(s.topup.enabled ? await topupNumbers(accountOf(req), providerHosts(s)) : []);
 });
 
 // Top-ups: the account owner pays (like any invoice), support adds the balance at the operator.
@@ -262,7 +289,7 @@ numberRequestsRouter.post('/topups', requireOwner, async (req, res) => {
   const d = z.object({ number_id: z.number().int().positive(), amount: z.number().positive().max(10_000_000) }).parse(req.body);
   const amount = Math.round(d.amount * 100) / 100;
   if (amount < s.topup.min || amount > s.topup.max) throw badRequest(`Top up between ${bdt(s.topup.min)} and ${bdt(s.topup.max)}`);
-  const num = (await topupNumbers(accountId, s.line.host)).find((n) => n.id === d.number_id);
+  const num = (await topupNumbers(accountId, providerHosts(s))).find((n) => n.id === d.number_id);
   if (!num) throw badRequest('Only numbers you got from Enfinito can be topped up here');
   const invoice = await tx(async (db) => {
     const inv = await createInvoice(db, { accountId, kind: 'topup', amount, description: `Balance top-up for ${num.number}`, createdBy: req.user!.id });
@@ -302,12 +329,6 @@ export const adminSupplyRouter = Router();
 
 const supplySchema = z.object({
   enabled: z.boolean(),
-  operator_name: z.string().trim().min(2).max(80),
-  line: z.object({
-    host: z.union([z.literal(''), z.string().trim().refine(isHost, 'must be a hostname or IPv4 address')]),
-    port: z.number().int().min(1).max(65535),
-    transport: z.enum(['udp', 'tcp', 'tls']),
-  }),
   topup: z
     .object({
       enabled: z.boolean(),
@@ -323,8 +344,43 @@ adminSupplyRouter.get('/settings', async (_req, res) => {
 });
 
 adminSupplyRouter.put('/settings', async (req, res) => {
-  const saved = await updateSupplySettings(supplySchema.parse(req.body));
+  const saved = await updateSupplySettings({ ...(await getSupplySettings()), ...supplySchema.parse(req.body) });
   await audit(req, 'update', 'number_supply', '', saved.enabled ? 'offered to customers' : 'not offered', null);
+  res.json(saved);
+});
+
+const providerSchema = z
+  .object({
+    id: z.string().trim().regex(/^[a-z0-9][a-z0-9-]{1,31}$/, 'use lowercase letters, digits and dashes'),
+    name: z.string().trim().min(2, 'enter the provider name').max(80),
+    prefix: z.string().trim().regex(/^\d{2,10}$/, 'digits only, like 09639'),
+    length: z.number().int().min(4).max(15),
+    enabled: z.boolean(),
+    line: z.object({
+      host: z.union([z.literal(''), z.string().trim().refine(isHost, 'must be a hostname or IPv4 address')]),
+      port: z.number().int().min(1).max(65535),
+      transport: z.enum(['udp', 'tcp', 'tls']),
+    }),
+  })
+  .refine((p) => p.length > p.prefix.length, { message: 'a whole number must be longer than its prefix', path: ['length'] });
+
+/**
+ * The providers numbers come from (today ICC): name, number prefix, digits and SIP server of each. A
+ * provider with requests in progress cannot be removed, only turned off.
+ */
+adminSupplyRouter.put('/providers', async (req, res) => {
+  const { providers } = z.object({ providers: z.array(providerSchema).max(20) }).parse(req.body);
+  const ids = providers.map((p) => p.id);
+  if (new Set(ids).size !== ids.length) throw badRequest('Two providers cannot have the same id');
+  if (new Set(providers.map((p) => p.prefix)).size !== providers.length) throw badRequest('Two providers cannot have the same prefix');
+  const current = await getSupplySettings();
+  for (const gone of current.providers.filter((p) => !ids.includes(p.id))) {
+    if (await one("SELECT 1 FROM number_requests WHERE provider = $1 AND status IN ('submitted', 'in_review')", [gone.id])) {
+      throw badRequest(`${gone.name} has requests in progress. Turn it off instead of removing it.`);
+    }
+  }
+  const saved = await updateSupplySettings({ ...current, providers });
+  await audit(req, 'update', 'number_providers', '', providers.map((p) => `${p.name} ${p.prefix}`).join(', ') || 'none', null);
   res.json(saved);
 });
 
@@ -337,7 +393,7 @@ adminSupplyRouter.get('/requests', async (req, res) => {
   const where = filter === 'open' ? "WHERE r.status IN ('submitted', 'in_review')" : filter === 'all' ? '' : 'WHERE r.status = $1';
   res.json(
     await many(
-      `SELECT r.id, r.status, r.requested_number, r.special, r.reason, r.created_at, r.updated_at, r.details->>'name' AS subscriber_name,
+      `SELECT r.id, r.status, r.provider, r.requested_number, r.special, r.reason, r.created_at, r.updated_at, r.details->>'name' AS subscriber_name,
               r.account_id, a.name AS account_name, r.tenant_id, t.name AS tenant_name, n.number AS connected_number
          FROM number_requests r JOIN accounts a ON a.id = r.account_id LEFT JOIN tenants t ON t.id = r.tenant_id
          LEFT JOIN numbers n ON n.id = r.number_id
@@ -412,13 +468,18 @@ const connectSchema = z.object({
 adminSupplyRouter.post('/requests/:id/connect', async (req, res) => {
   const id = intParam(req.params.id);
   const d = connectSchema.parse(req.body);
-  const r = await one<{ status: string; tenant_id: number | null; pool_id: number | null }>('SELECT status, tenant_id, pool_id FROM number_requests WHERE id = $1', [id]);
+  const r = await one<{ status: string; tenant_id: number | null; pool_id: number | null; provider: string }>(
+    'SELECT status, tenant_id, pool_id, provider FROM number_requests WHERE id = $1',
+    [id],
+  );
   if (!r) throw notFound('Request');
   if (!OPEN.includes(r.status)) throw badRequest('This request is already closed');
   if (!r.tenant_id) throw badRequest('The SIP server this request was for no longer exists');
   const s = await getSupplySettings();
-  if (!d.trunk_id && !s.line.host) throw badRequest("Add the operator's SIP server under Settings first");
-  if (!d.trunk_id && !d.password) throw badRequest("Enter the number's password from the operator");
+  const p = s.providers.find((x) => x.id === r.provider) ?? providerOfNumber(s, d.number);
+  const line = p?.line;
+  if (!d.trunk_id && !line?.host) throw badRequest(`Add ${p?.name ?? 'the provider'}'s SIP server under Settings first`);
+  if (!d.trunk_id && !d.password) throw badRequest(`Enter the number's password from ${p?.name ?? 'the provider'}`);
   const created = await connectLine(
     req,
     r.tenant_id,
@@ -426,7 +487,7 @@ adminSupplyRouter.post('/requests/:id/connect', async (req, res) => {
       number: d.number,
       label: d.label,
       trunk_id: d.trunk_id,
-      provider: d.trunk_id ? undefined : { host: s.line.host, port: s.line.port, transport: s.line.transport, auth_mode: 'register', username: d.username, password: d.password },
+      provider: d.trunk_id || !line ? undefined : { host: line.host, port: line.port, transport: line.transport, auth_mode: 'register', username: d.username, password: d.password },
       ...(await defaultDestination(r.tenant_id)),
       outbound: true,
     }),
@@ -475,6 +536,12 @@ adminSupplyRouter.post('/pool', async (req, res) => {
     numbers = Array.from({ length: b - a + 1 }, (_, i) => String(a + i).padStart(d.from.length, '0'));
   } else {
     numbers = [...new Set(d.numbers)];
+  }
+  const s = await getSupplySettings();
+  const stray = numbers.find((n) => providerOfNumber(s, n)?.length !== n.length);
+  if (stray) {
+    const known = s.providers.map((p) => `${p.prefix}… (${p.length} digits)`).join(', ') || 'none yet';
+    throw badRequest(`${stray} is not a number of any provider (${known}). Add its provider under Settings first.`);
   }
   const added = await exec('INSERT INTO number_pool (number) SELECT unnest($1::text[]) ON CONFLICT (number) DO NOTHING', [numbers]);
   await audit(req, 'import', 'number_pool', '', `${added} of ${numbers.length}`, null);

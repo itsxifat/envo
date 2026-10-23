@@ -90,8 +90,12 @@ labels copied from the header by `lib/tableCards.ts`) — keep tables plain with
   to the operator's SIP server, can be topped up (`topupNumbers()`; Phone numbers, Billing → Calling
   balance, dashboard). On unless switched off in its Settings tab. The support
   steps are single functions on purpose: automation can replace them later. Envo never operates the
-  operator's panels itself. A special (memorable) number is a request with `special` (the customer's
-  words, no pool number); support checks it and bills any price by hand (Sales & invoices).
+  operator's panels itself. Numbers come from providers kept in the settings (`supply/settings.ts`,
+  today only ICC: id, name, prefix `09639`, 11 digits, SIP server; older single-operator settings are
+  read as that one provider). Requests store `provider`; customers see the prefix fixed and type the
+  rest; pool imports must match a provider's prefix and length; Connect registers to the request's
+  provider. A special number is a request with `special` (prefix + the digits wanted, no pool
+  number); support checks it and bills any price by hand (Sales & invoices).
 - Onboarding: before the first package, `PlanPicker` asks how many people and calls at the same time,
   recommends the package and keeps the answers in `accounts.onboarding`; `provisionFirstServer` then
   makes an extension per person (within the package, at most 50). `pages/GetStarted.tsx` is a

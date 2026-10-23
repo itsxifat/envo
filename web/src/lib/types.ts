@@ -613,19 +613,42 @@ export interface NumberRequest {
   updated_at: string;
 }
 
-export interface SupplyOptions {
-  enabled: boolean;
-  operator_name: string;
-  topup: { enabled: boolean; min: number; max: number; presets: number[] };
+/** A provider numbers come from (today ICC), as customers see it. */
+export interface NumberProvider {
+  id: string;
+  name: string;
+  /** Every number of this provider starts with it, e.g. "09639". */
+  prefix: string;
+  /** Digits in a whole number, the prefix included (11 in Bangladesh). */
+  length: number;
 }
 
-/** What a customer sees: also how many more numbers their package allows (null = no limit). */
-export interface CustomerSupplyOptions extends SupplyOptions {
+export interface SupplyProvider extends NumberProvider {
+  /** Customers can choose it. */
+  enabled: boolean;
+  /** The SIP server a new number registers to. */
+  line: { host: string; port: number; transport: 'udp' | 'tcp' | 'tls' };
+}
+
+interface TopupSettings {
+  enabled: boolean;
+  min: number;
+  max: number;
+  presets: number[];
+}
+
+/** What a customer sees: the providers on offer and how many more numbers their package allows (null = no limit). */
+export interface CustomerSupplyOptions {
+  enabled: boolean;
+  providers: NumberProvider[];
+  topup: TopupSettings;
   room: number | null;
 }
 
-export interface SupplySettings extends SupplyOptions {
-  line: { host: string; port: number; transport: 'udp' | 'tcp' | 'tls' };
+export interface SupplySettings {
+  enabled: boolean;
+  providers: SupplyProvider[];
+  topup: TopupSettings;
 }
 
 export interface SupplyCounts {

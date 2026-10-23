@@ -97,11 +97,32 @@ export const emails = {
       { label: 'Pay now', url: `${config.publicUrl}/billing` },
     ),
 
-  paymentReceived: (to: string, account: string, number: string, amount: string) =>
-    mail(to, `Payment received for ${number}`, 'Thank you for your payment', [`Hi ${esc(account)},`, `We received <strong>${esc(amount)}</strong> for invoice ${esc(number)}. Your package is active.`], {
-      label: 'View invoice',
-      url: `${config.publicUrl}/billing`,
+  /** `what` says what the payment did ("Your package is active."); `url` is where to see it. */
+  paymentReceived: (to: string, account: string, number: string, amount: string, what: string, url: string) =>
+    mail(to, `Payment received for ${number}`, 'Thank you for your payment', [`Hi ${esc(account)},`, `We received <strong>${esc(amount)}</strong> for invoice ${esc(number)}. ${esc(what)}`], {
+      label: 'View it in Envo',
+      url,
     }),
+
+  phoneCode: (to: string, name: string, code: string) =>
+    mail(
+      to,
+      `${code} is your Envo Phone code`,
+      `Your code is ${code}`,
+      [`Hi ${esc(name)}, enter this code in Envo Phone to confirm your email address.`],
+      undefined,
+      'The code works for 30 minutes. If you did not sign up for Envo Phone, you can ignore this email.',
+    ),
+
+  phoneReady: (to: string, name: string, number: string) =>
+    mail(
+      to,
+      `Your number ${number} is ready`,
+      'Your number is ready',
+      [`Hi ${esc(name)},`, `<strong>${esc(number)}</strong> is registered in your name and ready for calls. Open Envo Phone to call anyone in Bangladesh; calls to other Envo numbers are free.`],
+      { label: 'Open Envo Phone', url: `${config.publicUrl}/phone` },
+      'Envo Phone by Enfinito',
+    ),
 
   suspended: (to: string, account: string) =>
     mail(

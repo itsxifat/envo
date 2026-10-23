@@ -6,7 +6,7 @@ import { migrate } from './migrate.js';
 import { prepareSetup } from './setup.js';
 import { checkEmailOnStart } from './lib/mailer.js';
 import { authenticate, requireActiveAccount, requireRole } from './auth.js';
-import { errorHandler } from './lib/http.js';
+import { errorHandler, forbidden } from './lib/http.js';
 import { ami } from './asterisk/pbx.js';
 import { live } from './asterisk/live.js';
 import type { AmiMessage } from './asterisk/ami.js';
@@ -47,6 +47,11 @@ import { startRetention } from './billing/retention.js';
 import { startBillingClock } from './billing/jobs.js';
 import { adminBillingRouter, billingRouter, enfinitoPayRouter, gatewayRouter } from './routes/billing.js';
 import { signupRouter } from './routes/signup.js';
+import { adminPhoneRouter, phonePublicRouter, phoneRouter } from './routes/phone.js';
+import { startCallCharging } from './phone/balance.js';
+
+/** Envo Phone accounts use their phone (the app or the Phone page), not the PBX's settings. */
+const PERSONAL_PATHS = ['/webphone'];
 
 /** Keeps Postgres in sync when a phone changes DND / call forwarding with a feature code. */
 async function onFeatureEvent(e: AmiMessage): Promise<void> {
@@ -103,17 +108,24 @@ async function main(): Promise<void> {
   app.use('/api/v1', v1Router);
   app.use('/api/embed', embedRouter);
   app.use('/api/public/sslcommerz', gatewayRouter);
+  app.use('/api/public/phone', phonePublicRouter);
   app.use('/api/public', publicRouter);
   app.use('/api/public', signupRouter);
   app.use('/api', authenticate);
+  // Envo Phone works for pending accounts too: signing up, the registration and the first recharge.
+  app.use('/api/phone', phoneRouter);
   // Plan, usage and billing stay reachable while an account is pending or suspended.
   app.use('/api/account/billing', billingRouter);
   app.use('/api/account', accountRouter);
   app.use('/api/admin/billing', requireRole('superadmin'), adminBillingRouter);
   app.use('/api/admin/number-supply', requireRole('superadmin'), adminSupplyRouter);
+  app.use('/api/admin/phone', requireRole('superadmin'), adminPhoneRouter);
   app.use('/api/admin', requireRole('superadmin'), adminConsoleRouter);
   app.use('/api/admin', requireRole('superadmin'), adminRouter);
   app.use('/api', requireActiveAccount);
+  app.use('/api', (req, _res, next) =>
+    next(req.user!.accountKind === 'personal' && !PERSONAL_PATHS.some((p) => req.path === p || req.path.startsWith(`${p}/`)) ? forbidden('Envo Phone accounts use the Phone page') : undefined),
+  );
   app.use('/api/tenants', tenantRouter);
   app.use('/api/extensions', extensionRouter);
   app.use('/api/trunks', trunkRouter);
@@ -169,6 +181,7 @@ async function main(): Promise<void> {
   startWebhooks();
   startRetention();
   startBillingClock();
+  startCallCharging();
   void checkEmailOnStart();
   ami.start();
   // Write the Asterisk config right away, even if Asterisk is not reachable yet.

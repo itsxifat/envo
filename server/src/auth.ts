@@ -10,6 +10,9 @@ export type Role = 'superadmin' | 'admin' | 'agent';
 
 export type AccountStatus = 'pending' | 'active' | 'suspended' | 'closed';
 
+/** A business runs a PBX; a personal account (Envo Phone) is one person with one number. */
+export type AccountKind = 'business' | 'personal';
+
 export interface SessionUser {
   id: number;
   email: string;
@@ -21,6 +24,7 @@ export interface SessionUser {
   /** Customer account; null for platform admins. */
   accountId: number | null;
   accountStatus: AccountStatus | null;
+  accountKind: AccountKind | null;
   /** The account owner manages billing and the team. */
   isOwner: boolean;
   /** SIP servers this login may work in; null = every one (platform admins). */
@@ -37,6 +41,8 @@ declare module 'express-serve-static-core' {
 
 export const SESSION_COOKIE = 'envo_session';
 const SESSION_TTL_SEC = 7 * 24 * 3600;
+/** The phone app stays signed in for months; a password change signs it out. */
+const APP_TOKEN_TTL_SEC = 180 * 24 * 3600;
 /** Support access to a customer's portal ends by itself after this long. */
 const IMPERSONATION_TTL_SEC = 4 * 3600;
 
@@ -54,7 +60,8 @@ export function verifyPassword(password: string, hash: string): Promise<boolean>
  */
 export function issueSession(res: Response, userId: number, opts: { impersonatorId?: number } = {}): void {
   const ttl = opts.impersonatorId ? IMPERSONATION_TTL_SEC : SESSION_TTL_SEC;
-  const claims = opts.impersonatorId ? { sub: String(userId), imp: String(opts.impersonatorId) } : { sub: String(userId) };
+  // iatms: when it was issued, to the millisecond (iat has whole seconds), for sessions_valid_after.
+  const claims = opts.impersonatorId ? { sub: String(userId), imp: String(opts.impersonatorId), iatms: Date.now() } : { sub: String(userId), iatms: Date.now() };
   const token = jwt.sign(claims, config.jwtSecret, { expiresIn: ttl });
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
@@ -69,11 +76,20 @@ export function clearSession(res: Response): void {
   res.clearCookie(SESSION_COOKIE, { path: '/' });
 }
 
+/** A sign-in for the phone app, sent back as `Authorization: Bearer <token>`. */
+export function issueAppToken(userId: number): string {
+  return jwt.sign({ sub: String(userId), aud: 'app', iatms: Date.now() }, config.jwtSecret, { expiresIn: APP_TOKEN_TTL_SEC });
+}
+
 /** Resolves the logged-in user from a raw Cookie header (used by HTTP and WebSocket upgrades). */
 export async function userFromCookieHeader(cookieHeader: string | undefined): Promise<SessionUser | null> {
   if (!cookieHeader) return null;
   const token = parseCookie(cookieHeader)[SESSION_COOKIE];
-  if (!token) return null;
+  return token ? userFromToken(token) : null;
+}
+
+/** Resolves the user of a session cookie's or the phone app's token. */
+export async function userFromToken(token: string): Promise<SessionUser | null> {
   let payload: jwt.JwtPayload;
   try {
     payload = jwt.verify(token, config.jwtSecret) as jwt.JwtPayload;
@@ -91,11 +107,13 @@ export async function userFromCookieHeader(cookieHeader: string | undefined): Pr
     account_id: number | null;
     is_owner: boolean;
     account_status: AccountStatus | null;
+    account_kind: AccountKind | null;
+    sessions_valid_after: Date | null;
     tenant_enabled: boolean | null;
     account_tenants: number[];
   }>(
-    `SELECT u.id, u.email, u.name, u.role, u.tenant_id, u.extension_id, u.enabled, u.account_id, u.is_owner,
-            a.status AS account_status, t.enabled AS tenant_enabled,
+    `SELECT u.id, u.email, u.name, u.role, u.tenant_id, u.extension_id, u.enabled, u.account_id, u.is_owner, u.sessions_valid_after,
+            a.status AS account_status, a.kind AS account_kind, t.enabled AS tenant_enabled,
             COALESCE((SELECT array_agg(x.id ORDER BY x.id) FROM tenants x WHERE x.account_id = u.account_id), '{}') AS account_tenants
        FROM users u
        LEFT JOIN accounts a ON a.id = u.account_id
@@ -104,6 +122,9 @@ export async function userFromCookieHeader(cookieHeader: string | undefined): Pr
     [Number(payload.sub)],
   );
   if (!row || !row.enabled) return null;
+  // Signed in before the password last changed.
+  const issuedMs = typeof payload.iatms === 'number' ? payload.iatms : (payload.iat ?? 0) * 1000;
+  if (row.sessions_valid_after && issuedMs < row.sessions_valid_after.getTime()) return null;
   if (row.role !== 'superadmin') {
     if (row.account_status === 'closed') return null;
     if (row.role === 'agent' && row.tenant_enabled === false) return null;
@@ -129,6 +150,7 @@ export async function userFromCookieHeader(cookieHeader: string | undefined): Pr
     extensionId: row.extension_id,
     accountId: row.account_id,
     accountStatus: row.account_status,
+    accountKind: row.account_kind,
     isOwner: row.role === 'superadmin' || row.is_owner,
     tenantIds,
     impersonator,
@@ -136,7 +158,9 @@ export async function userFromCookieHeader(cookieHeader: string | undefined): Pr
 }
 
 export async function authenticate(req: Request, _res: Response, next: NextFunction): Promise<void> {
-  const user = await userFromCookieHeader(req.headers.cookie);
+  // The phone app sends its token; the dashboard has its cookie.
+  const bearer = /^Bearer (\S+)$/.exec(req.headers.authorization ?? '')?.[1];
+  const user = bearer ? await userFromToken(bearer) : await userFromCookieHeader(req.headers.cookie);
   if (!user) return next(new HttpError(401, 'Not signed in'));
   req.user = user;
   next();

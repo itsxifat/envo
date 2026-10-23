@@ -27,7 +27,8 @@ setInterval(() => {
   for (const [k, v] of hits) if (v.resetAt < now) hits.delete(k);
 }, 10 * 60_000).unref();
 
-function guard(req: Request, action: string, max: number, windowMs: number): void {
+/** At most `max` tries of `action` per address in the window, then 429. */
+export function guard(req: Request, action: string, max: number, windowMs: number): void {
   if (limited(`${action}|${req.ip}`, max, windowMs)) throw new HttpError(429, 'Too many attempts. Try again a little later.');
 }
 
@@ -121,8 +122,10 @@ signupRouter.post('/reset-password', async (req, res) => {
   const userId = await useToken(token, 'reset');
   if (!userId) throw badRequest('This reset link has expired or was already used. Ask for a new one.');
   // Following the link proves the inbox is theirs, so it also confirms the address.
-  await exec('UPDATE users SET password_hash = $1, email_verified_at = COALESCE(email_verified_at, now()), updated_at = now() WHERE id = $2', [
+  // Whoever knew the old password is signed out everywhere.
+  await exec('UPDATE users SET password_hash = $1, email_verified_at = COALESCE(email_verified_at, now()), sessions_valid_after = $2, updated_at = now() WHERE id = $3', [
     await hashPassword(password),
+    new Date(),
     userId,
   ]);
   await exec("UPDATE email_tokens SET used_at = now() WHERE user_id = $1 AND kind = 'reset' AND used_at IS NULL", [userId]);

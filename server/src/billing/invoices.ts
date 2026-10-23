@@ -11,6 +11,7 @@ import { bdMobile } from '../lib/validate.js';
 import { getBillingSettings, onlineGateway } from './settings.js';
 import { provisionFirstServer } from './provision.js';
 import { notifyPaymentReceived } from './notify.js';
+import { onTopupPaid } from '../phone/balance.js';
 
 export type InvoiceKind = 'subscription' | 'renewal' | 'upgrade' | 'manual' | 'topup';
 
@@ -192,6 +193,8 @@ async function applyInvoice(db: Db, invoice: Invoice): Promise<void> {
   // A number's balance top-up: paid now, then added at the operator (Number requests in /admin).
   if (invoice.kind === 'topup') {
     await db.query("UPDATE topups SET status = 'paid', updated_at = now() WHERE invoice_id = $1 AND status = 'awaiting_payment'", [invoice.id]);
+    // A personal account's recharge goes on its balance; the first one activates its number.
+    await onTopupPaid(db, invoice.id);
     return;
   }
   const sub = (await db.query<SubRow>("SELECT * FROM subscriptions WHERE account_id = $1 AND status <> 'cancelled' FOR UPDATE", [invoice.account_id])).rows[0];
@@ -267,15 +270,19 @@ async function payableInvoice(invoiceId: number, accountId: number | null): Prom
   return invoice;
 }
 
-/** Starts a card / mobile-banking payment; returns the payment page to send the browser to. */
-export async function startOnlinePayment(invoiceId: number, accountId: number): Promise<{ url: string }> {
+/**
+ * Starts a card / mobile-banking payment; returns the payment page to send the browser to. `from: 'app'`
+ * sends the browser back into the phone app afterwards instead of to the website.
+ */
+export async function startOnlinePayment(invoiceId: number, accountId: number, opts: { from?: 'app' | 'web' } = {}): Promise<{ url: string }> {
   const invoice = await payableInvoice(invoiceId, accountId);
-  if (onlineGateway(await getBillingSettings()) === 'enfinito_pay') return startEnfinitoPayment(invoice, accountId);
+  const from = opts.from ?? 'web';
+  if (onlineGateway(await getBillingSettings()) === 'enfinito_pay') return startEnfinitoPayment(invoice, accountId, from);
   const account = await one<{ name: string; email: string; phone: string; address: string }>('SELECT name, email, phone, address FROM accounts WHERE id = $1', [accountId]);
   const tranId = `ENV${invoice.id}X${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
   const payment = await one<Payment>(
-    `INSERT INTO payments (invoice_id, account_id, method, status, amount, tran_id) VALUES ($1, $2, 'sslcommerz', 'initiated', $3, $4) RETURNING *`,
-    [invoice.id, accountId, invoice.amount, tranId],
+    `INSERT INTO payments (invoice_id, account_id, method, status, amount, tran_id, raw) VALUES ($1, $2, 'sslcommerz', 'initiated', $3, $4, jsonb_build_object('from', $5::text)) RETURNING *`,
+    [invoice.id, accountId, invoice.amount, tranId, from],
   );
   const cb = `${config.publicUrl}/api/public/sslcommerz`;
   try {
@@ -289,7 +296,7 @@ export async function startOnlinePayment(invoiceId: number, accountId: number): 
       cancelUrl: `${cb}/cancel`,
       ipnUrl: `${cb}/ipn`,
     });
-    await one("UPDATE payments SET raw = jsonb_build_object('sessionkey', $1::text), updated_at = now() WHERE id = $2", [session.sessionKey, payment!.id]);
+    await one("UPDATE payments SET raw = raw || jsonb_build_object('sessionkey', $1::text), updated_at = now() WHERE id = $2", [session.sessionKey, payment!.id]);
     return { url: session.url };
   } catch (err) {
     await one("UPDATE payments SET status = 'failed', note = $1, updated_at = now() WHERE id = $2", [(err as Error).message.slice(0, 300), payment!.id]);
@@ -306,7 +313,7 @@ const STILL_PAYABLE = new Set(['open', 'processing', 'failed']);
  * Opens a checkout on pay.enfinito.com. An invoice has one open checkout at a time: a fresh one is
  * reused, an older one is closed first, so the same invoice can never be paid twice.
  */
-async function startEnfinitoPayment(invoice: Invoice, accountId: number): Promise<{ url: string }> {
+async function startEnfinitoPayment(invoice: Invoice, accountId: number, from: 'app' | 'web'): Promise<{ url: string }> {
   const open = await many<Payment>(
     "SELECT * FROM payments WHERE invoice_id = $1 AND method = 'enfinito_pay' AND status = 'initiated' AND tran_id IS NOT NULL ORDER BY id DESC",
     [invoice.id],
@@ -319,7 +326,11 @@ async function startEnfinitoPayment(invoice: Invoice, accountId: number): Promis
       throw badRequest('This invoice is already paid');
     }
     const fresh = STILL_PAYABLE.has(session.status) && new Date(session.expires_at).getTime() > Date.now() + 10 * 60_000;
-    if (fresh && Math.abs(session.amount_total - Number(invoice.amount)) < 0.01) return { url: session.url };
+    if (fresh && Math.abs(session.amount_total - Number(invoice.amount)) < 0.01) {
+      // Reused from the app or the website: come back to wherever it was opened this time.
+      await one("UPDATE payments SET raw = raw || jsonb_build_object('from', $1::text), updated_at = now() WHERE id = $2", [from, p.id]);
+      return { url: session.url };
+    }
     if (!STILL_PAYABLE.has(session.status)) {
       await settleCheckout(p.id, session, 'start');
       continue;
@@ -337,8 +348,8 @@ async function startEnfinitoPayment(invoice: Invoice, accountId: number): Promis
 
   const account = await one<{ name: string; email: string; phone: string; address: string }>('SELECT name, email, phone, address FROM accounts WHERE id = $1', [accountId]);
   const payment = (await one<Payment>(
-    `INSERT INTO payments (invoice_id, account_id, method, status, amount) VALUES ($1, $2, 'enfinito_pay', 'initiated', $3) RETURNING *`,
-    [invoice.id, accountId, invoice.amount],
+    `INSERT INTO payments (invoice_id, account_id, method, status, amount, raw) VALUES ($1, $2, 'enfinito_pay', 'initiated', $3, jsonb_build_object('from', $4::text)) RETURNING *`,
+    [invoice.id, accountId, invoice.amount, from],
   ))!;
   // Paid or not, the browser comes back to us; we ask Enfinito Pay before showing the result.
   const back = `${config.publicUrl}/api/public/enfinito-pay/return?payment=${payment.id}`;
@@ -359,7 +370,7 @@ async function startEnfinitoPayment(invoice: Invoice, accountId: number): Promis
       },
       `envo-payment-${payment.id}`,
     );
-    await one("UPDATE payments SET tran_id = $1, raw = jsonb_build_object('livemode', $2::boolean), updated_at = now() WHERE id = $3", [session.id, session.livemode, payment.id]);
+    await one("UPDATE payments SET tran_id = $1, raw = raw || jsonb_build_object('livemode', $2::boolean), updated_at = now() WHERE id = $3", [session.id, session.livemode, payment.id]);
     return { url: session.url };
   } catch (err) {
     await one("UPDATE payments SET status = 'failed', note = $1, updated_at = now() WHERE id = $2", [(err as Error).message.slice(0, 300), payment.id]);

@@ -18,6 +18,7 @@ import {
   reviewPayment,
   startOnlinePayment,
   submitManualPayment,
+  type GatewayOutcome,
 } from '../billing/invoices.js';
 import { checkKey, keyMode, verifySignature, type WebhookEvent } from '../billing/enfinitoPay.js';
 import { runBillingClock } from '../billing/jobs.js';
@@ -101,10 +102,21 @@ gatewayRouter.use(express.urlencoded({ extended: false, limit: '64kb' }));
 
 /**
  * The browser arrives by a cross-site POST, which carries no session cookie (SameSite=Strict); a
- * page of ours then continues to the app, and that same-site navigation does.
+ * page of ours then continues to the app, and that same-site navigation does. A payment started in
+ * the phone app goes back into the app instead (its browser tab closes on the app's own address),
+ * and Envo Phone accounts land on their balance page.
  */
-function backToApp(res: express.Response, query: string): void {
-  const target = `/billing?${query}`;
+async function backToApp(res: express.Response, r: GatewayOutcome): Promise<void> {
+  const query = `payment=${r.status}${r.invoiceId ? `&invoice=${r.invoiceId}` : ''}`;
+  const where = r.invoiceId
+    ? await one<{ kind: string; source: string | null }>(
+        `SELECT a.kind, (SELECT p.raw->>'from' FROM payments p WHERE p.invoice_id = i.id ORDER BY p.id DESC LIMIT 1) AS source
+           FROM invoices i JOIN accounts a ON a.id = i.account_id WHERE i.id = $1`,
+        [r.invoiceId],
+      ).catch(() => null)
+    : null;
+  if (where?.source === 'app') return void res.redirect(302, `envophone://payment?${query}`);
+  const target = `${where?.kind === 'personal' ? '/phone/balance' : '/billing'}?${query}`;
   res
     .status(200)
     .type('html')
@@ -115,8 +127,8 @@ function backToApp(res: express.Response, query: string): void {
 
 for (const kind of ['success', 'fail', 'cancel'] as const) {
   gatewayRouter.post(`/${kind}`, async (req, res) => {
-    const r = await handleGatewayCallback(kind, req.body as Record<string, string>).catch(() => ({ invoiceId: null, status: 'unknown' as const }));
-    backToApp(res, `payment=${r.status}${r.invoiceId ? `&invoice=${r.invoiceId}` : ''}`);
+    const r = await handleGatewayCallback(kind, req.body as Record<string, string>).catch((): GatewayOutcome => ({ invoiceId: null, status: 'unknown' }));
+    await backToApp(res, r);
   });
 }
 
@@ -155,8 +167,8 @@ enfinitoPayRouter.post('/webhook', express.raw({ type: () => true, limit: '256kb
 
 /** Back from the checkout (paid or cancelled), with ?session_id= added by Enfinito Pay. */
 enfinitoPayRouter.get('/return', async (req, res) => {
-  const r = await returnFromCheckout(Number(req.query.payment), String(req.query.session_id ?? '')).catch(() => ({ invoiceId: null, status: 'unknown' as const }));
-  backToApp(res, `payment=${r.status}${r.invoiceId ? `&invoice=${r.invoiceId}` : ''}`);
+  const r = await returnFromCheckout(Number(req.query.payment), String(req.query.session_id ?? '')).catch((): GatewayOutcome => ({ invoiceId: null, status: 'unknown' }));
+  await backToApp(res, r);
 });
 
 // --------------------------------------------------------------------------------------- admin

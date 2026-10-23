@@ -72,6 +72,8 @@ authRouter.post('/password', authenticate, async (req, res) => {
     .parse(req.body);
   const row = await one<{ password_hash: string }>('SELECT password_hash FROM users WHERE id = $1', [req.user!.id]);
   if (!row || !(await verifyPassword(current, row.password_hash))) throw badRequest('Your current password is wrong');
-  await exec('UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2', [await hashPassword(next), req.user!.id]);
+  // Signs out every other browser and phone; this one gets a fresh session. Node's clock for both.
+  await exec('UPDATE users SET password_hash = $1, sessions_valid_after = $2, updated_at = now() WHERE id = $3', [await hashPassword(next), new Date(), req.user!.id]);
+  issueSession(res, req.user!.id);
   res.json({ ok: true });
 });

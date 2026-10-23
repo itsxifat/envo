@@ -11,6 +11,7 @@ import m009 from '../migrations/009_enfinito_pay.sql';
 import m010 from '../migrations/010_number_requests.sql';
 import m011 from '../migrations/011_onboarding.sql';
 import m012 from '../migrations/012_number_providers.sql';
+import m013 from '../migrations/013_personal_phone.sql';
 
 // Ordered list; append new migrations, never edit applied ones.
 const migrations: Array<[string, string]> = [
@@ -26,6 +27,7 @@ const migrations: Array<[string, string]> = [
   ['010_number_requests', m010],
   ['011_onboarding', m011],
   ['012_number_providers', m012],
+  ['013_personal_phone', m013],
 ];
 
 /** Applies pending migrations; returns the versions applied in this run. */

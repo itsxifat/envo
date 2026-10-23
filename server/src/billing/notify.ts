@@ -1,4 +1,5 @@
 import { one } from '../db.js';
+import { config } from '../config.js';
 import { sendMail } from '../lib/mailer.js';
 import { emails } from '../lib/emails.js';
 
@@ -23,11 +24,15 @@ export function notifyInvoiceIssued(invoiceId: number): void {
 
 export function notifyPaymentReceived(invoiceId: number): void {
   quietly(async () => {
-    const r = await one<{ email: string; name: string; number: string; amount: string; kind: string }>(
-      'SELECT a.email, a.name, i.number, i.amount, i.kind FROM invoices i JOIN accounts a ON a.id = i.account_id WHERE i.id = $1',
+    const r = await one<{ email: string; name: string; number: string; amount: string; kind: string; account_kind: string }>(
+      'SELECT a.email, a.name, i.number, i.amount, i.kind, a.kind AS account_kind FROM invoices i JOIN accounts a ON a.id = i.account_id WHERE i.id = $1',
       [invoiceId],
     );
-    if (r && Number(r.amount) > 0) await sendMail(emails.paymentReceived(r.email, r.name, r.number, bdt(r.amount)));
+    if (!r || Number(r.amount) <= 0) return;
+    const personal = r.account_kind === 'personal';
+    const what =
+      r.kind === 'topup' ? (personal ? 'It is on your calling balance.' : "We add it to your number's balance shortly.") : r.kind === 'manual' ? '' : 'Your package is active.';
+    await sendMail(emails.paymentReceived(r.email, r.name, r.number, bdt(r.amount), what, `${config.publicUrl}/${personal ? 'phone' : 'billing'}`));
   });
 }
 

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { many, one } from '../db.js';
-import { tenantOf } from '../auth.js';
+import { tenantOf, type SessionUser } from '../auth.js';
 import { live } from '../asterisk/live.js';
 import { endpointDirectory, registrationDirectory } from '../asterisk/apply.js';
 import { webEndpoint, type Extension } from '../asterisk/model.js';
@@ -11,11 +11,13 @@ const ONLINE = new Set(['Reachable', 'NonQualified', 'Created', 'Updated', 'Unkn
 
 export const webphoneRouter = Router();
 
-/** SIP-over-WebSocket credentials for the signed-in user's own extension. */
-webphoneRouter.get('/', async (req, res) => {
-  const user = req.user!;
+/**
+ * SIP-over-WebSocket credentials for a login's own extension: the web phone in the dashboard and the
+ * phone app both register with these.
+ */
+export async function webphoneCredentials(user: SessionUser): Promise<Record<string, unknown>> {
   // Support access must not register as the customer's phone (their calls would ring here too).
-  if (user.impersonator) return void res.json({ enabled: false, reason: "The web phone is off while you view a customer's portal" });
+  if (user.impersonator) return { enabled: false, reason: "The web phone is off while you view a customer's portal" };
   const settings = await getSettings();
   const ext = user.extensionId
     ? await one<Extension & { tenant_enabled: boolean; tenant_name: string }>(
@@ -24,11 +26,11 @@ webphoneRouter.get('/', async (req, res) => {
         [user.extensionId],
       )
     : null;
-  if (!ext) return void res.json({ enabled: false, reason: 'No extension is linked to your account' });
-  if (!ext.enabled || !ext.tenant_enabled) return void res.json({ enabled: false, reason: 'Your extension is disabled' });
-  if (!ext.webrtc) return void res.json({ enabled: false, reason: 'Web phone is turned off for your extension' });
+  if (!ext) return { enabled: false, reason: 'No extension is linked to your account' };
+  if (!ext.enabled || !ext.tenant_enabled) return { enabled: false, reason: 'Your extension is disabled' };
+  if (!ext.webrtc) return { enabled: false, reason: 'Web phone is turned off for your extension' };
   const username = webEndpoint(ext);
-  res.json({
+  return {
     enabled: true,
     wsUrl: `wss://${settings.sip_domain}/ws`,
     domain: settings.sip_domain,
@@ -40,7 +42,11 @@ webphoneRouter.get('/', async (req, res) => {
     tenantId: ext.tenant_id,
     tenantName: ext.tenant_name,
     iceServers: settings.stun_server ? [{ urls: settings.stun_server }] : [],
-  });
+  };
+}
+
+webphoneRouter.get('/', async (req, res) => {
+  res.json(await webphoneCredentials(req.user!));
 });
 
 export const dashboardRouter = Router();

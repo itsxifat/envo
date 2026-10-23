@@ -131,6 +131,17 @@ labels copied from the header by `lib/tableCards.ts`) — keep tables plain with
   `users.email_verified_at`; one-time links are stored as sha256 hashes. Anything an admin creates
   is verified. Emails go through `lib/mailer.ts` (logged in `email_log`; console only when SMTP is
   off). In development the confirmation link is printed in the server log.
+- Envo Phone (personal accounts, `accounts.kind = 'personal'`; the app in `mobile/` and the website's
+  personal side): `routes/phone.ts` + `phone/`. Sign-up → 6-digit email code (`email_codes`) → KYC
+  (makes server `ph<id>` with extension 101, reserves a random pool number of the provider set in
+  phone settings) → first recharge ≥ `activation_min` (a `topup` invoice; paying it credits
+  `balance_ledger` and moves the account onto the hidden `phone` package, active) → support
+  registers and connects it in Number requests (flagged Envo Phone; connect emails "number ready").
+  Calls are charged per started minute from CDRs by a 1-minute job (free to Envo numbers). The app
+  signs in with a Bearer JWT (`issueAppToken`); password changes set `users.sessions_valid_after`,
+  which signs out older tokens (`iatms` claim). Personal logins only reach `/api/phone` and
+  `/api/webphone`. Free packages renew by themselves in the billing clock. A payment started with
+  `from: 'app'` returns to `envophone://payment?…`; personal ones on the web to `/phone/balance`.
 - SSLCommerz sandbox for testing: store `testbox` / `qwerty`, card 4111111111111111 12/26 CVV 111,
   OTP page has a "Success" button.
 

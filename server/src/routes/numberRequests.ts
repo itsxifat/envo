@@ -14,6 +14,7 @@ import { activeProviders, getSupplySettings, providerOfNumber, updateSupplySetti
 import { deleteDocuments, documentPath, saveDocument } from '../supply/files.js';
 import { supplyCounts } from '../supply/counts.js';
 import { connectLine, defaultDestination, lineInput } from './setup.js';
+import { notifyNumberReady } from '../phone/account.js';
 
 /*
  * Numbers Enfinito provides from its operator allocation (e.g. ICC). A customer picks a free number
@@ -40,7 +41,7 @@ function isAdult(date: string): boolean {
 }
 
 /** What the operator's subscriber registration form asks for (BTRC). */
-const detailsSchema = z
+export const detailsSchema = z
   .object({
     subscriber_type: z.enum(['individual', 'organization']),
     name: z.string().trim().min(2, 'enter the full name').max(100),
@@ -72,7 +73,7 @@ const documents = multer({ storage: multer.memoryStorage(), limits: { fileSize: 
   { name: 'photo', maxCount: 1 },
   { name: 'id_document', maxCount: 1 },
 ]);
-const uploadDocuments: RequestHandler = (req, res, next) =>
+export const uploadDocuments: RequestHandler = (req, res, next) =>
   documents(req, res, (err: unknown) => next((err as { code?: string } | undefined)?.code === 'LIMIT_FILE_SIZE' ? badRequest('Each file can be at most 5 MB') : err));
 
 function accountOf(req: Request): number {
@@ -394,7 +395,9 @@ adminSupplyRouter.get('/requests', async (req, res) => {
   res.json(
     await many(
       `SELECT r.id, r.status, r.provider, r.requested_number, r.special, r.reason, r.created_at, r.updated_at, r.details->>'name' AS subscriber_name,
-              r.account_id, a.name AS account_name, r.tenant_id, t.name AS tenant_name, n.number AS connected_number
+              r.account_id, a.name AS account_name, a.kind AS account_kind, r.tenant_id, t.name AS tenant_name, n.number AS connected_number,
+              -- Envo Phone: support registers the number once the first recharge is paid.
+              (a.kind = 'personal' AND NOT EXISTS (SELECT 1 FROM topups x WHERE x.account_id = a.id AND x.status IN ('paid', 'applied'))) AS awaiting_payment
          FROM number_requests r JOIN accounts a ON a.id = r.account_id LEFT JOIN tenants t ON t.id = r.tenant_id
          LEFT JOIN numbers n ON n.id = r.number_id
         ${where} ORDER BY r.id DESC LIMIT 300`,
@@ -406,7 +409,8 @@ adminSupplyRouter.get('/requests', async (req, res) => {
 adminSupplyRouter.get('/requests/:id', async (req, res) => {
   const id = intParam(req.params.id);
   const r = await one<Record<string, unknown> & { tenant_id: number | null; photo_file: string; id_file: string }>(
-    `SELECT r.*, a.name AS account_name, a.email AS account_email, a.phone AS account_phone, t.name AS tenant_name,
+    `SELECT r.*, a.name AS account_name, a.email AS account_email, a.phone AS account_phone, a.kind AS account_kind, t.name AS tenant_name,
+            (a.kind = 'personal' AND NOT EXISTS (SELECT 1 FROM topups x WHERE x.account_id = a.id AND x.status IN ('paid', 'applied'))) AS awaiting_payment,
             u.name AS created_by_name, d.name AS decided_by_name, n.number AS connected_number
        FROM number_requests r JOIN accounts a ON a.id = r.account_id LEFT JOIN tenants t ON t.id = r.tenant_id
        LEFT JOIN users u ON u.id = r.created_by LEFT JOIN users d ON d.id = r.decided_by LEFT JOIN numbers n ON n.id = r.number_id
@@ -468,8 +472,8 @@ const connectSchema = z.object({
 adminSupplyRouter.post('/requests/:id/connect', async (req, res) => {
   const id = intParam(req.params.id);
   const d = connectSchema.parse(req.body);
-  const r = await one<{ status: string; tenant_id: number | null; pool_id: number | null; provider: string }>(
-    'SELECT status, tenant_id, pool_id, provider FROM number_requests WHERE id = $1',
+  const r = await one<{ status: string; tenant_id: number | null; pool_id: number | null; provider: string; account_id: number }>(
+    'SELECT status, tenant_id, pool_id, provider, account_id FROM number_requests WHERE id = $1',
     [id],
   );
   if (!r) throw notFound('Request');
@@ -500,6 +504,7 @@ adminSupplyRouter.post('/requests/:id/connect', async (req, res) => {
     await db.query("UPDATE number_pool SET status = 'assigned', updated_at = now() WHERE number = $1", [d.number]);
   });
   await audit(req, 'connect', 'number_request', id, d.number, r.tenant_id);
+  notifyNumberReady(r.account_id, d.number);
   res.json({ ok: true, ...created });
 });
 

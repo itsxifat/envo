@@ -1,4 +1,4 @@
-import { many, tx } from '../db.js';
+import { exec, many, tx } from '../db.js';
 import { scheduleApply } from '../asterisk/apply.js';
 import { getBillingSettings } from './settings.js';
 import { invalidatePlans } from './plan.js';
@@ -35,11 +35,21 @@ export async function runBillingClock(now = new Date()): Promise<{ invoiced: num
     [now, s.renewal_notice_days],
   );
   for (const sub of due) {
+    const amount = sub.next_package_id ? Number(sub.next_price ?? sub.price) : Number(sub.price);
+    // A free package (Envo Phone) renews by itself: nothing to pay, nothing to remind.
+    if (amount === 0) {
+      await exec(
+        `UPDATE subscriptions SET status = 'active', current_period_start = greatest(current_period_end, now()),
+                current_period_end = greatest(current_period_end, now()) + interval '1 month',
+                package_id = COALESCE(next_package_id, package_id), next_package_id = NULL, updated_at = now() WHERE id = $1`,
+        [sub.id],
+      );
+      continue;
+    }
     // One customer's problem must not stop everyone else's billing.
     try {
       const created = await tx(async (db) => {
       const name = sub.next_name ?? sub.pkg_name;
-      const amount = sub.next_package_id ? Number(sub.next_price ?? sub.price) : Number(sub.price);
       return createInvoice(db, {
         accountId: sub.account_id,
         kind: 'renewal',

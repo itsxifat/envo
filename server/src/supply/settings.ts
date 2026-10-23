@@ -5,7 +5,7 @@ import { exec, one } from '../db.js';
  * one, which line a new number is connected on, and balance top-ups. Platform admins only.
  */
 export interface SupplySettings {
-  /** Customers see "Get a new number". Off until the pool and the line are set up. */
+  /** Customers see "Get a number from us" and "Apply for a special number". On unless switched off. */
   enabled: boolean;
   /** Named in the customer's consent: their details are shared with this operator. */
   operator_name: string;
@@ -15,7 +15,7 @@ export interface SupplySettings {
 }
 
 export const DEFAULT_SUPPLY: SupplySettings = {
-  enabled: false,
+  enabled: true,
   operator_name: 'ICC Communication Ltd.',
   line: { host: '', port: 5060, transport: 'udp' },
   topup: { enabled: true, min: 50, max: 20_000, presets: [100, 200, 500, 1000] },

@@ -86,7 +86,9 @@ labels copied from the header by `lib/tableCards.ts`) — keep tables plain with
   or rejected). Support works the queue at /admin/number-requests: register with the operator (ICC),
   then Connect (`connectLine()` from `routes/setup.ts`, the same code as the guided setup). Top-ups
   are `topup` invoices (paid like any invoice); a paid one waits in /admin until support adds the
-  balance at the operator and marks it added. Off until enabled in its Settings tab. The support
+  balance at the operator and marks it added. Any number connected through a request, or on a line
+  to the operator's SIP server, can be topped up (`topupNumbers()`; Phone numbers, Billing → Calling
+  balance, dashboard). On unless switched off in its Settings tab. The support
   steps are single functions on purpose: automation can replace them later. Envo never operates the
   operator's panels itself. A special (memorable) number is a request with `special` (the customer's
   words, no pool number); support checks it and bills any price by hand (Sales & invoices).

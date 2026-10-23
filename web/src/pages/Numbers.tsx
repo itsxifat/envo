@@ -8,7 +8,7 @@ import { useLive } from '../state/live';
 import type { PhoneNumber, Trunk } from '../lib/types';
 import { DestLabel, DestinationPicker } from '../components/DestinationPicker';
 import { ConnectNumberModal } from '../components/connectNumber';
-import { GetNumberModal, NumberChoice, NumberRequestsCard, TopupDialog, useNumberRequests, useSupplyOptions, type NumberSource } from '../components/numberSupply';
+import { GetNumberModal, NumberChoice, NumberRequestsCard, TopupDialog, useNumberRequests, useSupplyOptions, useTopupNumbers, type NumberSource } from '../components/numberSupply';
 import {
   Badge,
   Button,
@@ -54,6 +54,7 @@ export function NumbersPage() {
   const [topup, setTopup] = useState<PhoneNumber | null>(null);
   const supply = useSupplyOptions();
   const requests = useNumberRequests();
+  const topupNumbers = useTopupNumbers();
   const offer = !!supply.data?.enabled;
   const add = () => setAdding(offer ? 'choose' : 'own');
 
@@ -64,9 +65,9 @@ export function NumbersPage() {
     setAdding(offer ? 'choose' : 'own');
   }, [params, setParams, supply.isLoading, offer]);
   const isSuper = user?.role === 'superadmin';
-  // Numbers Enfinito provided (through a request) can be topped up here by the account owner.
-  const fromEnfinito = useMemo(() => new Set((requests.data ?? []).filter((r) => r.status === 'connected' && r.number_id).map((r) => r.number_id)), [requests.data]);
-  const canTopUp = (n: PhoneNumber) => !!user?.isOwner && !!supply.data?.topup.enabled && fromEnfinito.has(n.id);
+  // Numbers Enfinito provides can be topped up here by the account owner.
+  const fromEnfinito = useMemo(() => new Set((topupNumbers.data ?? []).map((n) => n.id)), [topupNumbers.data]);
+  const canTopUp = (n: PhoneNumber) => fromEnfinito.has(n.id);
   // Customers may remove numbers on their own lines; numbers on lines Envo provides stay with support.
   const ownLines = useMemo(() => new Set((trunks.data ?? []).filter((t) => t.tenant_id !== null).map((t) => t.id)), [trunks.data]);
   const canRemove = (n: PhoneNumber) => isSuper || (n.trunk_id !== null && ownLines.has(n.trunk_id));

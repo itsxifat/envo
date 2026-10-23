@@ -9,6 +9,7 @@ import { ACCOUNT_STATUS, formatBdt, formatDate } from '../lib/format';
 import type { CheckoutResult, Invoice, Package } from '../lib/types';
 import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, Notice, PageHeader, Textarea, useConfirm } from '../components/ui';
 import { PaymentResult, PayDialog, PlanPicker } from '../components/billing';
+import { BalanceCard } from '../components/numberSupply';
 import { SETUP_STEPS, useSetupProgress } from './GetStarted';
 
 const KIND: Record<string, string> = { subscription: 'Package', renewal: 'Renewal', upgrade: 'Upgrade', manual: 'Other', topup: 'Top-up' };
@@ -60,8 +61,8 @@ export function BillingPage() {
   if (!user?.isOwner) {
     return (
       <>
-        <PageHeader title="Billing" icon={<CreditCard />} />
-        <Notice tone="info">Only the account owner can see invoices and pay. Ask them to renew or change the package.</Notice>
+        <PageHeader title="Billing & top-ups" icon={<CreditCard />} />
+        <Notice tone="info">Only the account owner can see invoices, pay and top up. Ask them to renew or change the package.</Notice>
       </>
     );
   }
@@ -74,8 +75,8 @@ export function BillingPage() {
   return (
     <>
       <PageHeader
-        title="Billing"
-        description="Your package, invoices and payments"
+        title="Billing & top-ups"
+        description="Your package, invoices, payments and calling balance"
         icon={<CreditCard />}
         actions={
           sub && (
@@ -182,6 +183,8 @@ export function BillingPage() {
           <PlanPicker onInvoice={setPaying} />
         </Card>
       )}
+
+      {sub && <BalanceCard />}
 
       <Card className="overflow-hidden">
         <CardHeader title="Invoices" />

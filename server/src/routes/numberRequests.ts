@@ -209,6 +209,27 @@ numberRequestsRouter.post('/:id/cancel', async (req, res) => {
   res.json({ ok: true });
 });
 
+/**
+ * The account's numbers that Enfinito provides, so their calling balance can be topped up here: ones
+ * connected through a request, and ones on a line to the operator's SIP server (connected another way).
+ */
+async function topupNumbers(accountId: number, operatorHost: string): Promise<{ id: number; number: string; tenant_name: string }[]> {
+  return many(
+    `SELECT n.id, n.number, t.name AS tenant_name
+       FROM numbers n JOIN tenants t ON t.id = n.tenant_id LEFT JOIN trunks k ON k.id = n.trunk_id
+      WHERE t.account_id = $1
+        AND (EXISTS (SELECT 1 FROM number_requests r WHERE r.number_id = n.id AND r.account_id = $1 AND r.status = 'connected')
+             OR ($2 <> '' AND lower(k.host) = lower($2)))
+      ORDER BY n.number`,
+    [accountId, operatorHost],
+  );
+}
+
+numberRequestsRouter.get('/topup-numbers', requireOwner, async (req, res) => {
+  const s = await getSupplySettings();
+  res.json(s.topup.enabled ? await topupNumbers(accountOf(req), s.line.host) : []);
+});
+
 // Top-ups: the account owner pays (like any invoice), support adds the balance at the operator.
 numberRequestsRouter.get('/topups', requireOwner, async (req, res) => {
   res.json(
@@ -227,11 +248,7 @@ numberRequestsRouter.post('/topups', requireOwner, async (req, res) => {
   const d = z.object({ number_id: z.number().int().positive(), amount: z.number().positive().max(10_000_000) }).parse(req.body);
   const amount = Math.round(d.amount * 100) / 100;
   if (amount < s.topup.min || amount > s.topup.max) throw badRequest(`Top up between ${bdt(s.topup.min)} and ${bdt(s.topup.max)}`);
-  const num = await one<{ id: number; number: string }>(
-    `SELECT n.id, n.number FROM numbers n JOIN number_requests r ON r.number_id = n.id AND r.status = 'connected'
-      WHERE n.id = $1 AND r.account_id = $2`,
-    [d.number_id, accountId],
-  );
+  const num = (await topupNumbers(accountId, s.line.host)).find((n) => n.id === d.number_id);
   if (!num) throw badRequest('Only numbers you got from Enfinito can be topped up here');
   const invoice = await tx(async (db) => {
     const inv = await createInvoice(db, { accountId, kind: 'topup', amount, description: `Balance top-up for ${num.number}`, createdBy: req.user!.id });

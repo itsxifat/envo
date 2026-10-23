@@ -1,13 +1,14 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Link, useLocation } from 'react-router';
 import clsx from 'clsx';
 import { toast } from 'sonner';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Check, CheckCircle2, Gem, Hash, Sparkles, Upload } from 'lucide-react';
+import { ArrowRight, Check, CheckCircle2, Gem, Hash, Sparkles, Upload, Wallet } from 'lucide-react';
 import { api, errorMessage } from '../lib/api';
 import { formatBdt, timeAgo } from '../lib/format';
 import { useAuth } from '../state/auth';
 import { useTenant } from '../state/tenant';
-import type { Invoice, NumberRequest, NumberRequestStatus, SubscriberDetails, SupplyOptions } from '../lib/types';
+import type { Invoice, NumberRequest, NumberRequestStatus, SubscriberDetails, SupplyOptions, Topup, TopupStatus } from '../lib/types';
 import { PayDialog } from './billing';
 import { Badge, Button, Card, CardHeader, Field, Input, Modal, Notice, SearchInput, Select, Spinner, useConfirm } from './ui';
 
@@ -33,6 +34,16 @@ export function useNumberRequests(opts: { enabled?: boolean; poll?: boolean } = 
     queryFn: () => api.get<NumberRequest[]>('/api/number-requests'),
     enabled: user?.role === 'admin' && (opts.enabled ?? true),
     refetchInterval: opts.poll === false ? false : 30_000,
+  });
+}
+
+/** The account's numbers from Enfinito, whose calling balance the owner can top up. */
+export function useTopupNumbers() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ['list', 'topup-numbers'],
+    queryFn: () => api.get<{ id: number; number: string; tenant_name: string }[]>('/api/number-requests/topup-numbers'),
+    enabled: user?.role === 'admin' && user.isOwner,
   });
 }
 
@@ -531,6 +542,85 @@ export function NumberRequestsCard({ requests }: { requests: NumberRequest[] }) 
         })}
       </ul>
     </Card>
+  );
+}
+
+const TOPUP_STATUS: Record<TopupStatus, { tone: 'amber' | 'blue' | 'green' | 'gray'; label: string }> = {
+  awaiting_payment: { tone: 'amber', label: 'Waiting for payment' },
+  paid: { tone: 'blue', label: 'Paid, being added' },
+  applied: { tone: 'green', label: 'Added' },
+  cancelled: { tone: 'gray', label: 'Cancelled' },
+};
+
+/**
+ * Billing → calling balance (#balance): top up any number from Enfinito, and see what happened to
+ * recent top-ups. Owners only, like the rest of Billing.
+ */
+export function BalanceCard() {
+  const supply = useSupplyOptions();
+  const numbers = useTopupNumbers();
+  const history = useQuery({ queryKey: ['account', 'topups'], queryFn: () => api.get<Topup[]>('/api/number-requests/topups') });
+  const [topup, setTopup] = useState<{ id: number; number: string } | null>(null);
+  const { hash } = useLocation();
+  const ref = useRef<HTMLDivElement>(null);
+  const ready = !!supply.data && !!numbers.data;
+
+  // Linked as /billing#balance (the dashboard's "Top up"): scroll here once it has loaded.
+  useEffect(() => {
+    if (ready && hash === '#balance') ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [ready, hash]);
+
+  if (!supply.data?.topup.enabled) return null;
+  const list = numbers.data ?? [];
+  const recent = (history.data ?? []).slice(0, 5);
+  return (
+    <div ref={ref} id="balance" className="mb-5 scroll-mt-4">
+      <Card className="overflow-hidden">
+        <CardHeader title="Calling balance" description="Top up the numbers you got from us. We add the balance as soon as the payment is confirmed." />
+        {list.length ? (
+          <ul className="divide-y divide-slate-100">
+            {list.map((n) => (
+              <li key={n.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-5">
+                <span className="font-mono text-[15px] font-semibold text-slate-900">{n.number}</span>
+                <span className="text-xs text-slate-500">{n.tenant_name}</span>
+                <Button size="sm" variant="primary" className="ml-auto" icon={<Wallet className="size-3.5" />} onClick={() => setTopup(n)}>
+                  Top up
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-5">
+            <p className="text-sm text-slate-600">You can top up numbers you get from us. You have none yet.</p>
+            {supply.data.enabled && (
+              <Link to="/numbers?add=1">
+                <Button size="sm" icon={<Sparkles className="size-3.5" />}>
+                  Get a number
+                </Button>
+              </Link>
+            )}
+          </div>
+        )}
+        {recent.length > 0 && (
+          <div className="border-t border-slate-100 px-4 py-3 sm:px-5">
+            <p className="mb-2 text-xs font-medium text-slate-500">Recent top-ups</p>
+            <ul className="space-y-1.5">
+              {recent.map((t) => (
+                <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                  <span className="font-mono text-slate-800">{t.number}</span>
+                  <span className="font-medium text-slate-900 tabular-nums">{formatBdt(t.amount)}</span>
+                  <Badge tone={TOPUP_STATUS[t.status].tone} dot>
+                    {TOPUP_STATUS[t.status].label}
+                  </Badge>
+                  <span className="text-xs text-slate-500">{timeAgo(t.created_at)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </Card>
+      {topup && <TopupDialog numberId={topup.id} number={topup.number} onClose={() => setTopup(null)} />}
+    </div>
   );
 }
 

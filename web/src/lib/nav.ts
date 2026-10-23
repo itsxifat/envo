@@ -77,7 +77,7 @@ export const NAV: NavGroup[] = [
       { to: '/voicemail', label: 'Voicemail', icon: Voicemail, keywords: 'messages inbox' },
       { to: '/numbers', label: 'Phone numbers', icon: Hash, roles: ADMINS, keywords: 'did inbound connect number get a new number buy special number top up recharge balance' },
       { to: '/extensions', label: 'Team & phones', icon: Users, roles: ADMINS, keywords: 'extensions people sip accounts phones desk softphone credentials add a person' },
-      { to: '/billing', label: 'Billing', icon: CreditCard, roles: ['admin'], customer: true, owner: true, keywords: 'invoice pay payment bkash card renew upgrade package top-up' },
+      { to: '/billing', label: 'Billing & top-ups', icon: CreditCard, roles: ['admin'], customer: true, owner: true, keywords: 'invoice pay payment bkash card renew upgrade package top up recharge calling balance' },
     ],
   },
   {

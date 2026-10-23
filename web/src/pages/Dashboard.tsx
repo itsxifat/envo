@@ -20,6 +20,7 @@ import {
   TriangleAlert,
   UserPlus,
   Users,
+  Wallet,
   WifiOff,
 } from 'lucide-react';
 import { api, scoped } from '../lib/api';
@@ -32,6 +33,7 @@ import type { CallRow, Trunk } from '../lib/types';
 import { Badge, Button, Card, CardHeader, EmptyState, ListSkeleton, PageHeader, Stat, StatSkeleton, StatusDot, Trend } from '../components/ui';
 import { HourlyChart, type HourPoint } from '../components/HourlyChart';
 import { MyPhoneSetup } from '../components/people';
+import { useTopupNumbers } from '../components/numberSupply';
 import { SETUP_STEPS, useSetupProgress } from './GetStarted';
 
 interface Summary {
@@ -100,6 +102,8 @@ export function DashboardPage() {
   const isAdmin = useIsAdmin();
   // Webhooks and the website embed come with the developer API, which not every package includes.
   const apiAccess = useFeature('api_access');
+  // Owners with numbers from Enfinito get "Top up balance" among the quick actions.
+  const topupNumbers = useTopupNumbers();
   const live = useLive();
   const phone = usePhone();
 
@@ -485,20 +489,23 @@ export function DashboardPage() {
               <CardHeader title="Quick actions" />
               <div className="grid grid-cols-2 gap-2 p-3">
                 {[
-                  { to: '/users?add=1', label: 'Add a person', icon: UserPlus },
                   { to: '/numbers?add=1', label: 'Add a number', icon: Hash },
+                  ...(topupNumbers.data?.length ? [{ to: '/billing#balance', label: 'Top up balance', icon: Wallet }] : []),
+                  { to: '/users?add=1', label: 'Add a person', icon: UserPlus },
                   { to: '/get-started#calls', label: 'Where calls go', icon: PhoneIncoming },
                   apiAccess ? { to: '/developers', label: 'API & embed', icon: Code2 } : { to: '/time-conditions', label: 'Set business hours', icon: Clock },
-                ].map((a) => (
-                  <Link
-                    key={a.to}
-                    to={a.to}
-                    className="flex flex-col gap-2 rounded-xl border border-slate-200 px-3 py-3 transition hover:border-brand-300 hover:bg-brand-50/40"
-                  >
-                    <a.icon className="size-4 text-brand-600" />
-                    <span className="text-[13px] font-medium text-slate-700">{a.label}</span>
-                  </Link>
-                ))}
+                ]
+                  .slice(0, 4)
+                  .map((a) => (
+                    <Link
+                      key={a.to}
+                      to={a.to}
+                      className="flex flex-col gap-2 rounded-xl border border-slate-200 px-3 py-3 transition hover:border-brand-300 hover:bg-brand-50/40"
+                    >
+                      <a.icon className="size-4 text-brand-600" />
+                      <span className="text-[13px] font-medium text-slate-700">{a.label}</span>
+                    </Link>
+                  ))}
               </div>
             </Card>
           </div>

@@ -4,6 +4,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
 
 import { api, ApiError, setToken } from '@/lib/api';
+import { KEYS } from '@/lib/storageKeys';
 
 /*
  * The signed-in person and their phone service, from Envo's API (/api/phone, the same as the
@@ -34,8 +35,8 @@ export interface Account {
   balance: number;
   /** A recharge paid on Enfinito Pay that didn't fit its invoice (or looked risky) waits for support's check. */
   paymentInReview: boolean;
-  /** The latest registration, with the reason when it was turned down or closed. */
-  request: { id: number; status: string; reason: string } | null;
+  /** The latest registration, with the reason when it was turned down or closed; createdAt is when it was sent. */
+  request: { id: number; status: string; reason: string; createdAt: string } | null;
   closeRequested: boolean;
 }
 
@@ -115,6 +116,10 @@ export interface SessionValue {
   /** The least first recharge that activates a number (set by Enfinito in the admin). */
   minActivation: number;
   recents: CallLog[];
+  /** False until the call list has come from Envo once since signing in (an empty list may just not be here yet). */
+  recentsLoaded: boolean;
+  /** When the account was last read from Envo (ms), for "Checked 2 min ago". */
+  lastRefreshedAt: number | null;
   /** When Recents was last opened: missed calls after it put a dot on its tab. */
   recentsSeenAt: number;
   markRecentsSeen: () => void;
@@ -124,8 +129,11 @@ export interface SessionValue {
   verifyEmail: (code: string) => Promise<void>;
   resendCode: () => Promise<void>;
   changeEmail: (email: string) => Promise<void>;
-  /** The selfie: a checked live one (by its id), or a photo when Enfinito turned the check off. */
-  submitKyc: (details: KycDetails, selfie: LiveSelfie | string, id: IdFiles) => Promise<void>;
+  /**
+   * The selfie: a checked live one (by its id), or a photo when Enfinito turned the check off.
+   * onProgress gets how much of the upload has been sent (0 to 1).
+   */
+  submitKyc: (details: KycDetails, selfie: LiveSelfie | string, id: IdFiles, onProgress?: (fraction: number) => void) => Promise<void>;
   /** Sends the three live pictures (straight, then the two head turns); the server checks them. */
   checkSelfie: (frames: [string, string, string]) => Promise<string>;
   liveSelfie: LiveSelfie | null;
@@ -149,7 +157,7 @@ interface Me {
   email: string;
   mobile: string;
   number: string | null;
-  request: { id: number; status: string; reason: string } | null;
+  request: { id: number; status: string; reason: string; created_at: string } | null;
   balance: number;
   payment_in_review: boolean;
   activation_min: number;
@@ -167,7 +175,7 @@ const toAccount = (m: Me): Account => ({
   number: m.number,
   balance: m.balance,
   paymentInReview: m.payment_in_review,
-  request: m.request,
+  request: m.request ? { id: m.request.id, status: m.request.status, reason: m.request.reason, createdAt: m.request.created_at } : null,
   closeRequested: m.close_requested,
 });
 
@@ -178,6 +186,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<PhoneConfig | null>(null);
   const [calls, setCalls] = useState<CallLog[]>([]);
   const [local, setLocal] = useState<CallLog[]>([]);
+  const [recentsLoaded, setRecentsLoaded] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<number | null>(null);
   const [recentsSeenAt, setRecentsSeenAt] = useState(0);
   const [liveSelfie, setLiveSelfie] = useState<LiveSelfie | null>(null);
   const signedIn = useRef(false);
@@ -193,8 +203,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setOffline(false);
     setCalls([]);
     setLocal([]);
+    setRecentsLoaded(false);
+    setLastRefreshedAt(null);
     setLiveSelfie(null);
-    void SecureStore.deleteItemAsync(TOKEN_KEY);
+    void SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => undefined);
+    // The registration draft is this person's: the next one to sign in starts empty.
+    void SecureStore.deleteItemAsync(KEYS.kycDraft).catch(() => undefined);
   }, []);
 
   const loadConfig = useCallback(async () => setConfig(await api.get<PhoneConfig>('/public/phone/config')), []);
@@ -202,7 +216,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const loadCalls = useCallback(async () => {
     const gen = generation.current;
     const list = await api.get<{ id: string; at: string; direction: CallLog['direction']; number: string; duration: number; cost: number | null; free: boolean }[]>('/phone/calls');
-    if (gen === generation.current) setCalls(list.map((c) => ({ ...c, name: null })));
+    if (gen !== generation.current) return;
+    setCalls(list.map((c) => ({ ...c, name: null })));
+    setRecentsLoaded(true);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -220,6 +236,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (gen !== generation.current) return;
       setMe(next);
       setOffline(false);
+      setLastRefreshedAt(Date.now());
       if (next.stage === 'active' || next.stage === 'registering') void loadCalls().catch(() => undefined);
     } finally {
       await settings;
@@ -265,13 +282,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, [me?.stage, me?.payment_in_review, refresh]);
 
-  // Signed in but Envo couldn't be reached, so there is no account to show yet: try again every 10 s.
-  const loaded = !!me;
+  // Signed in but Envo couldn't be reached: try again every 10 s, whether or not an account is shown
+  // (calls wait for the connection, so a short drop shouldn't keep them stopped).
   useEffect(() => {
-    if (!offline || loaded) return;
+    if (!offline) return;
     const timer = setInterval(() => void refresh().catch(() => undefined), 10_000);
     return () => clearInterval(timer);
-  }, [offline, loaded, refresh]);
+  }, [offline, refresh]);
+
+  // Once the number works, the registration draft has done its job.
+  useEffect(() => {
+    if (me?.stage === 'active') void SecureStore.deleteItemAsync(KEYS.kycDraft).catch(() => undefined);
+  }, [me?.stage]);
 
   const signIn = useCallback(
     async (email: string, password: string) => {
@@ -313,7 +335,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return (await api.post<{ id: string }>('/phone/selfie', body)).id;
   }, []);
 
-  const submitKyc = useCallback(async (details: KycDetails, selfie: LiveSelfie | string, id: IdFiles) => {
+  const submitKyc = useCallback(async (details: KycDetails, selfie: LiveSelfie | string, id: IdFiles, onProgress?: (fraction: number) => void) => {
     const body = new FormData();
     body.append('details', JSON.stringify(details));
     body.append('consent', 'true');
@@ -325,7 +347,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       body.append('id_back', part(id.back, 'nid-back'));
     }
     const gen = generation.current;
-    const next = await api.post<Me>('/phone/kyc', body);
+    const next = await api.post<Me>('/phone/kyc', body, { onProgress });
     if (gen !== generation.current) return;
     setMe(next);
     setLiveSelfie(null);
@@ -387,6 +409,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       config,
       minActivation: me?.activation_min ?? config?.activation_min ?? 100,
       recents,
+      recentsLoaded,
+      lastRefreshedAt,
       recentsSeenAt,
       markRecentsSeen,
       signIn,
@@ -406,7 +430,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       signOut,
       addCall,
     }),
-    [ready, account, offline, config, me?.activation_min, recents, recentsSeenAt, markRecentsSeen, signIn, signUp, verifyEmail, resendCode, changeEmail, submitKyc, checkSelfie, liveSelfie, createRecharge, payOnline, refresh, changePassword, closeAccount, signOut, addCall],
+    [ready, account, offline, config, me?.activation_min, recents, recentsLoaded, lastRefreshedAt, recentsSeenAt, markRecentsSeen, signIn, signUp, verifyEmail, resendCode, changeEmail, submitKyc, checkSelfie, liveSelfie, createRecharge, payOnline, refresh, changePassword, closeAccount, signOut, addCall],
   );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

@@ -1,4 +1,4 @@
-import { Alert } from 'react-native';
+import { Alert, Linking } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
@@ -42,8 +42,8 @@ export async function pickFile(source: Source, opts: { selfie?: boolean } = {}):
   if (source === 'camera') {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert('Camera is off for Envo', 'Allow the camera in your phone settings, or choose a photo from your gallery instead.');
-      return null;
+      // Turned down in Android's dialog just now: that's the answer. Once Android stops asking, offer another way.
+      return perm.canAskAgain ? null : cameraIsOff(opts);
     }
     result = await ImagePicker.launchCameraAsync({ ...crop, cameraType: opts.selfie ? ImagePicker.CameraType.front : ImagePicker.CameraType.back });
   } else {
@@ -51,4 +51,25 @@ export async function pickFile(source: Source, opts: { selfie?: boolean } = {}):
   }
   const a = result.canceled ? null : result.assets[0];
   return a ? { uri: await shrink(a.uri, a.width, a.height), kind: 'image' } : null;
+}
+
+/** The camera was switched off for Envo: a photo from the gallery instead, or the settings to switch it on. */
+function cameraIsOff(opts: { selfie?: boolean }): Promise<PickedFile | null> {
+  return new Promise((resolve) => {
+    Alert.alert(
+      'Camera is off for Envo',
+      'Allow the camera in your phone settings, or choose a photo from your gallery instead.',
+      [
+        { text: 'Use gallery', onPress: () => void pickFile('gallery', opts).then(resolve, () => resolve(null)) },
+        {
+          text: 'Open settings',
+          onPress: () => {
+            void Linking.openSettings().catch(() => undefined);
+            resolve(null);
+          },
+        },
+      ],
+      { cancelable: true, onDismiss: () => resolve(null) },
+    );
+  });
 }

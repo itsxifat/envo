@@ -52,3 +52,66 @@ export function initials(name: string): string {
   if (!words.length) return '#';
   return (words[0]![0]! + (words.length > 1 ? words[words.length - 1]![0]! : '')).toUpperCase();
 }
+
+/** Talk time in words: "13 sec", "1 min 35 sec", "5 min", "1 hr 2 min"; '' for none. */
+export function formatTalk(totalSec: number): string {
+  const sec = Math.round(totalSec);
+  if (!(sec > 0)) return '';
+  if (sec < 60) return `${sec} sec`;
+  if (sec < 3600) {
+    const s = sec % 60;
+    return `${Math.floor(sec / 60)} min${s ? ` ${s} sec` : ''}`;
+  }
+  const m = Math.floor((sec % 3600) / 60);
+  return `${Math.floor(sec / 3600)} hr${m ? ` ${m} min` : ''}`;
+}
+
+/** An amount without the currency, for when "BDT" is set apart: "1,999", "245.50". */
+export function formatAmount(value: number): string {
+  return formatBdt(value).replace(/^BDT /, '');
+}
+
+/** "+BDT 200" for money in, "−BDT 0.80" for money out. */
+export function formatSigned(value: number): string {
+  return `${value > 0 ? '+' : value < 0 ? '−' : ''}${formatBdt(Math.abs(value))}`;
+}
+
+// Spelled out rather than toLocale…String, whose wording differs between Android versions.
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "24 Oct", or "Fri 31 Oct" with the weekday. */
+export function formatDate(when: string | number | Date, opts: { weekday?: boolean } = {}): string {
+  const d = new Date(when);
+  return `${opts.weekday ? `${WEEKDAYS[d.getDay()]} ` : ''}${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+
+/** A day heading: "Today", "Yesterday" or "Mon 21 Oct". */
+export function formatDay(iso: string, now = Date.now()): string {
+  const d = new Date(iso);
+  const today = new Date(now);
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const t = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  if (t === start) return 'Today';
+  if (t === new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1).getTime()) return 'Yesterday';
+  return formatDate(d, { weekday: true });
+}
+
+/** The time of day: "8:45 AM". */
+export function formatClock(iso: string): string {
+  const d = new Date(iso);
+  const h = d.getHours();
+  return `${h % 12 || 12}:${String(d.getMinutes()).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+/** The name to greet someone by: "Md. Karim Hossain" → "Karim" (the honorific prefixes are skipped). */
+export function firstName(name: string): string {
+  const rest = name.trim().replace(/^(?:md|mohd|mohammad|mohammed|muhammad|mst)(?:\.\s*|\s+)(?=\S)/i, '');
+  return rest.split(/\s+/)[0] ?? '';
+}
+
+/** "Good morning" until noon, "Good afternoon" until 5 pm, then "Good evening". */
+export function greeting(date = new Date()): string {
+  const h = date.getHours();
+  return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+}

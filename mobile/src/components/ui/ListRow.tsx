@@ -1,14 +1,15 @@
-import { type ReactNode } from 'react';
+import { Children, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { ChevronRight } from 'lucide-react-native';
 
 import { useTheme } from '@/theme/theme';
-import { radius, space } from '@/theme/tokens';
+import { iconStroke, radius, space } from '@/theme/tokens';
 import { Text } from './Text';
 
 export interface ListRowProps {
   title: string;
   subtitle?: string;
+  /** Usually an IconTile size="sm" on="surface". */
   left?: ReactNode;
   right?: ReactNode;
   onPress?: () => void;
@@ -38,15 +39,15 @@ export function ListRow({ title, subtitle, left, right, onPress, chevron, danger
         )}
       </View>
       {right}
-      {chevron && <ChevronRight size={20} color={colors.textTertiary} />}
+      {chevron && <ChevronRight size={18} color={colors.textTertiary} strokeWidth={iconStroke} />}
     </Pressable>
   );
 }
 
-/** Rows grouped on one rounded surface, with hairlines between them. */
+/** Rows grouped on one rounded surface, with hairlines around and between them. */
 export function ListGroup({ children, title }: { children: ReactNode; title?: string }) {
   const { colors } = useTheme();
-  const items = (Array.isArray(children) ? children : [children]).filter(Boolean);
+  const items = Children.toArray(children);
   return (
     <View style={styles.group}>
       {title && (
@@ -54,7 +55,7 @@ export function ListGroup({ children, title }: { children: ReactNode; title?: st
           {title}
         </Text>
       )}
-      <View style={[styles.surface, { backgroundColor: colors.surface }]}>
+      <View style={[styles.surface, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         {items.map((child, i) => (
           <View key={i}>
             {i > 0 && <View style={[styles.hairline, { backgroundColor: colors.border }]} />}
@@ -67,11 +68,11 @@ export function ListGroup({ children, title }: { children: ReactNode; title?: st
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingVertical: 14, minHeight: 60 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md, minHeight: 56 },
   left: { alignItems: 'center', justifyContent: 'center' },
   text: { flex: 1, gap: 2 },
   group: { gap: space.sm },
-  groupTitle: { marginLeft: space.lg, textTransform: 'none' },
-  surface: { borderRadius: radius.lg, overflow: 'hidden' },
+  groupTitle: { marginLeft: space.lg },
+  surface: { borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
   hairline: { height: StyleSheet.hairlineWidth, marginLeft: space.lg },
 });

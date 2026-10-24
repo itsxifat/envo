@@ -21,6 +21,8 @@ export interface Person {
 interface ContactsValue {
   /** null until we know; false when the person has not allowed it (yet). */
   allowed: boolean | null;
+  /** False once the phone won't ask again (turned down for good): only its Settings can allow it then. */
+  canAskAgain: boolean;
   people: Person[];
   ask: () => Promise<void>;
   nameOf: (number: string) => string | null;
@@ -38,6 +40,7 @@ const ContactsContext = createContext<ContactsValue | null>(null);
 
 export function ContactsProvider({ children }: { children: ReactNode }) {
   const [allowed, setAllowed] = useState<boolean | null>(null);
+  const [canAskAgain, setCanAskAgain] = useState(true);
   const [people, setPeople] = useState<Person[]>([]);
 
   const load = useCallback(async () => {
@@ -55,6 +58,7 @@ export function ContactsProvider({ children }: { children: ReactNode }) {
   const check = useCallback(async () => {
     const p = await getPermissionsAsync();
     setAllowed(p.granted);
+    setCanAskAgain(p.canAskAgain);
     if (p.granted) await load();
   }, [load]);
 
@@ -70,6 +74,7 @@ export function ContactsProvider({ children }: { children: ReactNode }) {
   const ask = useCallback(async () => {
     const p = await requestPermissionsAsync();
     setAllowed(p.granted);
+    setCanAskAgain(p.canAskAgain);
     if (p.granted) await load();
   }, [load]);
 
@@ -80,7 +85,7 @@ export function ContactsProvider({ children }: { children: ReactNode }) {
   }, [people]);
   const nameOf = useCallback((number: string) => byNumber.get(normalizeNumber(number)) ?? null, [byNumber]);
 
-  const value = useMemo<ContactsValue>(() => ({ allowed, people, ask, nameOf }), [allowed, people, ask, nameOf]);
+  const value = useMemo<ContactsValue>(() => ({ allowed, canAskAgain, people, ask, nameOf }), [allowed, canAskAgain, people, ask, nameOf]);
   return <ContactsContext.Provider value={value}>{children}</ContactsContext.Provider>;
 }
 

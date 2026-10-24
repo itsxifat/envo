@@ -1,18 +1,31 @@
-import { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
-import { router } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { BackHandler, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import { MailCheck } from 'lucide-react-native';
+import Animated, { cancelAnimation, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
+import { CircleAlert, ClipboardPaste } from 'lucide-react-native';
 
 import { Button } from '@/components/ui/Button';
 import { Input, type InputRef } from '@/components/ui/Input';
 import { Screen } from '@/components/ui/Screen';
 import { Text } from '@/components/ui/Text';
-import { errorText } from '@/lib/api';
+import { ApiError, errorText } from '@/lib/api';
+import { toast } from '@/lib/toast';
 import { useSession } from '@/state/session';
 import { useTheme } from '@/theme/theme';
 import { fonts, radius, space } from '@/theme/tokens';
-import { StepDots } from './StepDots';
+import { confirmSignOut, focusField, OnboardingHeader, TextLink } from './OnboardingHeader';
+
+const EMAIL = /^\S+@\S+\.\S+$/;
+
+/** Six digits in a row from what was copied, e.g. the whole email ("Your code is 123456"). */
+function codeIn(text: string): string | null {
+  const own = /(?:^|\D)(\d{6})(?!\d)/.exec(text)?.[1];
+  if (own) return own;
+  const digits = text.replace(/\D/g, '');
+  return digits.length === 6 ? digits : null;
+}
 
 /** Step 2: the six-digit code from the email (it confirms the address before the registration). */
 export function VerifyEmailScreen() {
@@ -20,12 +33,22 @@ export function VerifyEmailScreen() {
   const { account, verifyEmail, resendCode, changeEmail, refresh, signOut } = useSession();
   const input = useRef<InputRef>(null);
   const [code, setCode] = useState('');
+  const [focused, setFocused] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [note, setNote] = useState<string | null>(null);
+  const [note, setNote] = useState<{ text: string; tone: 'call' | 'danger' } | null>(null);
   const [cooldown, setCooldown] = useState(0);
   const [changing, setChanging] = useState(false);
   const [email, setEmail] = useState(account?.email ?? '');
+  const [emailError, setEmailError] = useState<string | null>(null);
+  // When the last code went out: a while later, a word about the spam folder.
+  const [sentAt, setSentAt] = useState(() => Date.now());
+  const [spamHint, setSpamHint] = useState(false);
+  const clearing = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sending = useRef(false);
+  const reduce = useReducedMotion();
+  const shake = useSharedValue(0);
+  const shaking = useAnimatedStyle(() => ({ transform: [{ translateX: shake.value }] }));
 
   useEffect(() => {
     if (!cooldown) return;
@@ -33,95 +56,188 @@ export function VerifyEmailScreen() {
     return () => clearTimeout(t);
   }, [cooldown]);
 
+  useEffect(() => {
+    setSpamHint(false);
+    const t = setTimeout(() => setSpamHint(true), 30_000);
+    return () => clearTimeout(t);
+  }, [sentAt]);
+
+  useEffect(
+    () => () => {
+      if (clearing.current) clearTimeout(clearing.current);
+    },
+    [],
+  );
+
+  // While the email is being changed, back returns to the code (once a new email being saved has its
+  // answer, so an error isn't missed); otherwise it leaves the app.
+  useFocusEffect(
+    useCallback(() => {
+      if (!changing) return;
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        if (!busy) setChanging(false);
+        return true;
+      });
+      return () => sub.remove();
+    }, [changing, busy]),
+  );
+
   const submit = async (c: string) => {
+    // The sixth digit sends the code by itself: a tap on Confirm at that moment doesn't send it twice.
+    if (sending.current) return;
+    if (c.length < 6) {
+      setError('Enter all 6 digits');
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      return focusField(input.current);
+    }
+    sending.current = true;
     setBusy(true);
     setError(null);
     try {
       await verifyEmail(c);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace('/kyc');
+      router.replace({ pathname: '/kyc', params: { from: 'verify' } });
     } catch (err) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError(errorText(err));
-      setCode('');
-      input.current?.focus();
+      // A wrong or used-up code shakes, then clears for the next try; a lost connection keeps the digits.
+      if (err instanceof ApiError && err.status === 400) {
+        if (!reduce) shake.value = withSequence(withTiming(-8, { duration: 50 }), withTiming(8, { duration: 50 }), withTiming(-6, { duration: 50 }), withTiming(0, { duration: 50 }));
+        if (clearing.current) clearTimeout(clearing.current);
+        clearing.current = setTimeout(() => {
+          setCode('');
+          focusField(input.current);
+        }, 400);
+      }
       // The answer may have been lost on the way although Envo took the code: then this moves on.
       void refresh().catch(() => undefined);
     } finally {
+      sending.current = false;
       setBusy(false);
     }
   };
 
-  const resend = async () => {
+  // Reads the clipboard only when asked to (Android says so each time it's read).
+  const paste = async () => {
+    if (sending.current) return;
+    const found = codeIn(await Clipboard.getStringAsync().catch(() => ''));
+    if (!found) return toast('No code to paste');
+    setCode(found);
     setError(null);
+    void submit(found);
+  };
+
+  const resend = async () => {
+    setNote(null);
     try {
       await resendCode();
       setCooldown(30);
-      setNote('A new code is on its way.');
+      setSentAt(Date.now());
+      setNote({ text: 'A new code is on its way.', tone: 'call' });
     } catch (err) {
-      setError(errorText(err));
+      setNote({ text: errorText(err), tone: 'danger' });
       // e.g. the email is confirmed already: then this moves on.
       void refresh().catch(() => undefined);
     }
   };
 
+  const startChanging = () => {
+    setEmail(account?.email ?? '');
+    setEmailError(null);
+    // The code's field goes away while the email is changed (it gets the cursor again after).
+    setFocused(false);
+    setChanging(true);
+  };
+
   const saveEmail = async () => {
+    if (busy) return;
+    const next = email.trim().toLowerCase();
+    if (!EMAIL.test(next)) return setEmailError('Enter a valid email');
     setBusy(true);
-    setError(null);
+    setEmailError(null);
     try {
-      await changeEmail(email.trim().toLowerCase());
+      await changeEmail(next);
       setChanging(false);
+      setCode('');
+      setError(null);
       setCooldown(30);
-      setNote(`We sent a new code to ${email.trim().toLowerCase()}.`);
+      setSentAt(Date.now());
+      setNote({ text: `We sent a new code to ${next}.`, tone: 'call' });
     } catch (err) {
-      setError(errorText(err));
+      setEmailError(errorText(err));
     } finally {
       setBusy(false);
     }
   };
 
+  // No way back from here: the account is made. Android's back leaves the app (or ends changing the email).
   return (
     <Screen
-      back
-      onBack={signOut}
-      title=""
+      header={<OnboardingHeader step={1} />}
       scroll
       footer={
         changing ? (
-          <Button title="Send the code here" onPress={saveEmail} loading={busy} disabled={!/^\S+@\S+\.\S+$/.test(email.trim())} block />
+          <Button title="Send the code here" onPress={() => void saveEmail()} loading={busy} block />
         ) : (
-          <Button title="Confirm" onPress={() => void submit(code)} loading={busy} disabled={code.length !== 6} block />
+          <>
+            <Button title="Confirm" onPress={() => void submit(code)} loading={busy} block />
+            <Button title="Sign out" variant="ghost" onPress={() => confirmSignOut(signOut)} block />
+          </>
         )
       }
     >
-      <StepDots step={1} />
-      <View style={[styles.icon, { backgroundColor: colors.brandSoft }]}>
-        <MailCheck size={26} color={colors.brand} />
-      </View>
-      <Text variant="title" style={styles.title}>
-        Check your email
-      </Text>
-      <Text tone="secondary" style={styles.lead}>
-        We sent a 6-digit code to <Text variant="bodyMedium">{account?.email}</Text>. Enter it here to confirm your email.
-      </Text>
-
       {changing ? (
-        <View style={styles.fields}>
-          <Input label="Your email" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" autoComplete="email" autoFocus />
-          <Button title={`Keep ${account?.email}`} variant="ghost" size="md" onPress={() => setChanging(false)} style={styles.link} />
-        </View>
+        <>
+          <Text variant="title" accessibilityRole="header" style={styles.title}>
+            Change your email
+          </Text>
+          <Text tone="secondary" style={styles.lead}>
+            We'll send a new 6-digit code there.
+          </Text>
+          <View style={styles.fields}>
+            <Input
+              label="Your email"
+              value={email}
+              onChangeText={(v) => {
+                setEmail(v);
+                setEmailError(null);
+              }}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+              autoFocus
+              returnKeyType="send"
+              onSubmitEditing={() => void saveEmail()}
+              error={emailError}
+            />
+            <TextLink title={`Keep ${account?.email ?? 'my email'}`} onPress={() => setChanging(false)} />
+          </View>
+        </>
       ) : (
         <>
-          <Pressable accessibilityRole="none" onPress={() => input.current?.focus()} style={styles.boxes}>
-            {Array.from({ length: 6 }, (_, i) => {
-              const filled = i < code.length;
-              const current = i === code.length && !busy;
-              return (
-                <View key={i} style={[styles.box, { backgroundColor: colors.element, borderColor: error ? colors.danger : current ? colors.brand : 'transparent' }]}>
-                  <Text style={[styles.digit, { color: colors.text }]}>{filled ? code[i] : ''}</Text>
-                </View>
-              );
-            })}
+          <Text variant="title" accessibilityRole="header" style={styles.title}>
+            Check your email
+          </Text>
+          <View style={styles.lead}>
+            <Text tone="secondary">We sent a 6-digit code to</Text>
+            <Text variant="bodyMedium" numberOfLines={1} ellipsizeMode="middle">
+              {account?.email}
+            </Text>
+            <Text tone="secondary">Enter it below.</Text>
+          </View>
+
+          <Animated.View style={[styles.boxes, shaking]}>
+            {/* The boxes only show the hidden field's digits; tapping them brings the keyboard back. */}
+            <Pressable accessible={false} importantForAccessibility="no-hide-descendants" onPress={() => focusField(input.current)} style={styles.boxRow}>
+              {Array.from({ length: 6 }, (_, i) => {
+                const current = focused && !busy && i === code.length;
+                return (
+                  <View key={i} style={[styles.box, { backgroundColor: colors.field, borderColor: error ? colors.danger : current ? colors.brand : colors.borderStrong }]}>
+                    {i < code.length ? <Text style={styles.digit}>{code[i]}</Text> : current ? <Caret /> : null}
+                  </View>
+                );
+              })}
+            </Pressable>
             <TextInput
               ref={input}
               value={code}
@@ -131,6 +247,8 @@ export function VerifyEmailScreen() {
                 setError(null);
                 if (next.length === 6) void submit(next);
               }}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
               keyboardType="number-pad"
               textContentType="oneTimeCode"
               autoComplete="one-time-code"
@@ -138,39 +256,84 @@ export function VerifyEmailScreen() {
               maxLength={6}
               caretHidden
               accessibilityLabel="6-digit code"
+              accessibilityHint={error ?? undefined}
               style={styles.hidden}
             />
-          </Pressable>
-          {error && (
-            <Text variant="caption" tone="danger" style={styles.message}>
-              {error}
-            </Text>
-          )}
-          {!error && note && (
-            <Text variant="caption" tone="call" style={styles.message}>
-              {note}
-            </Text>
-          )}
-          <View style={styles.links}>
-            <Button title={cooldown ? `Send again in ${cooldown}s` : 'Send the code again'} variant="ghost" size="md" disabled={cooldown > 0} onPress={resend} style={styles.link} />
-            <Button title="Wrong email? Change it" variant="ghost" size="md" onPress={() => setChanging(true)} style={styles.link} />
+          </Animated.View>
+          <View accessibilityLiveRegion="polite">
+            {error ? (
+              <View style={styles.message}>
+                <CircleAlert size={14} color={colors.danger} strokeWidth={2} style={styles.messageIcon} />
+                <Text variant="caption" tone="danger" style={styles.flex}>
+                  {error}
+                </Text>
+              </View>
+            ) : note ? (
+              <Text variant="caption" tone={note.tone} style={styles.message}>
+                {note.text}
+              </Text>
+            ) : null}
           </View>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Paste code"
+            hitSlop={4}
+            onPress={() => void paste()}
+            style={({ pressed }) => [styles.chip, { backgroundColor: colors.brandSoft }, pressed && styles.pressed]}
+          >
+            <ClipboardPaste size={16} color={colors.brand} strokeWidth={2} />
+            <Text variant="label" tone="brand">
+              Paste code
+            </Text>
+          </Pressable>
+
+          <View style={styles.links}>
+            <TextLink title={cooldown ? `Send again in ${cooldown}s` : 'Send the code again'} disabled={cooldown > 0} onPress={() => void resend()} />
+            <TextLink title="Wrong email? Change it" onPress={startChanging} />
+          </View>
+          {spamHint && (
+            <Text variant="caption" tone="secondary">
+              No email? Check your spam or promotions folder.
+            </Text>
+          )}
         </>
       )}
     </Screen>
   );
 }
 
+/** The blinking bar in the box that the next digit goes into (still when motion is reduced). */
+function Caret() {
+  const { colors } = useTheme();
+  const reduce = useReducedMotion();
+  const shown = useSharedValue(1);
+  useEffect(() => {
+    if (reduce) {
+      shown.value = 1;
+      return;
+    }
+    shown.value = withRepeat(withSequence(withDelay(500, withTiming(0, { duration: 0 })), withDelay(500, withTiming(1, { duration: 0 }))), -1);
+    return () => cancelAnimation(shown);
+  }, [reduce, shown]);
+  const blink = useAnimatedStyle(() => ({ opacity: shown.value }));
+  return <Animated.View style={[styles.caret, { backgroundColor: colors.brand }, blink]} />;
+}
+
 const styles = StyleSheet.create({
-  icon: { width: 56, height: 56, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginTop: space.xl },
-  title: { marginTop: space.lg },
+  flex: { flex: 1 },
+  title: { marginTop: space.sm },
   lead: { marginTop: space.sm },
-  boxes: { flexDirection: 'row', gap: space.sm, marginTop: space.xxl },
-  box: { flex: 1, height: 64, borderRadius: radius.md, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  digit: { fontFamily: fonts.bold, fontSize: 26, fontVariant: ['tabular-nums'] },
+  fields: { gap: space.sm, marginTop: space.xl },
+  boxes: { marginTop: space.xl },
+  boxRow: { flexDirection: 'row', gap: space.sm },
+  box: { flex: 1, height: 56, borderRadius: radius.md, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  digit: { fontFamily: fonts.semibold, fontSize: 24, lineHeight: 30, fontVariant: ['tabular-nums'] },
+  caret: { width: 2, height: 24, borderRadius: 1 },
   hidden: { position: 'absolute', width: 1, height: 1, opacity: 0 },
-  message: { marginTop: space.md, marginLeft: 4 },
-  links: { marginTop: space.xl, alignItems: 'flex-start' },
-  link: { paddingHorizontal: 4 },
-  fields: { gap: space.lg, marginTop: space.xl },
+  message: { flexDirection: 'row', gap: 6, marginTop: space.sm },
+  messageIcon: { marginTop: 2 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', minHeight: 36, paddingHorizontal: 14, borderRadius: radius.pill, marginTop: space.lg },
+  pressed: { opacity: 0.7 },
+  links: { marginTop: space.md, alignItems: 'flex-start' },
 });

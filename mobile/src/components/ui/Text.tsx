@@ -5,7 +5,8 @@ import { type, type TypeVariant } from '@/theme/tokens';
 
 export interface AppTextProps extends TextProps {
   variant?: TypeVariant;
-  tone?: 'default' | 'secondary' | 'tertiary' | 'brand' | 'danger' | 'call' | 'onPrimary' | 'onBrand';
+  /** `call` and `warning` are the readable green and amber, for text. */
+  tone?: 'default' | 'secondary' | 'tertiary' | 'brand' | 'danger' | 'call' | 'warning' | 'onPrimary' | 'onBrand';
   align?: 'left' | 'center' | 'right';
 }
 
@@ -18,7 +19,8 @@ export function Text({ variant = 'body', tone = 'default', align, style, ...rest
     tertiary: colors.textTertiary,
     brand: colors.brand,
     danger: colors.danger,
-    call: colors.call,
+    call: colors.callText,
+    warning: colors.warningText,
     onPrimary: colors.onPrimary,
     onBrand: colors.onBrand,
   }[tone];

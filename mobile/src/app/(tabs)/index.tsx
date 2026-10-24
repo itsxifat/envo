@@ -1,3 +1,3 @@
-import { KeypadScreen } from '@/features/phone/Keypad';
+import { HomeScreen } from '@/features/phone/Home';
 
-export default KeypadScreen;
+export default HomeScreen;

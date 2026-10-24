@@ -1,13 +1,17 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import Constants from 'expo-constants';
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
+import { FunnelDisplay_600SemiBold } from '@expo-google-fonts/funnel-display';
 import { useFonts, Geist_400Regular, Geist_500Medium, Geist_600SemiBold, Geist_700Bold } from '@expo-google-fonts/geist';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { RETURN_BAR, ReturnToCallBar, ReturnToCallContext } from '@/components/ReturnToCallBar';
 import { OfflineScreen, UpdateScreen } from '@/features/onboarding/Notices';
-import { CallsProvider } from '@/state/calls';
+import { CallsProvider, useCalls } from '@/state/calls';
 import { ContactsProvider } from '@/state/contacts';
 import { SessionProvider, useSession } from '@/state/session';
 import { SettingsProvider } from '@/state/settings';
@@ -16,7 +20,7 @@ import { AppThemeProvider, useTheme } from '@/theme/theme';
 void SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const [fontsLoaded] = useFonts({ Geist_400Regular, Geist_500Medium, Geist_600SemiBold, Geist_700Bold });
+  const [fontsLoaded] = useFonts({ Geist_400Regular, Geist_500Medium, Geist_600SemiBold, Geist_700Bold, FunnelDisplay_600SemiBold });
   if (!fontsLoaded) return null;
 
   return (
@@ -51,12 +55,27 @@ function older(version: string, than: string): boolean {
 function Navigator() {
   const { dark, colors } = useTheme();
   const { ready, account, offline, config } = useSession();
+  const { call } = useCalls();
+  const pathname = usePathname();
+  const insets = useSafeAreaInsets();
   // The splash stays up until we know whether someone is signed in.
   useEffect(() => {
     if (ready) void SplashScreen.hideAsync();
   }, [ready]);
   const stage = account?.stage;
   const phone = stage === 'activate' || stage === 'registering' || stage === 'active';
+  // The router opens the call screen a moment after a call starts: the bar waits until that screen has
+  // shown, or it would flash (and the screens jump) on every call.
+  const callId = call?.id ?? null;
+  const [openedCall, setOpenedCall] = useState<string | null>(null);
+  useEffect(() => {
+    if (callId && pathname === '/call') setOpenedCall(callId);
+  }, [callId, pathname]);
+  // A call goes on behind the other screens: a bar on top leads back to it, and the screens move down
+  // under it (they get no top inset of their own, so it isn't added twice).
+  const callBar = !!call && call.state !== 'ended' && pathname !== '/call' && openedCall === call.id;
+  const barHeight = callBar ? insets.top + RETURN_BAR : 0;
+  const screenInsets = useMemo(() => (callBar ? { ...insets, top: 0 } : insets), [callBar, insets]);
   const base = dark ? DarkTheme : DefaultTheme;
   if (!ready) return null;
   if (config && older(Constants.expoConfig?.version ?? '0.0.0', config.min_app_version)) return <UpdateScreen url={config.update_url} />;
@@ -65,31 +84,44 @@ function Navigator() {
   return (
     <ThemeProvider value={{ ...base, colors: { ...base.colors, background: colors.background } }}>
       <StatusBar style={dark ? 'light' : 'dark'} />
-      <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
-        <Stack.Protected guard={!account}>
-          <Stack.Screen name="(auth)" />
-        </Stack.Protected>
-        <Stack.Protected guard={stage === 'verify'}>
-          <Stack.Screen name="verify" />
-        </Stack.Protected>
-        <Stack.Protected guard={stage === 'kyc'}>
-          <Stack.Screen name="kyc" />
-          <Stack.Screen name="selfie" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
-        </Stack.Protected>
-        <Stack.Protected guard={stage === 'suspended'}>
-          <Stack.Screen name="paused" />
-        </Stack.Protected>
-        <Stack.Protected guard={phone}>
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="your-number" options={{ animation: 'fade' }} />
-          <Stack.Screen name="activate" />
-          <Stack.Screen name="recharge" />
-          <Stack.Screen name="ringtone" />
-          <Stack.Screen name="password" />
-          <Stack.Screen name="call" options={{ presentation: 'fullScreenModal', animation: 'fade', gestureEnabled: false }} />
-          <Stack.Screen name="incoming" options={{ presentation: 'fullScreenModal', animation: 'fade', gestureEnabled: false }} />
-        </Stack.Protected>
-      </Stack>
+      <ReturnToCallContext.Provider value={barHeight}>
+        <View style={[styles.flex, { paddingTop: barHeight, backgroundColor: colors.background }]}>
+          <SafeAreaInsetsContext.Provider value={screenInsets}>
+            <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+              <Stack.Protected guard={!account}>
+                <Stack.Screen name="(auth)" />
+              </Stack.Protected>
+              <Stack.Protected guard={stage === 'verify'}>
+                <Stack.Screen name="verify" />
+              </Stack.Protected>
+              <Stack.Protected guard={stage === 'kyc'}>
+                <Stack.Screen name="kyc" />
+                <Stack.Screen name="selfie" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
+              </Stack.Protected>
+              <Stack.Protected guard={stage === 'suspended'}>
+                <Stack.Screen name="paused" />
+              </Stack.Protected>
+              <Stack.Protected guard={phone}>
+                <Stack.Screen name="(tabs)" />
+                <Stack.Screen name="your-number" options={{ animation: 'fade' }} />
+                <Stack.Screen name="activate" />
+                <Stack.Screen name="recharge" />
+                <Stack.Screen name="history" />
+                <Stack.Screen name="ringtone" />
+                <Stack.Screen name="password" />
+                <Stack.Screen name="ready" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
+                <Stack.Screen name="call" options={{ presentation: 'fullScreenModal', animation: 'fade', gestureEnabled: false }} />
+                <Stack.Screen name="incoming" options={{ presentation: 'fullScreenModal', animation: 'fade', gestureEnabled: false }} />
+              </Stack.Protected>
+            </Stack>
+          </SafeAreaInsetsContext.Provider>
+        </View>
+        {callBar && <ReturnToCallBar top={insets.top} />}
+      </ReturnToCallContext.Provider>
     </ThemeProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+});

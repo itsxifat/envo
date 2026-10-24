@@ -37,11 +37,20 @@ While the emulator runs, build with fewer workers so it doesn't hang:
 ## Where things are
 
 - `src/app/`: the screens' routes. Who sees what is decided in `src/app/_layout.tsx` (signed out,
-  KYC, or the phone).
-- `src/features/onboarding/`: welcome, sign-up, KYC, the number reveal.
-- `src/features/phone/`: keypad, recents, contacts, account, recharge, ringtones, call screens.
-- `src/components/ui/`: buttons, fields, lists, the screen frame. Colours and type come from
-  `src/theme/tokens.ts` through `useTheme()` (light and dark).
+  email code, KYC, or the phone). The phone opens on **Home** (`features/phone/Home.tsx`): the number,
+  the balance and the one thing to do next for the person's stage (activate, payment being checked,
+  being registered, no balance left). Tabs: Home, Calls, Keypad, Contacts, Account.
+- `src/features/onboarding/`: welcome, sign-up, the email code, KYC (a checklist and three parts, a
+  draft kept on the phone), the live selfie, the number reveal, the paused/offline/update notices.
+- `src/features/phone/`: Home, keypad, calls, contacts, account, balance history, recharge,
+  ringtones, call screens.
+- `src/components/ui/`: buttons, fields, lists, the screen frame (keyboard-aware: the focused field
+  scrolls into view), the night number card, sheets, notices, choice tiles, steps. Colours and type
+  come from `src/theme/tokens.ts` through `useTheme()` (light and dark).
+- `src/components/CallGate.tsx`: every place that starts a call asks it first; it says in a sheet
+  why a call can't go out (activate, payment being checked, being registered, no internet, no
+  balance). With no balance left, calls to Envo numbers still go out while those are free: the
+  number is checked with the server first (`lib/numbers.ts`).
 - `src/state/`: the session, settings (ringtone, vibrate, keypad sounds) and calls.
 
 Sounds and icons are made by scripts, not design tools: `npm run sounds` writes

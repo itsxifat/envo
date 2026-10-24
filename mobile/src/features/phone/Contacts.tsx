@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Pressable, SectionList, StyleSheet, View } from 'react-native';
-import { router } from 'expo-router';
-import { BookUser, ChevronDown, ChevronUp, Phone, Search } from 'lucide-react-native';
+import { Linking, Pressable, SectionList, StyleSheet, View } from 'react-native';
+import { Phone, Search } from 'lucide-react-native';
 
+import { useCallGate } from '@/components/CallGate';
 import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -10,20 +10,24 @@ import { Input } from '@/components/ui/Input';
 import { Screen } from '@/components/ui/Screen';
 import { Text } from '@/components/ui/Text';
 import { formatPhone } from '@/lib/format';
-import { isEnvoNumber } from '@/lib/numbers';
 import { useCalls } from '@/state/calls';
 import { useContacts, type Person } from '@/state/contacts';
 import { useSession } from '@/state/session';
 import { useTheme } from '@/theme/theme';
-import { radius, space } from '@/theme/tokens';
+import { iconStroke, radius, space } from '@/theme/tokens';
+import { useContactSheet } from './ContactSheet';
+
+/** Three made-up people for the picture on the permission screen (their tints are blue, green and orange). */
+const SAMPLE = ['Ayesha Rahman', 'Karim Hossain', 'Sadia Mim'];
 
 export function ContactsScreen() {
   const { colors } = useTheme();
-  const { account, config } = useSession();
+  const { config } = useSession();
   const { dial } = useCalls();
-  const { allowed, people, ask } = useContacts();
+  const { allowed, canAskAgain, people, ask } = useContacts();
+  const gate = useCallGate();
+  const contactSheet = useContactSheet();
   const [q, setQ] = useState('');
-  const [open, setOpen] = useState<string | null>(null);
   // Calls to Envo numbers are free only when Enfinito makes them so.
   const free = !!config?.free_onnet;
 
@@ -44,113 +48,124 @@ export function ContactsScreen() {
     ];
   }, [people, q, free]);
 
-  const call = (number: string, name: string) => (account?.stage === 'active' ? dial(number, name) : router.push('/'));
-
   if (allowed === false) {
     return (
       <Screen title="Contacts" tabBar>
         <View style={styles.ask}>
-          <View style={[styles.askIcon, { backgroundColor: colors.brandSoft }]}>
-            <BookUser size={32} color={colors.brand} />
+          <View style={styles.faces} importantForAccessibility="no-hide-descendants">
+            {SAMPLE.map((name, i) => (
+              <View key={name} style={[styles.face, { borderColor: colors.background }, i > 0 && styles.overlap]}>
+                <Avatar name={name} size={48} />
+              </View>
+            ))}
+            {free && <Badge label="Free" tone="call" dot style={styles.freeBadge} />}
           </View>
-          <Text variant="heading" align="center">
-            Call your contacts from Envo
+          <Text variant="heading" align="center" accessibilityRole="header" style={styles.askTitle}>
+            {free ? "See who's on Envo" : 'Call your contacts from Envo'}
           </Text>
-          <Text tone="secondary" align="center">
-            {free ? "Envo shows your phone's contacts here and marks the ones you can call for free. They stay on your phone." : "Envo shows your phone's contacts here, so you can call them in a tap. They stay on your phone."}
+          <Text tone="secondary" align="center" style={styles.askBody}>
+            {free ? 'Calls to Envo numbers are free. Your contacts stay on your phone.' : "Call anyone in your phone's contacts in a tap. They stay on your phone."}
           </Text>
           <Button
-            title="Allow access to contacts"
-            onPress={() => void ask()}
-            style={{ marginTop: space.md }}
+            title={canAskAgain ? 'Allow contacts' : 'Open settings'}
+            size="md"
+            onPress={() => void (canAskAgain ? ask().catch(() => undefined) : Linking.openSettings().catch(() => undefined))}
+            style={styles.askButton}
           />
+          {!canAskAgain && (
+            <Text variant="caption" tone="secondary" align="center" style={styles.askNote}>
+              Contacts are off for Envo. Turn them on in Settings, then Permissions.
+            </Text>
+          )}
         </View>
       </Screen>
     );
   }
 
   return (
-    <Screen title="Contacts" subtitle={people.length ? `${people.length} people` : undefined} tabBar contentStyle={{ paddingHorizontal: 0 }}>
+    <Screen title="Contacts" subtitle={people.length ? `${people.length.toLocaleString('en-US')} ${people.length === 1 ? 'person' : 'people'}` : undefined} tabBar contentStyle={styles.content}>
       <View style={styles.search}>
-        <Input placeholder="Search name or number" value={q} onChangeText={setQ} right={<Search size={18} color={colors.textTertiary} style={{ marginRight: space.lg }} />} />
+        <Input placeholder="Search name or number" value={q} onChangeText={setQ} right={<Search size={18} color={colors.textTertiary} strokeWidth={iconStroke} style={{ marginRight: space.lg }} />} />
       </View>
       <SectionList
         sections={sections}
         keyExtractor={(p, i) => `${p.id}-${i}`}
         stickySectionHeadersEnabled={false}
-        contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: 120 }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        contentContainerStyle={styles.list}
         renderSectionHeader={({ section }) => (
-          <Text variant="small" tone={section.envo ? 'call' : 'tertiary'} style={styles.sectionTitle}>
+          <Text variant="small" tone={section.envo ? 'call' : 'secondary'} accessibilityRole="header" style={styles.sectionTitle}>
             {section.title}
           </Text>
         )}
         ListEmptyComponent={
           allowed === null ? undefined : (
-            <Text tone="secondary" align="center" style={{ marginTop: 60 }}>
+            <Text tone="secondary" align="center" style={styles.empty}>
               {q ? 'Nobody matches that.' : 'No contacts with phone numbers yet.'}
             </Text>
           )
         }
-        renderItem={({ item, section }) => {
-          const many = item.numbers.length > 1;
-          // A person can be listed twice (On Envo and A-Z): only the row tapped opens.
-          const key = `${section.title}:${item.id}`;
-          const expanded = open === key;
+        renderItem={({ item }) => {
+          const more = item.numbers.length - 1;
+          const first = formatPhone(item.numbers[0]!);
           return (
-            <View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${item.name}, ${first}${more ? `, and ${more} more` : ''}`}
+              onPress={() => contactSheet.open(item)}
+              style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}
+            >
+              <Avatar name={item.name} />
+              <View style={styles.text}>
+                <Text variant="bodyMedium" numberOfLines={1}>
+                  {item.name}
+                </Text>
+                <Text variant="caption" tone="secondary" numberOfLines={1} style={styles.tabular}>
+                  {more ? `${first} · ${more} more` : first}
+                </Text>
+              </View>
+              {free && item.envo && <Badge label="Free" tone="call" style={styles.badge} />}
               <Pressable
                 accessibilityRole="button"
-                onPress={() => (many ? setOpen(expanded ? null : key) : call(item.numbers[0]!, item.name))}
-                style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surface }]}
+                accessibilityLabel={`Call ${item.name}`}
+                hitSlop={4}
+                onPress={() => gate.guard(() => dial(item.numbers[0]!, item.name), item.numbers[0])}
+                style={({ pressed }) => [styles.call, { backgroundColor: colors.callSoft }, pressed && styles.pressed]}
               >
-                <Avatar name={item.name} />
-                <View style={{ flex: 1, gap: 3 }}>
-                  <Text variant="bodyMedium" numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                  <Text variant="caption" tone="secondary" numberOfLines={1}>
-                    {formatPhone(item.numbers[0]!)}
-                    {many ? `  ·  ${item.numbers.length - 1} more` : ''}
-                  </Text>
-                </View>
-                {free && item.envo && <Badge label="Free" tone="call" style={styles.badge} />}
-                {many ? (
-                  <View style={[styles.callIcon, { backgroundColor: colors.element }]}>
-                    {expanded ? <ChevronUp size={18} color={colors.textSecondary} /> : <ChevronDown size={18} color={colors.textSecondary} />}
-                  </View>
-                ) : (
-                  <View style={[styles.callIcon, { backgroundColor: colors.callSoft }]}>
-                    <Phone size={17} color={colors.call} />
-                  </View>
-                )}
+                <Phone size={18} color={colors.callText} strokeWidth={iconStroke} />
               </Pressable>
-              {expanded &&
-                item.numbers.map((n) => (
-                  <Pressable key={n} accessibilityRole="button" accessibilityLabel={`Call ${n}`} onPress={() => call(n, item.name)} style={({ pressed }) => [styles.subRow, pressed && { backgroundColor: colors.surface }]}>
-                    <Text variant="body" style={{ flex: 1 }}>
-                      {formatPhone(n)}
-                    </Text>
-                    {free && isEnvoNumber(n) && <Badge label="Free" tone="call" style={styles.badge} />}
-                    <View style={[styles.callIcon, { backgroundColor: colors.callSoft }]}>
-                      <Phone size={17} color={colors.call} />
-                    </View>
-                  </Pressable>
-                ))}
-            </View>
+            </Pressable>
           );
         }}
       />
+      {contactSheet.sheet}
+      {gate.sheet}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  // Screen leaves a space above the tab bar; the list runs down to the bar and keeps its own space.
+  content: { paddingHorizontal: 0, marginBottom: -space.xl },
   search: { paddingHorizontal: space.xl, paddingBottom: space.sm },
+  list: { flexGrow: 1, paddingHorizontal: space.lg, paddingBottom: space.xl },
   sectionTitle: { marginTop: space.lg, marginBottom: space.xs, marginLeft: space.sm },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.sm, paddingVertical: 10, borderRadius: radius.md },
-  subRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, marginLeft: 64, paddingVertical: 10, paddingHorizontal: space.sm, borderRadius: radius.md },
+  empty: { marginTop: 60 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 64, paddingVertical: space.md, paddingHorizontal: space.sm, borderRadius: radius.md },
+  text: { flex: 1, gap: 2 },
+  tabular: { fontVariant: ['tabular-nums'] },
   badge: { alignSelf: 'center' },
-  callIcon: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
-  ask: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.md, paddingBottom: 120 },
-  askIcon: { width: 76, height: 76, borderRadius: 26, alignItems: 'center', justifyContent: 'center', marginBottom: space.sm },
+  call: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  pressed: { transform: [{ scale: 0.94 }] },
+  ask: { alignItems: 'center', paddingTop: 96 },
+  faces: { flexDirection: 'row' },
+  // A ring of the page colour keeps the overlapping faces apart; each overlaps the last by 14.
+  face: { borderWidth: 3, borderRadius: 27 },
+  overlap: { marginLeft: -14 },
+  freeBadge: { position: 'absolute', top: -8, right: -22 },
+  askTitle: { marginTop: space.xl },
+  askBody: { marginTop: space.sm, maxWidth: 300 },
+  askButton: { marginTop: space.xl },
+  askNote: { marginTop: space.md, maxWidth: 300 },
 });

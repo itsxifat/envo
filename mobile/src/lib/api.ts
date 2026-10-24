@@ -30,17 +30,27 @@ function fail(status: number, data: { error?: string; details?: { code?: string 
   throw new ApiError(status, data?.error ?? 'Something went wrong. Please try again.', data?.details?.code);
 }
 
+export interface RequestOptions {
+  /** Uploads only: how much has been sent, from 0 to 1. */
+  onProgress?: (fraction: number) => void;
+}
+
 /**
  * Uploads (photos, documents) go through XMLHttpRequest: Expo's fetch can't send React Native's
  * { uri, name, type } file parts, the native XMLHttpRequest reads them from disk.
  */
-function upload<T>(method: string, path: string, body: FormData): Promise<T> {
+function upload<T>(method: string, path: string, body: FormData, onProgress?: (fraction: number) => void): Promise<T> {
   return new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
     x.open(method, API_URL + path);
     x.setRequestHeader('Accept', 'application/json');
     if (token) x.setRequestHeader('Authorization', `Bearer ${token}`);
     x.timeout = 120_000;
+    if (onProgress) {
+      x.upload.onprogress = (e) => {
+        if (e.lengthComputable && e.total > 0) onProgress(Math.min(1, e.loaded / e.total));
+      };
+    }
     x.onload = () => {
       let data: { error?: string; details?: { code?: string } } | null = null;
       try {
@@ -63,8 +73,8 @@ function upload<T>(method: string, path: string, body: FormData): Promise<T> {
   });
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  if (body instanceof FormData) return upload<T>(method, path, body);
+async function request<T>(method: string, path: string, body?: unknown, opts: RequestOptions = {}): Promise<T> {
+  if (body instanceof FormData) return upload<T>(method, path, body, opts.onProgress);
   // A weak connection can leave a request hanging: give up after 20 s, the answer's body included.
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), 20_000);
@@ -100,7 +110,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   get: <T>(path: string) => request<T>('GET', path),
-  post: <T>(path: string, body: unknown = {}) => request<T>('POST', path, body),
+  post: <T>(path: string, body: unknown = {}, opts?: RequestOptions) => request<T>('POST', path, body, opts),
   put: <T>(path: string, body: unknown) => request<T>('PUT', path, body),
 };
 

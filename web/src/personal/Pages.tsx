@@ -61,16 +61,29 @@ const KEYS = [
 
 const REG_TEXT = { off: 'Phone is off', connecting: 'Connecting…', registered: 'Ready to call', unregistered: 'Not connected', failed: 'Could not connect' } as const;
 
-/** Envo stops outgoing calls at a balance of zero (calls to the number still ring). */
+/** With a balance, any number can be called (calls to the number always ring). */
 const canDial = (me: PhoneMe) => me.stage === 'active' && me.balance > 0;
+/** With the balance used up, calls to Envo numbers still go out while those are free. */
+const envoOnly = (me: PhoneMe, freeOnnet: boolean) => me.stage === 'active' && me.balance <= 0 && freeOnnet;
+
+/** Calls `dial`, or with no balance left first asks Envo whether the number is an Envo number (free). */
+async function dialIfAllowed(me: PhoneMe, freeOnnet: boolean, n: string, dial: (n: string) => void): Promise<void> {
+  if (canDial(me)) return dial(n);
+  if (!envoOnly(me, freeOnnet)) return;
+  const { envo } = await api.get<{ envo: boolean }>(`/api/phone/envo-number?number=${encodeURIComponent(n)}`).catch(() => ({ envo: false }));
+  if (envo) dial(n);
+  else toast.info('Recharge to call this number. Calls to Envo numbers are still free.');
+}
 
 /** Instead of calling while the balance is used up. */
-function RechargeToCall() {
+function RechargeToCall({ freeOnnet }: { freeOnnet: boolean }) {
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-amber-50 px-4 py-3.5 ring-1 ring-amber-600/20 sm:px-5">
       <div className="min-w-0 flex-1">
         <p className="text-[14.5px] font-semibold text-amber-950">Recharge to call</p>
-        <p className="text-[13px] text-amber-900/80">Your balance is used up. Calls to your number still ring.</p>
+        <p className="text-[13px] text-amber-900/80">
+          {freeOnnet ? 'Your balance is used up. Calls to Envo numbers are still free, and calls to your number still ring.' : 'Your balance is used up. Calls to your number still ring.'}
+        </p>
       </div>
       <Link to="/phone/balance" className="inline-flex h-9 items-center gap-1.5 rounded-full bg-ink-950 px-4 text-[13.5px] font-semibold text-white transition hover:bg-ink-800">
         <Plus className="size-4" /> Recharge
@@ -82,13 +95,16 @@ function RechargeToCall() {
 export function PhonePage({ me }: { me: PhoneMe }) {
   const phone = usePhone();
   const calls = usePhoneCalls();
+  const config = usePhoneConfig();
+  const freeOnnet = !!config.data?.free_onnet;
   const [number, setNumber] = useState('');
   const active = me.stage === 'active';
   const noBalance = active && !canDial(me);
-  const canCall = canDial(me) && phone.reg === 'registered' && number.replace(/\D/g, '').length >= 3;
+  const mayDial = canDial(me) || envoOnly(me, freeOnnet);
+  const canCall = mayDial && phone.reg === 'registered' && number.replace(/\D/g, '').length >= 3;
   const call = (n = number) => {
-    if (!n || !canDial(me)) return;
-    phone.dial(n);
+    if (!n || !mayDial) return;
+    void dialIfAllowed(me, freeOnnet, n, phone.dial);
   };
 
   return (
@@ -100,7 +116,7 @@ export function PhonePage({ me }: { me: PhoneMe }) {
             Your payment is in. Registration with the operator usually takes a few hours; we email you the moment you can call.
           </Notice>
         )}
-        {noBalance && <RechargeToCall />}
+        {noBalance && <RechargeToCall freeOnnet={freeOnnet} />}
         <Card className="p-5 sm:p-6">
           <form
             onSubmit={(e) => {
@@ -123,9 +139,12 @@ export function PhonePage({ me }: { me: PhoneMe }) {
               {!active ? (
                 'You can call once your number is registered'
               ) : noBalance ? (
-                <Link to="/phone/balance" className="font-medium text-brand-600 hover:text-brand-700">
-                  Recharge to call
-                </Link>
+                <>
+                  {freeOnnet && 'Free calls to Envo numbers only · '}
+                  <Link to="/phone/balance" className="font-medium text-brand-600 hover:text-brand-700">
+                    Recharge to call
+                  </Link>
+                </>
               ) : phone.config && !phone.config.enabled ? (
                 (phone.config.reason ?? REG_TEXT.off)
               ) : (
@@ -169,7 +188,7 @@ export function PhonePage({ me }: { me: PhoneMe }) {
 
       <Card>
         <CardHeader title="Recent calls" actions={<Link to="/phone/calls" className="text-[13px] font-medium text-brand-600 hover:text-brand-700">All calls</Link>} />
-        <CallList calls={(calls.data ?? []).slice(0, 6)} loading={calls.isLoading} onCall={canDial(me) ? (n) => call(n) : undefined} compact />
+        <CallList calls={(calls.data ?? []).slice(0, 6)} loading={calls.isLoading} onCall={mayDial ? (n) => call(n) : undefined} compact />
       </Card>
     </div>
   );
@@ -212,12 +231,14 @@ function CallList({ calls, loading, onCall, compact }: { calls: PhoneCall[]; loa
 export function CallsPage({ me }: { me: PhoneMe }) {
   const calls = usePhoneCalls();
   const phone = usePhone();
+  const freeOnnet = !!usePhoneConfig().data?.free_onnet;
+  const mayDial = canDial(me) || envoOnly(me, freeOnnet);
   return (
     <div className="space-y-5">
       <h1 className="text-[26px] font-semibold tracking-tight text-slate-950">Calls</h1>
-      {me.stage === 'active' && !canDial(me) && <RechargeToCall />}
+      {me.stage === 'active' && !canDial(me) && <RechargeToCall freeOnnet={freeOnnet} />}
       <Card>
-        <CallList calls={calls.data ?? []} loading={calls.isLoading} onCall={canDial(me) ? (n) => phone.dial(n) : undefined} />
+        <CallList calls={calls.data ?? []} loading={calls.isLoading} onCall={mayDial ? (n) => void dialIfAllowed(me, freeOnnet, n, phone.dial) : undefined} />
       </Card>
     </div>
   );

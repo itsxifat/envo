@@ -1,6 +1,8 @@
 import { many } from '../db.js';
 import { getSettings, type Settings } from '../settings.js';
 import { getAccountPlan } from '../billing/plan.js';
+import { getPhoneSettings } from '../phone/settings.js';
+import { getSupplySettings } from '../supply/settings.js';
 
 export interface Tenant {
   id: number;
@@ -208,6 +210,10 @@ export interface Model {
   ringGroups: RingGroup[];
   queues: Queue[];
   timeConditions: TimeCondition[];
+  /** Numbers on Envo from Enfinito's providers (as stored): calls to them are free while that is on. */
+  envoNumbers: string[];
+  /** Envo Phone servers with no balance left, while Envo calls are free: only those calls go out. */
+  envoCallsOnly: number[];
 }
 
 export async function loadModel(): Promise<Model> {
@@ -228,17 +234,24 @@ export async function loadModel(): Promise<Model> {
       many<Conference>('SELECT * FROM conferences ORDER BY id'),
     ]);
   await applyPlans(tenants, extensions, numbers);
-  // Envo Phone calls out from a balance: once it is used up, calls out stop (calls in still ring).
-  const noBalance = new Set(
-    (
-      await many<{ id: number }>(
-        `SELECT t.id FROM tenants t JOIN accounts a ON a.id = t.account_id AND a.kind = 'personal'
-          WHERE COALESCE((SELECT sum(l.amount) FROM balance_ledger l WHERE l.account_id = a.id), 0) <= 0`,
-      )
-    ).map((t) => t.id),
-  );
-  for (const r of routes) if (noBalance.has(r.tenant_id)) r.enabled = false;
-  return { settings, tenants, extensions, trunks, numbers, routes, sounds, ivrs, ringGroups, queues, timeConditions, blocked, conferences };
+  // Envo Phone calls out from a balance. Once it is used up, only calls to Envo numbers go out while
+  // those are free (the routes check each number), otherwise none; calls in always ring.
+  const [noBalance, phone, supply] = await Promise.all([
+    many<{ id: number }>(
+      `SELECT t.id FROM tenants t JOIN accounts a ON a.id = t.account_id AND a.kind = 'personal'
+        WHERE COALESCE((SELECT sum(l.amount) FROM balance_ledger l WHERE l.account_id = a.id), 0) <= 0`,
+    ),
+    getPhoneSettings(),
+    getSupplySettings(),
+  ]);
+  const prefixes = supply.providers.map((p) => p.prefix).filter(Boolean);
+  const envoNumbers = numbers.filter((n) => prefixes.some((p) => n.number.startsWith(p))).map((n) => n.number);
+  const envoCallsOnly = phone.free_onnet ? noBalance.map((t) => t.id) : [];
+  if (!phone.free_onnet) {
+    const off = new Set(noBalance.map((t) => t.id));
+    for (const r of routes) if (off.has(r.tenant_id)) r.enabled = false;
+  }
+  return { settings, tenants, extensions, trunks, numbers, routes, sounds, ivrs, ringGroups, queues, timeConditions, blocked, conferences, envoNumbers, envoCallsOnly };
 }
 
 /**

@@ -19,6 +19,7 @@ import { adjustBalance, balanceOf, envoNumberSql, envoPrefixes } from '../phone/
 import { checkIdentity } from '../phone/check.js';
 import { PROBLEM_TEXT, checkLiveness, type Liveness } from '../phone/identity.js';
 import { getPhoneSettings, updatePhoneSettings } from '../phone/settings.js';
+import { scheduleApply } from '../asterisk/apply.js';
 import { groupedCallsSql } from '../services/calls.js';
 import { closeRequest, detailsSchema, uploadDocuments } from './numberRequests.js';
 import { guard } from './signup.js';
@@ -449,6 +450,18 @@ phoneRouter.get('/calls', async (req, res) => {
   );
 });
 
+/**
+ * Is this number on Envo (calls to it are free while that is on)? Asked before a call with no balance
+ * left, when only those calls go out.
+ */
+phoneRouter.get('/envo-number', async (req, res) => {
+  guard(req, `phone-envo-number-${req.user!.id}`, 120, 60_000);
+  const { number } = z.object({ number: z.string().trim().max(24) }).parse(req.query);
+  const digits = number.replace(/[^\d+]/g, '');
+  const r = digits ? await one<{ envo: boolean }>(`SELECT ${envoNumberSql('$1::text', '$2')} AS envo`, [digits, await envoPrefixes()]) : null;
+  res.json({ envo: !!r?.envo });
+});
+
 /** What the app's phone registers with (SIP over WebSocket), once the number works. */
 phoneRouter.get('/sip', async (req, res) => {
   res.json(await webphoneCredentials(req.user!));
@@ -522,6 +535,8 @@ adminPhoneRouter.put('/settings', async (req, res) => {
   const d = settingsSchema.parse(req.body);
   if (!(await getSupplySettings()).providers.some((p) => p.id === d.provider)) throw badRequest('Choose one of the number providers');
   const saved = await updatePhoneSettings(d);
+  // Whether Envo calls are free decides what a server with no balance left may still call.
+  scheduleApply();
   await audit(req, 'update', 'phone_app', '', `${saved.signups ? 'sign-ups open' : 'sign-ups closed'}, first recharge ${bdt(saved.activation_min)}, ${bdt(saved.rate_per_min)}/min`, null);
   res.json(saved);
 });

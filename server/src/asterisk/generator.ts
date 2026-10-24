@@ -453,6 +453,20 @@ export function generate(model: Model): GeneratedConfig {
   }
   dp.push(tdCtx.toString());
 
+  // Envo numbers in every spelling: an Envo Phone server with no balance left can still call these.
+  const onnetCtx = new Ctx('envo-onnet', 'Envo numbers: calls to them are free, also with no balance left');
+  const seenOnnet = new Set<string>();
+  for (const num of model.envoNumbers) {
+    if (!isPhoneNumber(num)) continue;
+    for (const variant of didVariants(num, cc, np)) {
+      if (seenOnnet.has(variant)) continue;
+      seenOnnet.add(variant);
+      onnetCtx.exten(variant, [`NoOp(Envo number ${num})`]);
+    }
+  }
+  dp.push(onnetCtx.toString());
+  const envoCallsOnly = new Set(model.envoCallsOnly);
+
   for (const t of tenants) {
     const tid = t.id;
     const exts = byTenant(extensions, tid);
@@ -520,6 +534,8 @@ export function generate(model: Model): GeneratedConfig {
         }
         const apps = [
           `NoOp(Envo route ${cfgText(r.name)})`,
+          // No balance left: only free calls to Envo numbers go out.
+          ...(envoCallsOnly.has(tid) ? [`GotoIf($[\${DIALPLAN_EXISTS(envo-onnet,\${EXTEN},1)} = 0]?envo-unavailable,s,1)`] : []),
           `Gosub(envo-out-pre,s,1(${tid},${t.max_channels},${cid},${t.account_id},${t.account_max_channels}))`,
           `GotoIf($[\${ENVO_OUT_OK} = 0]?envo-unavailable,s,1)`,
           `Set(ENVO_NUM=${prepend}\${EXTEN:${r.strip}})`,

@@ -1,4 +1,5 @@
 import { many } from '../db.js';
+import { getBillingSettings, onlineGateway } from '../billing/settings.js';
 import { closeRequest } from '../routes/numberRequests.js';
 import { deleteCheckFrames } from '../supply/files.js';
 import { chargeCalls } from './balance.js';
@@ -19,6 +20,8 @@ export function startPhoneJobs(): void {
   const tidy = async () => {
     const old = await many<{ id: string }>("DELETE FROM selfie_checks WHERE used_at IS NOT NULL OR created_at < now() - interval '1 hour' RETURNING id");
     for (const c of old) await deleteCheckFrames(c.id);
+    // Nobody can make the first recharge while online payments are off: reserved numbers stay held.
+    if (!onlineGateway(await getBillingSettings())) return;
     const unpaid = await many<{ id: number }>(
       `SELECT r.id FROM number_requests r JOIN accounts a ON a.id = r.account_id AND a.kind = 'personal'
         WHERE r.status IN ('submitted', 'in_review') AND r.created_at < now() - make_interval(days => $1)

@@ -49,7 +49,9 @@ the releases. An app older than "the oldest app that works" in /admin → Envo P
 Releases are signed with Envo Phone's own key (`plugins/withReleaseSigning.js`), kept on this Mac in
 `~/.envo-release/` (the keystore and `signing.properties` with its password), never in git. **Back it
 up**: every update must be signed with the same key, or phones refuse to install it over the old app.
-For each release raise `version` and `android.versionCode` in `app.json`.
+For each release raise `version` and `android.versionCode` in `app.json`. Development builds use the
+debug key and call the local API, so on the emulator `adb uninstall com.enfinito.envophone` before
+switching between a release APK and `npx expo run:android`.
 
 ## Where things are
 

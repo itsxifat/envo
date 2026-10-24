@@ -18,7 +18,9 @@ export function RechargePanel({ first, inReview }: { first?: boolean; inReview?:
   const qc = useQueryClient();
   const c = config.data;
   const min = c ? (first ? c.activation_min : c.recharge.min) : 0;
-  const presets = (c?.recharge.presets ?? []).filter((p) => p >= min);
+  const offered = (c?.recharge.presets ?? []).filter((p) => p >= min);
+  // The first recharge offers its least amount first, keeping the number of amounts.
+  const presets = first && c && !offered.includes(min) ? [min, ...offered].slice(0, Math.max(offered.length, 1)) : offered;
   const [amount, setAmount] = useState<number | null>(null);
   const [custom, setCustom] = useState('');
   const chosen = custom ? Number(custom) : (amount ?? presets[0] ?? min);

@@ -44,7 +44,9 @@ export function RechargeScreen({ activation }: { activation?: boolean }) {
   const { account, config, minActivation, createRecharge, payOnline, refresh } = useSession();
   const min = activation ? minActivation : (config?.recharge.min ?? 50);
   const max = config?.recharge.max ?? 10_000;
-  const presets = (config?.recharge.presets ?? [100, 200, 500, 1000]).filter((a) => a >= min);
+  const offered = (config?.recharge.presets ?? [100, 200, 500, 1000]).filter((a) => a >= min);
+  // Activating offers the least that activates first, keeping the number of amounts.
+  const presets = activation && !offered.includes(min) ? [min, ...offered].slice(0, Math.max(offered.length, 1)) : offered;
   const rate = config?.rate_per_min ?? 0;
   const [picked, setPicked] = useState<number | null>(null);
   // The tapped amount counts while it is offered (the settings can arrive or change after the screen

@@ -100,7 +100,7 @@ The website has two sides: **Business** (`/`, the PBX above) and **Personal** (`
 who only want a number of their own. They sign up on `/phone/signup` or in the Android app
 (`mobile/`), confirm their email with a 6-digit code, send the BTRC registration (NID, address, a
 photo of themselves and of their NID) and get a random number from the provider's pool. Their first
-recharge (at least the amount set in the admin, BDT 100 to start) activates it and becomes their
+recharge (at least the amount set in the admin, BDT 10 to start) activates it and becomes their
 calling balance; support then registers the number at the operator and connects it in Number
 requests, like any other, and the person is emailed. Calls to other networks are charged per started
 minute from the balance; calls between Envo numbers are free. With the balance used up, calls out

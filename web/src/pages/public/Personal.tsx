@@ -57,7 +57,7 @@ export function PersonalLandingPage() {
   const config = usePublicPhoneConfig();
   const c = config.data;
   const rate = c ? formatBdt(c.rate_per_min) : 'BDT 0.40';
-  const start = c ? formatBdt(c.activation_min) : 'BDT 100';
+  const start = c ? formatBdt(c.activation_min) : 'BDT 10';
   // Calls between Envo numbers are free only while the admin setting says so.
   const free = !!c?.free_onnet;
   const faq: [string, string][] = [

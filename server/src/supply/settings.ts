@@ -33,7 +33,7 @@ export const DEFAULT_PROVIDER: SupplyProvider = {
   prefix: '09639',
   length: 11,
   enabled: true,
-  line: { host: '', port: 5060, transport: 'udp' },
+  line: { host: '103.15.140.151', port: 5060, transport: 'udp' },
 };
 
 export const DEFAULT_SUPPLY: SupplySettings = {
@@ -54,11 +54,13 @@ export async function getSupplySettings(): Promise<SupplySettings> {
   if (cache) return cache;
   const row = await one<{ value: StoredSettings }>("SELECT value FROM settings WHERE key = 'number_supply'");
   const { operator_name, line, ...v } = row?.value ?? {};
+  // ICC saved before its SIP server was known gets ICC's.
+  const known = (p: SupplyProvider): SupplyProvider => (p.id === DEFAULT_PROVIDER.id && !p.line.host ? { ...p, line: { ...p.line, host: DEFAULT_PROVIDER.line.host } } : p);
   cache = {
     ...DEFAULT_SUPPLY,
     ...v,
     // Older settings become the one provider they described (ICC).
-    providers: v.providers ?? [{ ...DEFAULT_PROVIDER, name: operator_name ?? DEFAULT_PROVIDER.name, line: { ...DEFAULT_PROVIDER.line, ...(line ?? {}) } }],
+    providers: (v.providers ?? [{ ...DEFAULT_PROVIDER, name: operator_name ?? DEFAULT_PROVIDER.name, line: { ...DEFAULT_PROVIDER.line, ...(line ?? {}) } }]).map(known),
     topup: { ...DEFAULT_SUPPLY.topup, ...(v.topup ?? {}) },
   };
   return cache;

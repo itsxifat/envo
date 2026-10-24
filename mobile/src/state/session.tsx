@@ -407,7 +407,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       account,
       offline,
       config,
-      minActivation: me?.activation_min ?? config?.activation_min ?? 100,
+      minActivation: me?.activation_min ?? config?.activation_min ?? 10,
       recents,
       recentsLoaded,
       lastRefreshedAt,

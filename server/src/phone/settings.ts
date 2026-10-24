@@ -34,7 +34,7 @@ export interface PhoneSettings {
 export const DEFAULT_PHONE: PhoneSettings = {
   signups: true,
   provider: 'icc',
-  activation_min: 100,
+  activation_min: 10,
   recharge: { min: 50, max: 10_000, presets: [100, 200, 500, 1000] },
   rate_per_min: 0.4,
   free_onnet: true,

@@ -103,8 +103,8 @@ labels copied from the header by `lib/tableCards.ts`) — keep tables plain with
   balance, dashboard). On unless switched off in its Settings tab. The support
   steps are single functions on purpose: automation can replace them later. Envo never operates the
   operator's panels itself. Numbers come from providers kept in the settings (`supply/settings.ts`,
-  today only ICC: id, name, prefix `09639`, 11 digits, SIP server; older single-operator settings are
-  read as that one provider). Requests store `provider`; customers see the prefix fixed and type the
+  today only ICC: id, name, prefix `09639`, 11 digits, SIP server `103.15.140.151`, also filled in
+  when saved settings left it empty; older single-operator settings are read as that one provider). Requests store `provider`; customers see the prefix fixed and type the
   rest; pool imports must match a provider's prefix and length; Connect registers to the request's
   provider. A special number is a request with `special` (prefix + the digits wanted, no pool
   number); support checks it and bills any price by hand (Sales & invoices).

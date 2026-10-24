@@ -26,7 +26,8 @@
       "blockedPermissions": [
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.WRITE_CONTACTS"
-      ]
+      ],
+      "versionCode": 1
     },
     "web": {
       "output": "server",
@@ -69,7 +70,8 @@
           "cameraPermission": "Envo takes a live selfie to check it's really you, like banking apps do, and photos of your NID.",
           "barcodeScannerEnabled": false
         }
-      ]
+      ],
+      "./plugins/withReleaseSigning"
     ],
     "experiments": {
       "typedRoutes": true,

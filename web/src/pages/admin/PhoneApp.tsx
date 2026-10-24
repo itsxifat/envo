@@ -434,7 +434,7 @@ function SettingsForm() {
             <Field label="Oldest app version that still works" hint="Older apps ask people to update before they continue.">
               <Input value={form.min_app_version} onChange={(e) => set('min_app_version', e.target.value)} placeholder="1.0.0" />
             </Field>
-            <Field label="Where to get the app" hint="The Play Store page or a download link. Shown on the website too.">
+            <Field label="Where to get the app" hint="Leave empty to use the APK on Envo's website (uploaded by each deploy). Or a Play Store link, once the app is there.">
               <Input value={form.update_url} onChange={(e) => set('update_url', e.target.value)} placeholder="https://…" />
             </Field>
           </div>

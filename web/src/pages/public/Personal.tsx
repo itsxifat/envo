@@ -4,7 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { ArrowRight, Download, Phone, PhoneIncoming } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api';
-import { formatBdt } from '../../lib/format';
+import { formatBdt, formatBytes } from '../../lib/format';
 import { useAuth } from '../../state/auth';
 import type { PhoneConfig } from '../../personal/api';
 import { SitePage, WRAP } from './site';
@@ -64,7 +64,7 @@ export function PersonalLandingPage() {
     ['Is the number really mine?', `Yes. It is registered in your name with ${c?.operator || 'the operator'}, as the BTRC requires, and it stays yours while you use it.`],
     ['What do I need to sign up?', 'Your NID, a photo of yourself and a photo of the front of your NID. You can take both photos with your phone while you sign up.'],
     ['How soon can I call?', 'Your number is chosen the moment you send the registration. After your first recharge we register it in your name, usually within a few hours, and email you when it is ready.'],
-    ['Where can I use it?', 'In the Envo Phone app on Android, and in any browser on envo.enfinito.cloud. Calls to your number ring wherever you are signed in.'],
+    ['Where can I use it?', 'In the Envo Phone app on Android (download it from this page), and in any browser on envo.enfinito.cloud. Calls to your number ring wherever you are signed in.'],
     ['Is there a monthly fee?', `No. You only pay for calls to other networks, ${rate} a minute, from the balance you recharge.${free ? ' Calls to other Envo numbers are free.' : ''}`],
     ['Need a phone system for a business?', 'Envo also runs phone systems for teams, with extensions, call menus and queues. See Envo for business.'],
   ];
@@ -81,9 +81,9 @@ export function PersonalLandingPage() {
             <Link to="/phone/signup" className="site-btn site-btn-lg">
               Get my number <ArrowRight className="size-4" />
             </Link>
-            {c?.update_url && (
-              <a href={c.update_url} className="group flex items-center gap-2 text-[15px] font-medium">
-                <Download className="size-4" /> Get the Android app
+            {c?.android && (
+              <a href={c.android.url} download className="group flex items-center gap-2 text-[15px] font-medium hover:text-[#1f57eb]">
+                <Download className="size-4" /> Download for Android
               </a>
             )}
           </div>
@@ -126,6 +126,41 @@ export function PersonalLandingPage() {
           ))}
         </ol>
       </section>
+
+      {c?.android && (
+        <section id="android" className="scroll-mt-16 border-t border-[#e7e8ec]">
+          <div className={clsx(WRAP, 'grid items-center gap-10 py-20 sm:py-24 lg:grid-cols-[1fr_1fr] lg:gap-16')}>
+            <div>
+              <p className="site-label">The app</p>
+              <h2 className="site-h2 mt-4">Envo Phone for Android.</h2>
+              <p className="mt-5 max-w-[32rem] text-[16px] leading-relaxed text-[#5b616e]">
+                Sign up, register and recharge in the app, then call from your phone. Download it straight from here: it isn't on the Play Store yet.
+              </p>
+              <a href={c.android.url} download className="site-btn site-btn-lg mt-8 inline-flex">
+                <Download className="size-4" /> Download for Android
+              </a>
+              <p className="mt-4 text-[14px] text-[#8a8f9a]">
+                Version {c.android.version} · {formatBytes(c.android.size)} · Android 7 or newer
+              </p>
+            </div>
+            <ol className="grid gap-5">
+              {[
+                ['Download', `Tap Download for Android on your phone, then open the file Envo-Phone-${c.android.version}.apk when it's done.`],
+                ['Allow it once', 'Android asks whether your browser may install apps. Tap Settings, turn on "Allow from this source", then go back.'],
+                ['Install and open', 'Tap Install, then Open. Sign up, or sign in with your Envo email and password.'],
+              ].map(([t, d], i) => (
+                <li key={t} className="flex gap-4 border-t border-[#e7e8ec] pt-5">
+                  <span className="font-gmono text-[13px] text-[#1f57eb]">0{i + 1}</span>
+                  <div>
+                    <h3 className="font-display text-[18px] font-semibold tracking-[-0.01em]">{t}</h3>
+                    <p className="mt-1.5 text-[15px] leading-relaxed text-[#5b616e]">{d}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+      )}
 
       <section id="faq" className="scroll-mt-16 border-t border-[#e7e8ec]">
         <div className={clsx(WRAP, 'grid gap-10 py-20 sm:py-28 lg:grid-cols-[1fr_2fr] lg:gap-16')}>

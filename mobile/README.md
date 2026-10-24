@@ -34,6 +34,23 @@ While the emulator runs, build with fewer workers so it doesn't hang:
 `cd android && ./gradlew assembleDebug -PreactNativeArchitectures=arm64-v8a --max-workers=4`, then
 `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
 
+## Release APK (downloaded from the website)
+
+```bash
+mobile/scripts/build-apk.sh     # signed APK -> mobile/dist/envo-phone.apk (+ envo-phone.json)
+deploy/deploy.sh                # uploads it when it changed; the Envo Phone page offers it
+```
+
+The website's Envo Phone page (`/phone`, and `/home/phone` when signed in) shows "Download for
+Android" once an APK is on the server (`GET /api/public/phone/config` → `android`); the file is
+`/api/public/phone/app/envo-phone.apk`, kept in `~/apps/envo/downloads/` on the office server, outside
+the releases. An app older than "the oldest app that works" in /admin → Envo Phone is sent there.
+
+Releases are signed with Envo Phone's own key (`plugins/withReleaseSigning.js`), kept on this Mac in
+`~/.envo-release/` (the keystore and `signing.properties` with its password), never in git. **Back it
+up**: every update must be signed with the same key, or phones refuse to install it over the old app.
+For each release raise `version` and `android.versionCode` in `app.json`.
+
 ## Where things are
 
 - `src/app/`: the screens' routes. Who sees what is decided in `src/app/_layout.tsx` (signed out,

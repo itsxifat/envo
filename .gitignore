@@ -6,3 +6,6 @@ dist/
 .env.local
 .DS_Store
 .dev/
+
+# The Android APK the dev server offers (deploy.sh uploads the real one)
+server/downloads/

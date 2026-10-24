@@ -1,5 +1,8 @@
 import { Router, type Request, type RequestHandler, type Response } from 'express';
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import multer from 'multer';
 import { z } from 'zod';
 import { exec, many, one, tx } from '../db.js';
@@ -61,9 +64,37 @@ async function signedIn(res: Response, userId: number, accountId: number, client
 // ------------------------------------------------------------------------------------ public
 export const phonePublicRouter = Router();
 
+/*
+ * The Android app is downloaded from the website: deploy.sh uploads the APK and its details
+ * (envo-phone.json: version) to downloads/ next to the app, outside the releases, so they stay.
+ */
+const DOWNLOADS = process.env.ENVO_DOWNLOADS_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'downloads');
+const APK_FILE = path.join(DOWNLOADS, 'envo-phone.apk');
+const APK_PATH = '/api/public/phone/app/envo-phone.apk';
+
+/** The APK on offer, or null when none was uploaded. */
+async function androidApp(): Promise<{ version: string; size: number; updated_at: string; url: string } | null> {
+  try {
+    const [info, st] = await Promise.all([fs.readFile(path.join(DOWNLOADS, 'envo-phone.json'), 'utf8'), fs.stat(APK_FILE)]);
+    const version = String((JSON.parse(info) as { version?: unknown }).version ?? '');
+    // The upload time in the link, so Cloudflare and browsers never hand out an older APK.
+    return { version, size: st.size, updated_at: st.mtime.toISOString(), url: `${APK_PATH}?v=${Math.floor(st.mtimeMs / 1000)}` };
+  } catch {
+    return null;
+  }
+}
+
+phonePublicRouter.get('/app/envo-phone.apk', async (_req, res) => {
+  const app = await androidApp();
+  if (!app) throw notFound('The Android app');
+  res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+  res.setHeader('Content-Disposition', `attachment; filename="Envo-Phone-${app.version.replace(/[^\w.-]/g, '') || 'android'}.apk"`);
+  res.sendFile(APK_FILE);
+});
+
 /** What the app needs before anyone signs in: sign-ups open, prices, payment ways, support, the oldest app that works. */
 phonePublicRouter.get('/config', async (_req, res) => {
-  const [s, supply, pay, setup] = await Promise.all([getPhoneSettings(), getSupplySettings(), publicPaymentOptions(), needsSetup()]);
+  const [s, supply, pay, setup, android] = await Promise.all([getPhoneSettings(), getSupplySettings(), publicPaymentOptions(), needsSetup(), androidApp()]);
   const provider = supply.providers.find((p) => p.id === s.provider);
   res.json({
     signups: s.signups && !setup,
@@ -74,7 +105,9 @@ phonePublicRouter.get('/config', async (_req, res) => {
     selfie_check: s.selfie_check,
     support: s.support,
     min_app_version: s.min_app_version,
-    update_url: s.update_url,
+    // Where an old app gets the new one: the admin's link, or the APK on the website.
+    update_url: s.update_url || (android ? `${config.publicUrl}${android.url}` : ''),
+    android,
     operator: provider?.name ?? '',
     prefix: provider?.prefix ?? '',
     // Enfinito Pay is the only way to pay (bKash, Nagad, cards and the rest are on its page).

@@ -127,4 +127,22 @@ else
   done
   "${SSH[@]}" "set -e; d=/tmp/envo-$VERSION; rm -rf \$d; mkdir -p \$d; tar -xzf \$d.tgz -C \$d; $REMOTE_ENV bash \$d/envo/deploy/scripts/install.sh $MODE; rm -rf \$d \$d.tgz"
 fi
+
+# The Android app (mobile/dist/envo-phone.apk, from mobile/scripts/build-apk.sh) goes to
+# ~/apps/envo/downloads, outside the releases, so it stays; the website offers it from there. It is
+# uploaded only when it changed.
+APK=mobile/dist/envo-phone.apk
+if [ "$TARGET" = office ] && [ -f "$APK" ] && [ -f mobile/dist/envo-phone.json ]; then
+  LOCAL_SUM="$(shasum -a 256 "$APK" | cut -d' ' -f1)"
+  REMOTE_SUM="$("${SSH[@]}" 'sha256sum apps/envo/downloads/envo-phone.apk 2>/dev/null | cut -d" " -f1' || true)"
+  if [ "$LOCAL_SUM" = "$REMOTE_SUM" ]; then
+    echo "[deploy] the Android app is up to date"
+  else
+    echo "[deploy] uploading the Android app ($(du -h "$APK" | cut -f1 | tr -d ' '))"
+    "${SSH[@]}" 'mkdir -p apps/envo/downloads'
+    scp -q -i "$KEY" -P "$PORT" -o BatchMode=yes "$APK" "$HOST:apps/envo/downloads/envo-phone.apk.part"
+    scp -q -i "$KEY" -P "$PORT" -o BatchMode=yes mobile/dist/envo-phone.json "$HOST:apps/envo/downloads/envo-phone.json"
+    "${SSH[@]}" 'mv apps/envo/downloads/envo-phone.apk.part apps/envo/downloads/envo-phone.apk'
+  fi
+fi
 echo "[deploy] done"

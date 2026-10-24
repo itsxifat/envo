@@ -31,6 +31,8 @@ export interface PhoneConfig {
   support: { phone: string; email: string };
   min_app_version: string;
   update_url: string;
+  /** The Android app on offer from the website, or null before one is uploaded. */
+  android: { version: string; size: number; updated_at: string; url: string } | null;
   operator: string;
   prefix: string;
   /** Recharges are paid on Enfinito Pay only; false until it is switched on. */

@@ -36,24 +36,27 @@ export function Wordmark({ className, dark }: { className?: string; dark?: boole
   );
 }
 
-/** Section links: scroll in place on the home page, otherwise go to it. */
+/** Section links: scroll in place on the home page, otherwise go to it (/home, also when signed in). */
 function useSectionHref(): (id: string) => string {
   const { pathname } = useLocation();
   const onHome = pathname === '/' || pathname === '/home';
-  return (id) => (onHome ? `#${id}` : `/#${id}`);
+  return (id) => (onHome ? `#${id}` : `/home#${id}`);
 }
 
 /** Who a page is for: businesses (the PBX) or people who want a number of their own (Envo Phone). */
 export type Audience = 'business' | 'personal';
 
-/** The website's two sides, side by side in the header. */
+/**
+ * The website's two sides, side by side in the header. They link to /home and /home/phone, which
+ * every signed-in app also serves ("/" and "/phone" are the dashboard and the phone there).
+ */
 function AudienceSwitch({ audience }: { audience: Audience }) {
   return (
     <div className="inline-flex shrink-0 rounded-full bg-[#f1f2f4] p-1" role="group" aria-label="Envo for">
       {(
         [
-          ['business', '/', 'Business'],
-          ['personal', '/phone', 'Personal'],
+          ['business', '/home', 'Business'],
+          ['personal', '/home/phone', 'Personal'],
         ] as const
       ).map(([a, to, label]) => (
         <Link
@@ -95,7 +98,7 @@ export function SiteHeader({ audience = 'business' }: { audience?: Audience }) {
   return (
     <header className={clsx('sticky top-0 z-40 border-b transition-colors', scrolled ? 'border-[#e7e8ec] bg-white/90 backdrop-blur-md' : 'border-transparent bg-white')}>
       <div className={clsx(WRAP, 'flex h-[60px] items-center gap-3 sm:gap-8')}>
-        <Link to={personal ? '/phone' : '/'} aria-label="Envo home">
+        <Link to={personal ? '/home/phone' : '/'} aria-label="Envo home">
           <Wordmark />
         </Link>
         <AudienceSwitch audience={audience} />
@@ -180,7 +183,7 @@ export function SiteFooter() {
             <Link to="/signup" className="flex items-center gap-1 text-[#2a2e37] hover:text-[#1f57eb]">
               Create an account <ArrowUpRight className="size-3.5" />
             </Link>
-            <Link to="/phone" className="block text-[#2a2e37] hover:text-[#1f57eb]">
+            <Link to="/home/phone" className="block text-[#2a2e37] hover:text-[#1f57eb]">
               Envo Phone, for you
             </Link>
             <Link to="/login" className="block text-[#2a2e37] hover:text-[#1f57eb]">

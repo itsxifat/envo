@@ -198,12 +198,15 @@ function Tile({ label, value, hint, tone }: { label: string; value: number; hint
 function PersonModal({ person, onClose }: { person: Person; onClose: () => void }) {
   const qc = useQueryClient();
   const detail = useQuery({ queryKey: ['admin', 'phone', 'person', person.id], queryFn: () => api.get<PersonDetail>(`/api/admin/phone/people/${person.id}`) });
-  const [adjust, setAdjust] = useState({ amount: 0, note: '' });
+  // The amount stays text while typing, so "-50" is a deduction and not 50.
+  const [adjust, setAdjust] = useState({ amount: '', note: '' });
+  const amount = Number(adjust.amount);
+  const amountOk = adjust.amount !== '' && Number.isFinite(amount) && amount !== 0;
   const save = useMutation({
-    mutationFn: () => api.post<{ balance: number }>(`/api/admin/phone/people/${person.id}/adjust`, adjust),
+    mutationFn: () => api.post<{ balance: number }>(`/api/admin/phone/people/${person.id}/adjust`, { amount, note: adjust.note }),
     onSuccess: (r) => {
       toast.success(`Balance is now ${formatBdt(r.balance)}`);
-      setAdjust({ amount: 0, note: '' });
+      setAdjust({ amount: '', note: '' });
       void qc.invalidateQueries({ queryKey: ['admin', 'phone'] });
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -227,16 +230,19 @@ function PersonModal({ person, onClose }: { person: Person; onClose: () => void 
             className="grid gap-3 rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200 sm:grid-cols-[8rem_1fr_auto] sm:items-end"
             onSubmit={(e) => {
               e.preventDefault();
-              save.mutate();
+              if (amountOk && adjust.note.trim().length >= 3) save.mutate();
             }}
           >
-            <Field label="Correct by (BDT)" hint="Minus takes away">
-              <NumberInput value={adjust.amount} onChange={(v) => setAdjust((a) => ({ ...a, amount: v }))} step="0.01" />
+            <Field
+              label="Correct by (BDT)"
+              hint={amountOk ? (amount < 0 ? `Takes ${formatBdt(-amount)} away` : `Adds ${formatBdt(amount)}`) : adjust.amount && adjust.amount !== '-' ? 'Write an amount like 50 or -50' : 'Minus takes away'}
+            >
+              <Input inputMode="decimal" value={adjust.amount} onChange={(e) => setAdjust((a) => ({ ...a, amount: e.target.value.replace(/[^\d.-]/g, '').slice(0, 12) }))} placeholder="e.g. 50 or -50" />
             </Field>
             <Field label="Why">
               <Input value={adjust.note} onChange={(e) => setAdjust((a) => ({ ...a, note: e.target.value }))} placeholder="e.g. Refund for a dropped call" maxLength={200} />
             </Field>
-            <Button type="submit" variant="primary" loading={save.isPending} disabled={!adjust.amount || adjust.note.trim().length < 3}>
+            <Button type="submit" variant="primary" loading={save.isPending} disabled={!amountOk || adjust.note.trim().length < 3}>
               Save
             </Button>
           </form>
@@ -316,6 +322,7 @@ function SettingsForm() {
   const supply = useQuery({ queryKey: ['admin', 'supply', 'settings'], queryFn: () => api.get<{ providers: { id: string; name: string; prefix: string }[] }>('/api/admin/number-supply/settings') });
   const [form, setForm] = useState<PhoneSettings | null>(null);
   const [presets, setPresets] = useState('');
+  const [presetsError, setPresetsError] = useState<string | null>(null);
   useEffect(() => {
     if (settings.data && !form) {
       setForm(settings.data);
@@ -323,26 +330,41 @@ function SettingsForm() {
     }
   }, [settings.data, form]);
   const save = useMutation({
-    mutationFn: () =>
-      api.put<PhoneSettings>('/api/admin/phone/settings', {
-        ...form,
-        recharge: { ...form!.recharge, presets: presets.split(/[\s,]+/).map(Number).filter((n) => n > 0) },
-      }),
+    mutationFn: (list: number[]) => api.put<PhoneSettings>('/api/admin/phone/settings', { ...form, recharge: { ...form!.recharge, presets: list } }),
     onSuccess: (s) => {
       qc.setQueryData(['admin', 'phone', 'settings'], s);
       setForm(s);
+      setPresets(s.recharge.presets.join(', '));
       toast.success('Saved. The app and the website use these right away.');
     },
   });
   if (settings.error) return <ErrorBlock error={settings.error} />;
   if (!form) return <TableSkeleton rows={6} cols={2} />;
   const set = <K extends keyof PhoneSettings>(k: K, v: PhoneSettings[K]) => setForm((f) => ({ ...f!, [k]: v }));
+  /** The amounts to tap, or why they can't be saved ("1,000" would split into 1 and 000). */
+  const readPresets = (): number[] | string => {
+    const smallest = Math.min(form.activation_min, form.recharge.min);
+    const parts = presets.split(/[\s,]+/).filter(Boolean);
+    const list = parts.map(Number);
+    if (list.some((n) => !Number.isFinite(n) || n <= 0 || n < smallest)) {
+      return `Write each amount as one number of at least ${formatBdt(smallest)}, without commas inside it, e.g. 100, 200, 1000.`;
+    }
+    if (list.length > 6) return 'Up to six amounts.';
+    return list;
+  };
   return (
     <form
       className="grid gap-6 lg:grid-cols-2"
       onSubmit={(e) => {
         e.preventDefault();
-        save.mutate();
+        const list = readPresets();
+        if (typeof list === 'string') {
+          setPresetsError(list);
+          toast.error(list);
+          return;
+        }
+        setPresetsError(null);
+        save.mutate(list);
       }}
     >
       <Card>
@@ -375,8 +397,16 @@ function SettingsForm() {
               <NumberInput value={form.recharge.max} onChange={(v) => set('recharge', { ...form.recharge, max: v })} min={1} />
             </Field>
           </div>
-          <Field label="Amounts to tap" hint="Up to six, separated by commas.">
-            <Input value={presets} onChange={(e) => setPresets(e.target.value)} placeholder="100, 200, 500, 1000" />
+          <Field label="Amounts to tap" hint="Up to six, separated by commas, with no commas inside an amount: e.g. 100, 200, 1000." error={presetsError}>
+            <Input
+              value={presets}
+              onChange={(e) => {
+                setPresets(e.target.value);
+                setPresetsError(null);
+              }}
+              placeholder="100, 200, 1000"
+              invalid={!!presetsError}
+            />
           </Field>
         </div>
       </Card>

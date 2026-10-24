@@ -6,7 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useFonts, Geist_400Regular, Geist_500Medium, Geist_600SemiBold, Geist_700Bold } from '@expo-google-fonts/geist';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
-import { UpdateScreen } from '@/features/onboarding/Notices';
+import { OfflineScreen, UpdateScreen } from '@/features/onboarding/Notices';
 import { CallsProvider } from '@/state/calls';
 import { ContactsProvider } from '@/state/contacts';
 import { SessionProvider, useSession } from '@/state/session';
@@ -50,7 +50,7 @@ function older(version: string, than: string): boolean {
  */
 function Navigator() {
   const { dark, colors } = useTheme();
-  const { ready, account, config } = useSession();
+  const { ready, account, offline, config } = useSession();
   // The splash stays up until we know whether someone is signed in.
   useEffect(() => {
     if (ready) void SplashScreen.hideAsync();
@@ -60,6 +60,8 @@ function Navigator() {
   const base = dark ? DarkTheme : DefaultTheme;
   if (!ready) return null;
   if (config && older(Constants.expoConfig?.version ?? '0.0.0', config.min_app_version)) return <UpdateScreen url={config.update_url} />;
+  // Signed in but the account couldn't be loaded: not the welcome pages, which would look signed out.
+  if (offline && !account) return <OfflineScreen />;
   return (
     <ThemeProvider value={{ ...base, colors: { ...base.colors, background: colors.background } }}>
       <StatusBar style={dark ? 'light' : 'dark'} />

@@ -96,6 +96,9 @@ export async function userFromToken(token: string): Promise<SessionUser | null> 
   } catch {
     return null;
   }
+  // Only sessions (no audience) and app sign-ins: the embedded phone's tokens (aud envo-embed) share
+  // the secret, and their `sub` is an extension id, not a user.
+  if (payload.aud !== undefined && payload.aud !== 'app') return null;
   const row = await one<{
     id: number;
     email: string;

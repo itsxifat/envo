@@ -3,8 +3,10 @@ import { build } from 'esbuild';
 import { copyFaceAssets } from './face-assets.mjs';
 
 await build({
-  entryPoints: ['src/index.ts'],
-  outfile: 'dist/index.mjs',
+  // The face worker runs in a thread of its own, next to the face models it loads.
+  entryPoints: { index: 'src/index.ts', 'faces/worker': 'src/phone/faceWorker.ts' },
+  outdir: 'dist',
+  outExtension: { '.js': '.mjs' },
   bundle: true,
   platform: 'node',
   target: 'node24',

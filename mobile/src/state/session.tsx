@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
 
-import { api, setToken } from '@/lib/api';
+import { api, ApiError, setToken } from '@/lib/api';
 
 /*
  * The signed-in person and their phone service, from Envo's API (/api/phone, the same as the
@@ -32,10 +32,15 @@ export interface Account {
   /** Reserved from KYC on, connected once it works; null while none is chosen. */
   number: string | null;
   balance: number;
-  /** The latest registration, with support's reason when it was turned down. */
+  /** A recharge the person paid (bKash / Nagad by hand, or a card payment to look at) waits for support's check. */
+  paymentInReview: boolean;
+  /** The latest registration, with the reason when it was turned down or closed. */
   request: { id: number; status: string; reason: string } | null;
   closeRequested: boolean;
 }
+
+/** Envo stops calls out at a calling balance of BDT 0 or less (calls in still ring). */
+export const outOfBalance = (a: Account | null) => a?.stage === 'active' && a.balance <= 0;
 
 export interface PhoneConfig {
   signups: boolean;
@@ -61,9 +66,9 @@ export interface CallLog {
   /** Seconds talked; 0 for missed or unanswered calls. */
   duration: number;
   at: string;
-  /** Between two Envo numbers: free. */
+  /** A call out that costs nothing (charged BDT 0, or to an Envo number when those are free). */
   free: boolean;
-  /** What it cost, BDT (calls out to other networks). */
+  /** What was charged, BDT; null until it is charged, and for calls in and missed calls. */
   cost?: number | null;
 }
 
@@ -103,6 +108,8 @@ export interface SessionValue {
   /** False until the saved sign-in and the settings have been read at start-up. */
   ready: boolean;
   account: Account | null;
+  /** Signed in, but Envo couldn't be reached the last time it was asked (tried again every 10 s while no account is loaded). */
+  offline: boolean;
   config: PhoneConfig | null;
   /** The least first recharge that activates a number (set by Enfinito in the admin). */
   minActivation: number;
@@ -145,6 +152,7 @@ interface Me {
   number: string | null;
   request: { id: number; status: string; reason: string } | null;
   balance: number;
+  payment_in_review: boolean;
   activation_min: number;
   close_requested: boolean;
 }
@@ -159,6 +167,7 @@ const toAccount = (m: Me): Account => ({
   stage: m.stage,
   number: m.number,
   balance: m.balance,
+  paymentInReview: m.payment_in_review,
   request: m.request,
   closeRequested: m.close_requested,
 });
@@ -166,38 +175,62 @@ const toAccount = (m: Me): Account => ({
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
+  const [offline, setOffline] = useState(false);
   const [config, setConfig] = useState<PhoneConfig | null>(null);
   const [calls, setCalls] = useState<CallLog[]>([]);
   const [local, setLocal] = useState<CallLog[]>([]);
   const [recentsSeenAt, setRecentsSeenAt] = useState(0);
   const [liveSelfie, setLiveSelfie] = useState<LiveSelfie | null>(null);
   const signedIn = useRef(false);
+  // Bumped on every sign-in and sign-out: an answer to a request sent before it is dropped, so one
+  // that arrives after signing out can't bring the old account back.
+  const generation = useRef(0);
 
   const signOut = useCallback(() => {
     signedIn.current = false;
+    generation.current++;
     setToken(null);
     setMe(null);
+    setOffline(false);
     setCalls([]);
     setLocal([]);
     setLiveSelfie(null);
     void SecureStore.deleteItemAsync(TOKEN_KEY);
   }, []);
 
+  const loadConfig = useCallback(async () => setConfig(await api.get<PhoneConfig>('/public/phone/config')), []);
+
   const loadCalls = useCallback(async () => {
+    const gen = generation.current;
     const list = await api.get<{ id: string; at: string; direction: CallLog['direction']; number: string; duration: number; cost: number | null; free: boolean }[]>('/phone/calls');
-    setCalls(list.map((c) => ({ ...c, name: null })));
+    if (gen === generation.current) setCalls(list.map((c) => ({ ...c, name: null })));
   }, []);
 
   const refresh = useCallback(async () => {
-    if (!signedIn.current) return;
-    const next = await api.get<Me>('/phone/me');
-    setMe(next);
-    if (next.stage === 'active' || next.stage === 'registering') void loadCalls().catch(() => undefined);
-  }, [loadCalls]);
+    // The settings come along every time, so a failed first try or a change in the admin (payment
+    // methods, prices) reaches the app without restarting it.
+    const settings = loadConfig().catch(() => undefined);
+    try {
+      if (!signedIn.current) return;
+      const gen = generation.current;
+      const next = await api.get<Me>('/phone/me').catch((err: unknown) => {
+        // A 401 has signed out already (api.ts); anything else means Envo can't be reached right now.
+        if (gen === generation.current && !(err instanceof ApiError && err.status === 401)) setOffline(true);
+        throw err;
+      });
+      if (gen !== generation.current) return;
+      setMe(next);
+      setOffline(false);
+      if (next.stage === 'active' || next.stage === 'registering') void loadCalls().catch(() => undefined);
+    } finally {
+      await settings;
+    }
+  }, [loadCalls, loadConfig]);
 
   const begin = useCallback(
     async (token: string, next: Me) => {
       signedIn.current = true;
+      generation.current++;
       setToken(token, signOut);
       setMe(next);
       await SecureStore.setItemAsync(TOKEN_KEY, token);
@@ -205,28 +238,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [signOut],
   );
 
-  // Start-up: the settings, and the saved sign-in if there is one.
+  // Start-up: the saved sign-in if there is one, then the settings and the account (refresh reads both).
   useEffect(() => {
     void (async () => {
-      const [cfg, saved] = await Promise.all([api.get<PhoneConfig>('/public/phone/config').catch(() => null), SecureStore.getItemAsync(TOKEN_KEY).catch(() => null)]);
-      setConfig(cfg);
+      const saved = await SecureStore.getItemAsync(TOKEN_KEY).catch(() => null);
       if (saved) {
         signedIn.current = true;
         setToken(saved, signOut);
-        try {
-          await refresh();
-        } catch {
-          // Offline: keep the sign-in and try again when the app comes back to the front.
-        }
       }
+      // Offline: the sign-in is kept and tried again (see below).
+      await refresh().catch(() => undefined);
       setReady(true);
     })();
   }, [refresh, signOut]);
 
   // Waiting for support (a payment to check, a number to register): look again now and then, and
-  // whenever the app comes back to the front.
+  // whenever the app comes back to the front (refresh reads the settings again too).
   useEffect(() => {
-    const waiting = me?.stage === 'activate' || me?.stage === 'registering';
+    const waiting = me?.stage === 'activate' || me?.stage === 'registering' || !!me?.payment_in_review;
     const timer = waiting ? setInterval(() => void refresh().catch(() => undefined), 30_000) : null;
     const sub = AppState.addEventListener('change', (s) => {
       if (s === 'active') void refresh().catch(() => undefined);
@@ -235,7 +264,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (timer) clearInterval(timer);
       sub.remove();
     };
-  }, [me?.stage, refresh]);
+  }, [me?.stage, me?.payment_in_review, refresh]);
+
+  // Signed in but Envo couldn't be reached, so there is no account to show yet: try again every 10 s.
+  const loaded = !!me;
+  useEffect(() => {
+    if (!offline || loaded) return;
+    const timer = setInterval(() => void refresh().catch(() => undefined), 10_000);
+    return () => clearInterval(timer);
+  }, [offline, loaded, refresh]);
 
   const signIn = useCallback(
     async (email: string, password: string) => {
@@ -256,9 +293,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [begin],
   );
 
-  const verifyEmail = useCallback(async (code: string) => setMe(await api.post<Me>('/phone/email/verify', { code })), []);
+  const verifyEmail = useCallback(async (code: string) => {
+    const gen = generation.current;
+    const next = await api.post<Me>('/phone/email/verify', { code });
+    if (gen === generation.current) setMe(next);
+  }, []);
   const resendCode = useCallback(async () => void (await api.post('/phone/email/resend')), []);
-  const changeEmail = useCallback(async (email: string) => setMe(await api.put<Me>('/phone/email', { email })), []);
+  const changeEmail = useCallback(async (email: string) => {
+    const gen = generation.current;
+    const next = await api.put<Me>('/phone/email', { email });
+    if (gen === generation.current) setMe(next);
+  }, []);
 
   // React Native uploads a file from its uri.
   const part = (f: PickedFile, name: string) => ({ uri: f.uri, name: `${name}.${f.kind === 'pdf' ? 'pdf' : 'jpg'}`, type: f.kind === 'pdf' ? 'application/pdf' : 'image/jpeg' }) as unknown as Blob;
@@ -280,7 +325,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       body.append('id_front', part(id.front, 'nid-front'));
       body.append('id_back', part(id.back, 'nid-back'));
     }
-    setMe(await api.post<Me>('/phone/kyc', body));
+    const gen = generation.current;
+    const next = await api.post<Me>('/phone/kyc', body);
+    if (gen !== generation.current) return;
+    setMe(next);
     setLiveSelfie(null);
   }, []);
 
@@ -344,6 +392,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     () => ({
       ready,
       account,
+      offline,
       config,
       minActivation: me?.activation_min ?? config?.activation_min ?? 100,
       recents,
@@ -367,7 +416,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       signOut,
       addCall,
     }),
-    [ready, account, config, me?.activation_min, recents, recentsSeenAt, markRecentsSeen, signIn, signUp, verifyEmail, resendCode, changeEmail, submitKyc, checkSelfie, liveSelfie, createRecharge, payOnline, payManual, refresh, changePassword, closeAccount, signOut, addCall],
+    [ready, account, offline, config, me?.activation_min, recents, recentsSeenAt, markRecentsSeen, signIn, signUp, verifyEmail, resendCode, changeEmail, submitKyc, checkSelfie, liveSelfie, createRecharge, payOnline, payManual, refresh, changePassword, closeAccount, signOut, addCall],
   );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

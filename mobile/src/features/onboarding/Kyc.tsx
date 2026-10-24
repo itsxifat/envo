@@ -58,7 +58,7 @@ const addressOk = (a: Address) => a.street.trim().length >= 3 && a.city.trim().l
 
 export function KycScreen() {
   const { colors } = useTheme();
-  const { account, config, submitKyc, signOut, liveSelfie } = useSession();
+  const { account, config, submitKyc, refresh, signOut, liveSelfie } = useSession();
   // Taken live and checked by Envo (like banking apps), unless Enfinito turned the check off.
   const live = config?.selfie_check !== false;
   const [failed, setFailed] = useState<string | null>(null);
@@ -128,11 +128,21 @@ export function KycScreen() {
       router.replace('/your-number');
     } catch (err) {
       setFailed(errorText(err));
+      // The answer may have been lost on the way although Envo took the registration: then this moves on.
+      void refresh().catch(() => undefined);
     } finally {
       setBusy(false);
     }
   };
-  const rejected = account?.request?.status === 'rejected' ? account.request.reason || 'Some details did not match your NID.' : null;
+  // The last registration was turned down by support, or closed (e.g. the number was released when
+  // the first recharge didn't come in time).
+  const request = account?.request;
+  const notice =
+    request?.status === 'rejected'
+      ? { title: "We couldn't register your number", text: `${request.reason || 'Some details did not match your NID.'} Please check your details and send them again.` }
+      : request?.status === 'cancelled' && request.reason
+        ? { title: 'Your registration was closed', text: request.reason }
+        : null;
 
   // Back steps through the parts; from the first one it leaves (signing in again picks up here).
   const back = () => (part === 'photos' ? setPart('home') : part === 'home' ? setPart('you') : signOut());
@@ -180,13 +190,13 @@ export function KycScreen() {
       <Text tone="secondary" style={styles.lead}>
         {titles[part][1]}
       </Text>
-      {rejected && part === 'you' && (
+      {notice && part === 'you' && (
         <View style={[styles.notice, { backgroundColor: colors.dangerSoft }]}>
           <Text variant="bodyMedium" tone="danger">
-            We couldn't register your number
+            {notice.title}
           </Text>
           <Text variant="caption" tone="danger">
-            {rejected} Please check your details and send them again.
+            {notice.text}
           </Text>
         </View>
       )}

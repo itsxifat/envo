@@ -84,10 +84,12 @@ function IdentityPanel({ check, files }: { check: IdentityCheck | null; files: s
   const strong = check.match.distance !== null && check.match.distance <= 0.4;
   return (
     <div className={clsx('rounded-xl p-3.5 text-[13px] ring-1 ring-inset', passed ? 'bg-emerald-50 text-emerald-950 ring-emerald-600/15' : 'bg-amber-50 text-amber-950 ring-amber-600/20')}>
-      <p className="flex items-center gap-1.5 font-semibold">
+      {/* Still photos can pass the automatic check, so it never replaces a look by support. */}
+      <p className="flex items-center gap-1.5 font-semibold" title={passed ? 'The automatic check passed. Still compare the selfie with the NID photo.' : undefined}>
         {passed ? <ShieldCheck className="size-4 text-emerald-600" /> : <ScanFace className="size-4 text-amber-600" />}
-        {passed ? 'Identity checked' : 'Compare the faces by eye'}
+        {passed ? 'Face check passed' : 'Compare the faces by eye'}
       </p>
+      {passed && <p className="mt-0.5 text-current/70">Still compare the selfie with the NID photo.</p>}
       <ul className="mt-2 space-y-1">
         <li>{check.liveness ? (check.liveness.ok ? 'Live selfie: looked at the camera and turned the head both ways.' : 'The live selfie did not pass.') : 'An uploaded photo, not a live selfie.'}</li>
         <li>

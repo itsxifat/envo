@@ -65,7 +65,11 @@ function upload<T>(method: string, path: string, body: FormData): Promise<T> {
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   if (body instanceof FormData) return upload<T>(method, path, body);
+  // A weak connection can leave a request hanging: give up after 20 s, the answer's body included.
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), 20_000);
   let res: Response;
+  let text: string;
   try {
     res = await fetch(API_URL + path, {
       method,
@@ -75,12 +79,21 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: abort.signal,
     });
+    text = await res.text();
   } catch (err) {
     if (__DEV__) console.warn('[api]', method, path, err);
-    throw new ApiError(0, "Can't reach Envo. Check your internet connection and try again.");
+    throw new ApiError(0, abort.signal.aborted ? 'Envo is taking too long to answer. Check your internet connection and try again.' : "Can't reach Envo. Check your internet connection and try again.");
+  } finally {
+    clearTimeout(timer);
   }
-  const data = (await res.json().catch(() => null)) as { error?: string; details?: { code?: string } } | null;
+  let data: { error?: string; details?: { code?: string } } | null = null;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    // not JSON
+  }
   if (!res.ok) fail(res.status, data, path.startsWith('/public/'));
   return data as T;
 }

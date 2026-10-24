@@ -15,11 +15,12 @@ import { getSupplySettings } from '../supply/settings.js';
 import { deleteCheckFrames, deleteDocuments, idDocumentOf, readCheckFrames, saveCheckFrames, saveDocument } from '../supply/files.js';
 import { needsSetup } from '../setup.js';
 import { phoneState, provisionPersonal, reserveRandomNumber, stageOf } from '../phone/account.js';
-import { adjustBalance, balanceOf } from '../phone/balance.js';
-import { checkIdentity, identity } from '../phone/check.js';
-import type { Liveness } from '../phone/identity.js';
+import { adjustBalance, balanceOf, envoNumberSql, envoPrefixes } from '../phone/balance.js';
+import { checkIdentity } from '../phone/check.js';
+import { PROBLEM_TEXT, checkLiveness, type Liveness } from '../phone/identity.js';
 import { getPhoneSettings, updatePhoneSettings } from '../phone/settings.js';
-import { detailsSchema, uploadDocuments } from './numberRequests.js';
+import { groupedCallsSql } from '../services/calls.js';
+import { closeRequest, detailsSchema, uploadDocuments } from './numberRequests.js';
 import { guard } from './signup.js';
 import { webphoneCredentials } from './misc.js';
 
@@ -160,14 +161,11 @@ phoneRouter.get('/me', async (req, res) => {
 phoneRouter.post('/email/verify', async (req, res) => {
   const { code } = z.object({ code: z.string().trim().regex(/^\d{6}$/, 'enter the 6-digit code') }).parse(req.body);
   const userId = req.user!.id;
-  const row = await one<{ code_hash: string; attempts: number; expires_at: Date }>('SELECT code_hash, attempts, expires_at FROM email_codes WHERE user_id = $1', [userId]);
-  if (!row || row.expires_at.getTime() < Date.now()) throw badRequest('This code has expired. Ask for a new one.');
-  if (row.attempts >= 5) throw badRequest('Too many wrong tries. Ask for a new code.');
+  // Each try is counted before the code is compared, in one statement, so tries sent at once can't share a count.
+  const row = await one<{ code_hash: string }>('UPDATE email_codes SET attempts = attempts + 1 WHERE user_id = $1 AND attempts < 5 AND expires_at > now() RETURNING code_hash', [userId]);
+  if (!row) throw badRequest('This code has expired or had too many wrong tries. Ask for a new one.');
   const given = Buffer.from(codeHash(userId, code));
-  if (!crypto.timingSafeEqual(given, Buffer.from(row.code_hash))) {
-    await exec('UPDATE email_codes SET attempts = attempts + 1 WHERE user_id = $1', [userId]);
-    throw badRequest("That code isn't right. Check the email and try again.");
-  }
+  if (!crypto.timingSafeEqual(given, Buffer.from(row.code_hash))) throw badRequest("That code isn't right. Check the email and try again.");
   await exec('UPDATE users SET email_verified_at = COALESCE(email_verified_at, now()), updated_at = now() WHERE id = $1', [userId]);
   await exec('DELETE FROM email_codes WHERE user_id = $1', [userId]);
   res.json(await phoneState(accountOf(req)));
@@ -214,9 +212,13 @@ phoneRouter.post('/selfie', uploadFrames, async (req, res) => {
   const files = req.files as Record<string, Express.Multer.File[]> | undefined;
   const list = ['straight', 'turn_1', 'turn_2'].map((k) => files?.[k]?.[0]?.buffer);
   if (list.some((b) => !b)) throw badRequest('Send all three pictures');
-  const id = await identity();
-  const { result, descriptor } = await id.checkLiveness(list as [Buffer, Buffer, Buffer]);
-  if (!result.ok || !descriptor) throw new HttpError(422, id.PROBLEM_TEXT[result.problem ?? 'no_face'], { code: result.problem, result });
+  const { result, descriptor } = await checkLiveness(list as [Buffer, Buffer, Buffer]).catch((err: Error) => {
+    console.warn('[phone] selfie check failed:', err.message);
+    throw new HttpError(503, 'The selfie check is not available right now. Please try again in a few minutes.');
+  });
+  if (!result.ok || !descriptor) throw new HttpError(422, PROBLEM_TEXT[result.problem ?? 'no_face'], { code: result.problem, result });
+  // Only the newest selfie waits for the registration.
+  for (const old of await many<{ id: string }>('DELETE FROM selfie_checks WHERE account_id = $1 RETURNING id', [accountId])) await deleteCheckFrames(old.id);
   const checkId = crypto.randomUUID();
   await saveCheckFrames(checkId, list as Buffer[]);
   await exec('INSERT INTO selfie_checks (id, account_id, result, descriptor) VALUES ($1, $2, $3, $4)', [checkId, accountId, JSON.stringify(result), JSON.stringify(descriptor)]);
@@ -257,7 +259,7 @@ phoneRouter.post('/kyc', uploadDocuments, async (req, res) => {
   let selfie: Buffer | number[];
   if (body.selfie_check) {
     const check = await one<{ result: Liveness; descriptor: number[] }>(
-      "SELECT result, descriptor FROM selfie_checks WHERE id = $1 AND account_id = $2 AND used_at IS NULL AND created_at > now() - interval '1 hour'",
+      "SELECT result, descriptor FROM selfie_checks WHERE id = $1 AND account_id = $2 AND created_at > now() - interval '1 hour'",
       [body.selfie_check, accountId],
     );
     if (!check) throw badRequest('Your selfie is too old. Please take it again.');
@@ -280,6 +282,15 @@ phoneRouter.post('/kyc', uploadDocuments, async (req, res) => {
   let requestId = 0;
   try {
     const created = await tx(async (db) => {
+      // One registration at a time: a second one sent at the same moment waits here, then finds the first.
+      await db.query('SELECT 1 FROM accounts WHERE id = $1 FOR UPDATE', [accountId]);
+      if ((await db.query("SELECT 1 FROM number_requests WHERE account_id = $1 AND status IN ('submitted', 'in_review', 'connected')", [accountId])).rowCount) {
+        throw badRequest('Your registration is already with us');
+      }
+      // The selfie is used once; its face data goes with it (the result stays on the request for support).
+      if (body.selfie_check && !(await db.query('DELETE FROM selfie_checks WHERE id = $1 AND account_id = $2', [body.selfie_check, accountId])).rowCount) {
+        throw badRequest('Your selfie is too old. Please take it again.');
+      }
       const tenantId = await provisionPersonal(db, accountId);
       const picked = await reserveRandomNumber(db);
       const row = (
@@ -294,7 +305,6 @@ phoneRouter.post('/kyc', uploadDocuments, async (req, res) => {
       const idFile = await saveDocument(row.id, 'id', idDoc, true);
       for (const [i, turn] of turns.entries()) await saveDocument(row.id, i === 0 ? 'turn-1' : 'turn-2', turn, false);
       await db.query('UPDATE number_requests SET photo_file = $1, id_file = $2, identity = $3 WHERE id = $4', [photoFile, idFile, JSON.stringify(check), row.id]);
-      if (body.selfie_check) await db.query('UPDATE selfie_checks SET used_at = now() WHERE id = $1', [body.selfie_check]);
       return { id: row.id, number: picked?.number ?? null, tenantId };
     });
     if (body.selfie_check) await deleteCheckFrames(body.selfie_check).catch(() => undefined);
@@ -319,6 +329,14 @@ phoneRouter.post('/recharges', async (req, res) => {
   const min = first ? s.activation_min : s.recharge.min;
   if (amount < min) throw badRequest(first ? `The first recharge is at least ${bdt(min)}` : `Recharge at least ${bdt(min)}`);
   if (amount > s.recharge.max) throw badRequest(`Recharge at most ${bdt(s.recharge.max)} at a time`);
+  if (state.payment_in_review) throw badRequest("We're still checking your last payment. You can recharge again once it's confirmed.");
+  // Pressing Pay again (or after closing the payment page) carries on with the same recharge.
+  const open = await one<{ id: number; invoice_id: number; invoice_number: string; amount: string }>(
+    `SELECT t.id, t.invoice_id, i.number AS invoice_number, t.amount FROM topups t JOIN invoices i ON i.id = t.invoice_id
+      WHERE t.account_id = $1 AND t.status = 'awaiting_payment' AND i.status = 'unpaid' AND t.amount = $2 ORDER BY t.id DESC LIMIT 1`,
+    [accountId, amount],
+  );
+  if (open) return void res.json({ id: open.id, invoice_id: open.invoice_id, invoice_number: open.invoice_number, amount: Number(open.amount) });
   const connected = await one<{ id: number; number: string }>('SELECT n.id, n.number FROM numbers n JOIN number_requests r ON r.number_id = n.id WHERE r.id = $1', [state.request!.id]);
   const number = connected?.number ?? state.number ?? '';
   const created = await tx(async (db) => {
@@ -414,26 +432,29 @@ phoneRouter.get('/calls', async (req, res) => {
   const accountId = accountOf(req);
   const tenant = await one<{ id: number }>('SELECT id FROM tenants WHERE account_id = $1 ORDER BY id LIMIT 1', [accountId]);
   if (!tenant) return void res.json([]);
-  const rows = await many<{ id: string; calldate: string; direction: string; src: string; dst: string; disposition: string; billsec: number; cost: string | null; onnet: boolean }>(
-    `SELECT c.id, c.calldate, c.direction, c.src, c.dst, c.disposition, c.billsec, l.amount AS cost,
-            EXISTS (SELECT 1 FROM numbers n WHERE n.number = CASE WHEN c.direction = 'outbound' THEN c.dst ELSE c.src END) AS onnet
-       FROM cdr c LEFT JOIN balance_ledger l ON l.cdr_id = c.id
-      WHERE c.accountcode = $1 AND c.direction IN ('inbound', 'outbound')
-      ORDER BY c.calldate DESC LIMIT 100`,
-    [`t${tenant.id}`],
+  const s = await getPhoneSettings();
+  // One row per call: a call that rang several devices has a CDR row for each.
+  const rows = await many<{ linkedid: string; calldate: string; direction: string; src: string; dst: string; answered: boolean; billsec: number; cost: string | null; onnet: boolean }>(
+    `SELECT g.linkedid, g.calldate, g.direction, g.src, g.dst, g.answered, g.billsec,
+            (SELECT -sum(l.amount) FROM balance_ledger l JOIN cdr x ON x.id = l.cdr_id WHERE x.linkedid = g.linkedid) AS cost,
+            ${envoNumberSql('g.dst', '$2')} AS onnet
+       FROM (${groupedCallsSql("accountcode = $1 AND channel NOT LIKE 'Local/%'", "HAVING bool_or(direction IN ('inbound', 'outbound'))")}) g
+      ORDER BY g.calldate DESC LIMIT 100`,
+    [`t${tenant.id}`, await envoPrefixes()],
   );
   res.json(
     rows.map((c) => {
       const out = c.direction === 'outbound';
-      const answered = c.disposition === 'ANSWERED';
+      const cost = out && c.cost !== null ? Number(c.cost) : null;
       return {
-        id: c.id,
+        id: c.linkedid,
         at: c.calldate,
-        direction: out ? 'out' : answered ? 'in' : 'missed',
+        direction: out ? 'out' : c.answered ? 'in' : 'missed',
         number: (out ? c.dst : c.src).replace(/^\+?880/, '0'),
-        duration: answered ? c.billsec : 0,
-        cost: c.cost === null ? null : -Number(c.cost),
-        free: c.onnet,
+        duration: c.answered ? c.billsec : 0,
+        // What the call cost; null while it isn't charged yet (and for calls in).
+        cost,
+        free: out && c.answered && (cost !== null ? cost === 0 : s.free_onnet && c.onnet),
       };
     }),
   );
@@ -466,12 +487,20 @@ phoneRouter.post('/close', async (req, res) => {
   const state = await phoneState(accountId);
   const started = state.request !== null || (await one('SELECT 1 FROM invoices WHERE account_id = $1 LIMIT 1', [accountId])) !== null;
   if (!started) {
+    // The live selfie's pictures are files: they go too.
+    const checks = await many<{ id: string }>('SELECT id FROM selfie_checks WHERE account_id = $1', [accountId]);
     await exec("DELETE FROM accounts WHERE id = $1 AND kind = 'personal'", [accountId]);
+    for (const c of checks) await deleteCheckFrames(c.id).catch(() => undefined);
     console.log(`[phone] account ${accountId} (${state.email}) deleted by its owner`);
     clearSession(res);
     return void res.json({ closed: true });
   }
   await exec('UPDATE accounts SET close_requested_at = COALESCE(close_requested_at, now()), updated_at = now() WHERE id = $1', [accountId]);
+  // Nothing paid yet: the reserved number goes back to the pool now, with the ID documents.
+  const open = state.request && (state.request.status === 'submitted' || state.request.status === 'in_review');
+  if (open && !(await one("SELECT 1 FROM topups WHERE account_id = $1 AND status IN ('paid', 'applied')", [accountId]))) {
+    await closeRequest(state.request!.id, 'AND account_id = $5', [accountId], { status: 'cancelled', reason: 'The account is being closed' });
+  }
   await audit(req, 'close_request', 'account', accountId, state.email, null);
   res.json({ closed: false, requested: true });
 });

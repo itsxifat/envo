@@ -118,7 +118,8 @@ export async function checkout(accountId: number, packageId: number, months: num
     const sub = (
       await db.query<SubRow>("SELECT * FROM subscriptions WHERE account_id = $1 AND status <> 'cancelled' FOR UPDATE", [accountId])
     ).rows[0];
-    if (!sub && !pkg.public) throw badRequest('This package is not available');
+    // Hidden packages (custom deals, Envo Phone) only renew for an account that is already on one.
+    if (!pkg.public && sub?.package_id !== packageId) throw badRequest('This package is not available');
     // A new order replaces older unpaid orders (not renewals).
     const voidOpen = () =>
       db.query("UPDATE invoices SET status = 'void', updated_at = now() WHERE account_id = $1 AND status = 'unpaid' AND kind IN ('subscription', 'upgrade')", [accountId]);
@@ -473,11 +474,19 @@ async function settle(payment: Payment & { status: string }, v: Validation | nul
     const current = (await db.query<Payment>('SELECT * FROM payments WHERE id = $1 FOR UPDATE', [payment.id])).rows[0]!;
     if (current.status === 'succeeded') return 'paid' as const;
     if (current.status === 'pending_review' && risky) return 'review' as const;
+    // The money arrived for an invoice that was cancelled or paid another way meanwhile: an admin decides.
+    const invoice = (await db.query<{ status: string }>('SELECT status FROM invoices WHERE id = $1 FOR UPDATE', [payment.invoice_id])).rows[0];
+    const problem =
+      invoice?.status === 'void'
+        ? 'Paid after the invoice was cancelled: refund it or re-open the invoice'
+        : invoice?.status === 'paid'
+          ? 'Paid twice: the invoice was already paid, so refund this payment'
+          : null;
     await db.query(
-      `UPDATE payments SET status = $1, val_id = $2, bank_tran_id = $3, card_type = $4, raw = raw || $5::jsonb, updated_at = now() WHERE id = $6`,
-      [risky ? 'pending_review' : 'succeeded', v!.val_id, v!.bank_tran_id ?? null, v!.card_type ?? null, JSON.stringify({ validation: v }), payment.id],
+      `UPDATE payments SET status = $1, val_id = $2, bank_tran_id = $3, card_type = $4, note = COALESCE($5, note), raw = raw || $6::jsonb, updated_at = now() WHERE id = $7`,
+      [risky || problem ? 'pending_review' : 'succeeded', v!.val_id, v!.bank_tran_id ?? null, v!.card_type ?? null, problem, JSON.stringify({ validation: v }), payment.id],
     );
-    if (risky) return 'review' as const;
+    if (risky || problem) return 'review' as const;
     await markInvoicePaid(payment.invoice_id, db);
     return 'paid' as const;
   });
@@ -517,14 +526,19 @@ export async function reconcileOnlinePayments(): Promise<number> {
       AND created_at < now() - interval '10 minutes' AND created_at > now() - interval '3 days' ORDER BY id LIMIT 50`,
   );
   let settled = 0;
+  // One payment that can't be settled must not hold up the others.
   for (const p of stuck) {
-    const found = await queryTransaction(p.tran_id!).catch(() => []);
-    const valid = found.find((v) => v.status === 'VALID' || v.status === 'VALIDATED');
-    if (valid?.val_id) {
-      const r = await settle(p, await validate(valid.val_id));
-      if (r.status === 'paid' || r.status === 'review') settled++;
-    } else if (found.some((v) => ['FAILED', 'CANCELLED', 'EXPIRED'].includes(v.status))) {
-      await one("UPDATE payments SET status = 'failed', updated_at = now() WHERE id = $1 AND status = 'initiated'", [p.id]);
+    try {
+      const found = await queryTransaction(p.tran_id!).catch(() => []);
+      const valid = found.find((v) => v.status === 'VALID' || v.status === 'VALIDATED');
+      if (valid?.val_id) {
+        const r = await settle(p, await validate(valid.val_id));
+        if (r.status === 'paid' || r.status === 'review') settled++;
+      } else if (found.some((v) => ['FAILED', 'CANCELLED', 'EXPIRED'].includes(v.status))) {
+        await one("UPDATE payments SET status = 'failed', updated_at = now() WHERE id = $1 AND status = 'initiated'", [p.id]);
+      }
+    } catch (err) {
+      console.warn(`[billing] reconciling payment ${p.id} failed:`, (err as Error).message);
     }
   }
   // Enfinito Pay checkouts whose webhook never arrived (or was refused): ask for each one.
@@ -533,10 +547,14 @@ export async function reconcileOnlinePayments(): Promise<number> {
       AND created_at < now() - interval '10 minutes' AND created_at > now() - interval '3 days' ORDER BY id LIMIT 50`,
   );
   for (const p of checkouts) {
-    const session = await retrieveCheckout(p.tran_id!).catch(() => null);
-    if (!session) continue;
-    const r = await settleCheckout(p.id, session, 'reconcile');
-    if (r.status === 'paid' || r.status === 'review') settled++;
+    try {
+      const session = await retrieveCheckout(p.tran_id!).catch(() => null);
+      if (!session) continue;
+      const r = await settleCheckout(p.id, session, 'reconcile');
+      if (r.status === 'paid' || r.status === 'review') settled++;
+    } catch (err) {
+      console.warn(`[billing] reconciling payment ${p.id} failed:`, (err as Error).message);
+    }
   }
   return settled;
 }

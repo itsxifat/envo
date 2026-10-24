@@ -1,5 +1,7 @@
 import type pg from 'pg';
 import { exec, many, one } from '../db.js';
+import { scheduleApply } from '../asterisk/apply.js';
+import { getSupplySettings } from '../supply/settings.js';
 import { getPhoneSettings } from './settings.js';
 
 /*
@@ -9,6 +11,18 @@ import { getPhoneSettings } from './settings.js';
  */
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * SQL: is the number in `col` (dialled as 0…, 880… or +880…) an Envo number, i.e. an IP number on
+ * Envo from one of the providers Enfinito gets numbers from? `prefixes` names the parameter holding
+ * their prefixes as LIKE patterns (envoPrefixes()).
+ */
+export const envoNumberSql = (col: string, prefixes: string) =>
+  `EXISTS (SELECT 1 FROM numbers n WHERE n.number = regexp_replace(${col}, '^\\+?880', '0') AND n.number LIKE ANY(${prefixes}::text[]))`;
+
+export async function envoPrefixes(): Promise<string[]> {
+  return (await getSupplySettings()).providers.map((p) => `${p.prefix}%`);
+}
 
 export async function balanceOf(accountId: number): Promise<number> {
   const r = await one<{ total: string }>('SELECT COALESCE(sum(amount), 0) AS total FROM balance_ledger WHERE account_id = $1', [accountId]);
@@ -54,7 +68,7 @@ export async function onTopupPaid(db: pg.PoolClient, invoiceId: number): Promise
 export async function chargeCalls(): Promise<number> {
   const s = await getPhoneSettings();
   const calls = await many<{ id: string; account_id: number; billsec: number; dst: string; onnet: boolean }>(
-    `SELECT c.id, t.account_id, c.billsec, c.dst, EXISTS (SELECT 1 FROM numbers n WHERE n.number = c.dst) AS onnet
+    `SELECT c.id, t.account_id, c.billsec, c.dst, ${envoNumberSql('c.dst', '$1')} AS onnet
        FROM cdr c
        JOIN tenants t ON c.accountcode = 't' || t.id
        JOIN accounts a ON a.id = t.account_id AND a.kind = 'personal'
@@ -62,9 +76,12 @@ export async function chargeCalls(): Promise<number> {
         AND c.calldate > now() - interval '3 days'
         AND NOT EXISTS (SELECT 1 FROM balance_ledger l WHERE l.cdr_id = c.id)
       ORDER BY c.id LIMIT 500`,
+    [await envoPrefixes()],
   );
+  const charged = new Set<number>();
   for (const c of calls) {
     const free = s.free_onnet && c.onnet;
+    if (!free) charged.add(c.account_id);
     const minutes = Math.ceil(c.billsec / 60);
     await exec("INSERT INTO balance_ledger (account_id, kind, amount, cdr_id, note) VALUES ($1, 'call', $2, $3, $4) ON CONFLICT (cdr_id) DO NOTHING", [
       c.account_id,
@@ -73,10 +90,14 @@ export async function chargeCalls(): Promise<number> {
       `${free ? 'Free call' : 'Call'} to ${c.dst}, ${minutes} min`,
     ]);
   }
+  // Someone's balance ran out: their calls out stop (asterisk/model.ts leaves out their routes).
+  if (charged.size && (await one('SELECT 1 FROM balance_ledger WHERE account_id = ANY($1::int[]) GROUP BY account_id HAVING sum(amount) <= 0 LIMIT 1', [[...charged]]))) scheduleApply();
   return calls.length;
 }
 
 /** Support corrects a balance (a refund, a goodwill credit, a missed charge). */
 export async function adjustBalance(accountId: number, amount: number, note: string, by: number): Promise<void> {
   await exec("INSERT INTO balance_ledger (account_id, kind, amount, note, created_by) VALUES ($1, 'adjustment', $2, $3, $4)", [accountId, round2(amount), note, by]);
+  // Calls out may stop or start again.
+  scheduleApply();
 }

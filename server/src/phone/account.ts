@@ -38,6 +38,8 @@ export interface PhoneState {
   request: { id: number; status: string; reason: string; created_at: string } | null;
   balance: number;
   activation_min: number;
+  /** A recharge payment the person reported (or a risky card payment) waits for support's check. */
+  payment_in_review: boolean;
   close_requested: boolean;
 }
 
@@ -49,7 +51,9 @@ export async function provisionPersonal(db: pg.PoolClient, accountId: number): P
   const existing = (await db.query<{ id: number }>('SELECT id FROM tenants WHERE account_id = $1 ORDER BY id LIMIT 1', [accountId])).rows[0];
   if (existing) return existing.id;
   const owner = (await db.query<{ id: number; name: string }>('SELECT id, name FROM users WHERE account_id = $1 AND is_owner ORDER BY id LIMIT 1', [accountId])).rows[0];
-  const slug = `ph${accountId}`;
+  // ph<id>, unless a business server already took that name.
+  let slug = `ph${accountId}`;
+  for (let i = 2; (await db.query('SELECT 1 FROM tenants WHERE slug = $1', [slug])).rowCount; i++) slug = `ph${accountId}x${i}`;
   const tenant = (
     await db.query<{ id: number }>(
       // Calls to the number ring the person's phone (numbers connected later ring there too).
@@ -110,10 +114,13 @@ export async function phoneState(accountId: number): Promise<PhoneState> {
     request_at: string | null;
     connected_number: string | null;
     paid: boolean;
+    payment_in_review: boolean;
   }>(
     `SELECT a.status, u.name, u.email, a.phone AS mobile, u.email_verified_at IS NOT NULL AS verified, a.close_requested_at IS NOT NULL AS close_requested,
             r.id AS request_id, r.status AS request_status, r.reason, r.requested_number, r.created_at AS request_at, n.number AS connected_number,
-            EXISTS (SELECT 1 FROM topups t WHERE t.account_id = a.id AND t.status IN ('paid', 'applied')) AS paid
+            EXISTS (SELECT 1 FROM topups t WHERE t.account_id = a.id AND t.status IN ('paid', 'applied')) AS paid,
+            EXISTS (SELECT 1 FROM topups t JOIN payments p ON p.invoice_id = t.invoice_id
+                     WHERE t.account_id = a.id AND t.status = 'awaiting_payment' AND p.status = 'pending_review') AS payment_in_review
        FROM accounts a
        JOIN users u ON u.account_id = a.id AND u.is_owner
        LEFT JOIN LATERAL (SELECT * FROM number_requests x WHERE x.account_id = a.id ORDER BY x.id DESC LIMIT 1) r ON true
@@ -133,6 +140,7 @@ export async function phoneState(accountId: number): Promise<PhoneState> {
     request: a.request_id ? { id: a.request_id, status: a.request_status!, reason: a.reason ?? '', created_at: a.request_at! } : null,
     balance: await balanceOf(accountId),
     activation_min: (await getPhoneSettings()).activation_min,
+    payment_in_review: a.payment_in_review,
     close_requested: a.close_requested,
   };
 }

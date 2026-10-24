@@ -14,6 +14,7 @@ import { RechargeHistory, RechargePanel } from './Recharge';
 
 /** The person's number and balance, on top of every page of the phone. */
 function NumberCard({ me }: { me: PhoneMe }) {
+  const config = usePhoneConfig();
   const ready = me.stage === 'active';
   return (
     <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-brand-600 to-brand-950 p-6 text-white shadow-[0_24px_48px_-28px_rgb(31_87_235/0.8)]">
@@ -31,8 +32,11 @@ function NumberCard({ me }: { me: PhoneMe }) {
         </div>
       </div>
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-[13px] text-white/60">Calls to other Envo numbers are free.</p>
-        <Link to="/phone/balance" className="inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-4 text-[13.5px] font-semibold text-ink-950 transition hover:bg-white/90">
+        {config.data?.free_onnet && <p className="text-[13px] text-white/60">Calls to other Envo numbers are free.</p>}
+        <Link
+          to="/phone/balance"
+          className={clsx('inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-4 text-[13.5px] font-semibold text-ink-950 transition hover:bg-white/90', !config.data?.free_onnet && 'ml-auto')}
+        >
           <Plus className="size-4" /> Recharge
         </Link>
       </div>
@@ -57,14 +61,33 @@ const KEYS = [
 
 const REG_TEXT = { off: 'Phone is off', connecting: 'Connecting…', registered: 'Ready to call', unregistered: 'Not connected', failed: 'Could not connect' } as const;
 
+/** Envo stops outgoing calls at a balance of zero (calls to the number still ring). */
+const canDial = (me: PhoneMe) => me.stage === 'active' && me.balance > 0;
+
+/** Instead of calling while the balance is used up. */
+function RechargeToCall() {
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-amber-50 px-4 py-3.5 ring-1 ring-amber-600/20 sm:px-5">
+      <div className="min-w-0 flex-1">
+        <p className="text-[14.5px] font-semibold text-amber-950">Recharge to call</p>
+        <p className="text-[13px] text-amber-900/80">Your balance is used up. Calls to your number still ring.</p>
+      </div>
+      <Link to="/phone/balance" className="inline-flex h-9 items-center gap-1.5 rounded-full bg-ink-950 px-4 text-[13.5px] font-semibold text-white transition hover:bg-ink-800">
+        <Plus className="size-4" /> Recharge
+      </Link>
+    </div>
+  );
+}
+
 export function PhonePage({ me }: { me: PhoneMe }) {
   const phone = usePhone();
   const calls = usePhoneCalls();
   const [number, setNumber] = useState('');
   const active = me.stage === 'active';
-  const canCall = active && phone.reg === 'registered' && number.replace(/\D/g, '').length >= 3;
+  const noBalance = active && !canDial(me);
+  const canCall = canDial(me) && phone.reg === 'registered' && number.replace(/\D/g, '').length >= 3;
   const call = (n = number) => {
-    if (!n) return;
+    if (!n || !canDial(me)) return;
     phone.dial(n);
   };
 
@@ -77,6 +100,7 @@ export function PhonePage({ me }: { me: PhoneMe }) {
             Your payment is in. Registration with the operator usually takes a few hours; we email you the moment you can call.
           </Notice>
         )}
+        {noBalance && <RechargeToCall />}
         <Card className="p-5 sm:p-6">
           <form
             onSubmit={(e) => {
@@ -95,8 +119,18 @@ export function PhonePage({ me }: { me: PhoneMe }) {
                 className="h-14 min-w-0 flex-1 bg-transparent text-center text-[28px] font-semibold tracking-wide text-slate-950 tabular-nums outline-none placeholder:text-[20px] placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-300"
               />
             </div>
-            <p className={clsx('mb-4 text-center text-[12.5px]', active && phone.reg === 'registered' ? 'text-emerald-600' : 'text-slate-400')}>
-              {active ? (phone.config && !phone.config.enabled ? (phone.config.reason ?? REG_TEXT.off) : REG_TEXT[phone.reg]) : 'You can call once your number is registered'}
+            <p className={clsx('mb-4 text-center text-[12.5px]', canDial(me) && phone.reg === 'registered' ? 'text-emerald-600' : 'text-slate-400')}>
+              {!active ? (
+                'You can call once your number is registered'
+              ) : noBalance ? (
+                <Link to="/phone/balance" className="font-medium text-brand-600 hover:text-brand-700">
+                  Recharge to call
+                </Link>
+              ) : phone.config && !phone.config.enabled ? (
+                (phone.config.reason ?? REG_TEXT.off)
+              ) : (
+                REG_TEXT[phone.reg]
+              )}
             </p>
             <div className="grid grid-cols-3 gap-3">
               {KEYS.map(([k, letters]) => (
@@ -135,7 +169,7 @@ export function PhonePage({ me }: { me: PhoneMe }) {
 
       <Card>
         <CardHeader title="Recent calls" actions={<Link to="/phone/calls" className="text-[13px] font-medium text-brand-600 hover:text-brand-700">All calls</Link>} />
-        <CallList calls={(calls.data ?? []).slice(0, 6)} loading={calls.isLoading} onCall={active ? (n) => call(n) : undefined} compact />
+        <CallList calls={(calls.data ?? []).slice(0, 6)} loading={calls.isLoading} onCall={canDial(me) ? (n) => call(n) : undefined} compact />
       </Card>
     </div>
   );
@@ -161,7 +195,12 @@ function CallList({ calls, loading, onCall, compact }: { calls: PhoneCall[]; loa
                   {c.duration ? ` · ${formatDuration(c.duration)}` : c.direction === 'missed' ? ' · Missed' : ''}
                 </span>
               </span>
-              {c.direction === 'out' && <span className={clsx('shrink-0 text-[12.5px] font-medium tabular-nums', c.free || !c.cost ? 'text-emerald-600' : 'text-slate-500')}>{c.free || !c.cost ? 'Free' : formatBdt(c.cost)}</span>}
+              {/* What the call cost; nothing for incoming and missed calls, or one not charged yet. */}
+              {c.free ? (
+                <span className="shrink-0 text-[12.5px] font-medium text-emerald-600">Free</span>
+              ) : c.cost != null ? (
+                <span className="shrink-0 text-[12.5px] font-medium text-slate-500 tabular-nums">{formatBdt(c.cost)}</span>
+              ) : null}
             </button>
           </li>
         );
@@ -176,8 +215,9 @@ export function CallsPage({ me }: { me: PhoneMe }) {
   return (
     <div className="space-y-5">
       <h1 className="text-[26px] font-semibold tracking-tight text-slate-950">Calls</h1>
+      {me.stage === 'active' && !canDial(me) && <RechargeToCall />}
       <Card>
-        <CallList calls={calls.data ?? []} loading={calls.isLoading} onCall={me.stage === 'active' ? (n) => phone.dial(n) : undefined} />
+        <CallList calls={calls.data ?? []} loading={calls.isLoading} onCall={canDial(me) ? (n) => phone.dial(n) : undefined} />
       </Card>
     </div>
   );
@@ -200,14 +240,14 @@ export function BalancePage({ me }: { me: PhoneMe }) {
         </div>
         <Card className="p-5 sm:p-6">
           <h2 className="mb-5 text-[17px] font-semibold text-slate-950">Recharge</h2>
-          <RechargePanel />
+          <RechargePanel inReview={me.payment_in_review} />
         </Card>
       </div>
       <div className="space-y-6">
         <Card>
           <CardHeader title="Recharges" />
           <div className="px-4 sm:px-5">
-            <RechargeHistory />
+            <RechargeHistory inReview={me.payment_in_review} />
             {!balance.isLoading && <p className="py-3 text-[13px] text-slate-400">Paid recharges show here and on your balance.</p>}
           </div>
         </Card>

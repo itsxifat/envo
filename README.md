@@ -101,7 +101,9 @@ photo of themselves and of their NID) and get a random number from the provider'
 recharge (at least the amount set in the admin, BDT 100 to start) activates it and becomes their
 calling balance; support then registers the number at the operator and connects it in Number
 requests, like any other, and the person is emailed. Calls to other networks are charged per started
-minute from the balance; calls between Envo numbers are free.
+minute from the balance; calls between Envo numbers are free. With the balance used up, calls out
+stop (calls in still ring) until the next recharge. A number reserved for someone who doesn't make
+the first recharge within 7 days goes back to the pool; they can send the registration again.
 
 Signed in, a personal account sees only its phone (`/phone`: dialer, calls, balance and recharges,
 account), never the PBX pages. Platform admins find everyone under **Envo Phone** in /admin (stage,
@@ -115,7 +117,9 @@ real person who really turned their head (a printed photo can't), then matches t
 photo on the NID. Support sees the result on each request (checked, or compare by eye) with the
 pictures; the NID's front and back reach support, and the operator, as one page. It runs without any
 outside service; it does not check the NID with the Election Commission (that needs a paid eKYC
-provider). It can be turned off in /admin → Envo Phone.
+provider). It can be turned off in /admin → Envo Phone. The face work runs in a thread of its own
+on the server, so a check never holds up the dashboard or calls, and its memory is given back when
+it has been idle for a while.
 
 ### Before selling for real
 
@@ -187,7 +191,10 @@ Because Asterisk only has a LAN address, `rtp.conf` maps it to the public one fo
 (`[ice_host_candidates] 192.168.20.237 => 103.129.209.29,include_local_address`) — without that the
 browser phone connects calls but has no audio. That and the other bits `install.sh` would have done
 (log ownership, sounds dir permissions, SIP fail2ban jail, nightly backups, Piper TTS) are in
-`deploy/scripts/office-fixups.sh` (idempotent; run with sudo on the server).
+`deploy/scripts/office-fixups.sh` (idempotent; run with sudo on the server). It also lets the
+website use the camera (the live selfie: `Permissions-Policy` must say `camera=(self)`) and takes
+visitors' real addresses from Cloudflare's `CF-Connecting-IP`, so per-address limits such as
+sign-ups count people, not Cloudflare's servers.
 
 ## Repository layout
 

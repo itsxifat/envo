@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { Linking, StyleSheet, View } from 'react-native';
-import { Download, PauseCircle } from 'lucide-react-native';
+import { Download, PauseCircle, WifiOff } from 'lucide-react-native';
 
 import { Button } from '@/components/ui/Button';
 import { Screen } from '@/components/ui/Screen';
@@ -38,6 +39,31 @@ export function PausedScreen() {
       footer={
         <>
           {phone ? <Button title={`Call ${phone}`} onPress={() => void Linking.openURL(`tel:${phone}`)} block /> : null}
+          <Button title="Sign out" variant="ghost" onPress={signOut} block />
+        </>
+      }
+    />
+  );
+}
+
+/** Signed in, but Envo can't be reached to load the account (no internet, or Envo is down). */
+export function OfflineScreen() {
+  const { colors } = useTheme();
+  const { refresh, signOut } = useSession();
+  const [busy, setBusy] = useState(false);
+  const retry = async () => {
+    setBusy(true);
+    await refresh().catch(() => undefined);
+    setBusy(false);
+  };
+  return (
+    <Notice
+      icon={<WifiOff size={32} color={colors.warning} />}
+      title="Can't reach Envo"
+      text="Check your internet connection. We keep trying, and you stay signed in."
+      footer={
+        <>
+          <Button title="Try again" onPress={() => void retry()} loading={busy} block />
           <Button title="Sign out" variant="ghost" onPress={signOut} block />
         </>
       }

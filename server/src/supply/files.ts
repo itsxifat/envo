@@ -49,6 +49,8 @@ export function documentPath(rel: string): { file: string; type: Kind } | null {
 
 // A4 portrait, in PDF points.
 const PAGE = { width: 595.28, height: 841.89, margin: 36, gap: 24 };
+/** A PNG is decoded to be embedded; its size (in the first chunk) is checked first. */
+const MAX_PNG_PIXELS = 40_000_000;
 
 /**
  * The operator wants the NID's front and back on one page, like a photocopy: front on the top half,
@@ -68,13 +70,21 @@ export async function combineIdSides(front: Buffer, back: Buffer): Promise<Buffe
     let size: { width: number; height: number };
     let draw: (o: { x: number; y: number; width: number; height: number }) => void;
     if (kind === 'image/jpeg' || kind === 'image/png') {
-      const img = kind === 'image/jpeg' ? await doc.embedJpg(bytes) : await doc.embedPng(bytes);
+      if (kind === 'image/png' && (buf.length < 24 || buf.readUInt32BE(16) * buf.readUInt32BE(20) > MAX_PNG_PIXELS)) {
+        throw badRequest(`The photo of the ${side} of the NID is too large. Send a smaller one`);
+      }
+      const img = await (kind === 'image/jpeg' ? doc.embedJpg(bytes) : doc.embedPng(bytes)).catch(() => {
+        throw badRequest(`The photo of the ${side} of the NID could not be read. Take it again`);
+      });
       size = img;
       draw = (o) => page.drawImage(img, o);
     } else if (kind === 'application/pdf') {
       const src = await PDFDocument.load(bytes, { ignoreEncryption: true }).catch(() => null);
       if (!src || !src.getPageCount()) throw badRequest(`The PDF for the ${side} of the NID could not be read`);
-      const [embedded] = await doc.embedPdf(src, [0]);
+      if (src.isEncrypted) throw badRequest(`The PDF for the ${side} of the NID is protected. Send a photo of it instead`);
+      const [embedded] = await doc.embedPdf(src, [0]).catch(() => {
+        throw badRequest(`The PDF for the ${side} of the NID could not be read. Send a photo of it instead`);
+      });
       size = embedded!;
       draw = (o) => page.drawPage(embedded!, o);
     } else {
@@ -88,7 +98,10 @@ export async function combineIdSides(front: Buffer, back: Buffer): Promise<Buffe
   }
   doc.setTitle('NID, front and back');
   doc.setCreator('Envo');
-  return Buffer.from(await doc.save());
+  const saved = await doc.save().catch(() => {
+    throw badRequest('The NID could not be read. Send photos of its front and back instead');
+  });
+  return Buffer.from(saved);
 }
 
 /**

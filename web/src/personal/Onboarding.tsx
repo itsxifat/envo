@@ -257,6 +257,12 @@ export function RegistrationStep({ me }: { me: PhoneMe }) {
           {me.request.reason || 'Some details did not match your NID.'} Please check them and send again.
         </Notice>
       )}
+      {/* Closed by Envo (e.g. no first recharge in time): the reason says what to do. */}
+      {me.request?.status === 'cancelled' && me.request.reason && (
+        <Notice tone="danger" title="Your registration was closed" className="mb-6">
+          {me.request.reason}
+        </Notice>
+      )}
       <form
         className="space-y-8"
         onSubmit={(e) => {
@@ -493,13 +499,22 @@ function PhotoInput({
 // ------------------------------------------------------------------------------- activation
 /** The number is reserved: the first recharge activates it. */
 export function ActivateStep({ me }: { me: PhoneMe }) {
+  const config = usePhoneConfig();
   const groups = formatNumber(me.number).split(' ');
+  // A payment waits for support's check: say so, and don't ask for another one.
+  const checking = me.payment_in_review;
   return (
     <Frame
       step={2}
       icon={<PartyPopper className="size-6" />}
       title={me.number ? 'This is your number' : "We're choosing your number"}
-      lede={me.number ? 'One step left: activate it with your first recharge. All of it becomes your calling balance.' : 'Your registration is with us and support picks your number shortly. You can already make your first recharge.'}
+      lede={
+        checking
+          ? 'Thank you for your first recharge. Your number is activated as soon as we confirm the payment.'
+          : me.number
+            ? 'One step left: activate it with your first recharge. All of it becomes your calling balance.'
+            : 'Your registration is with us and support picks your number shortly. You can already make your first recharge.'
+      }
     >
       {me.number && (
         <div className="mb-8 rounded-3xl bg-gradient-to-br from-brand-600 to-brand-950 px-6 py-7 text-white shadow-[0_24px_48px_-24px_rgb(31_87_235/0.7)]">
@@ -511,14 +526,17 @@ export function ActivateStep({ me }: { me: PhoneMe }) {
               </span>
             ))}
           </p>
-          <p className="mt-4 text-[13px] text-white/60">Registered in your name once you activate it. Calls to other Envo numbers are free.</p>
+          <p className="mt-4 text-[13px] text-white/60">Registered in your name once you activate it.{config.data?.free_onnet ? ' Calls to other Envo numbers are free.' : ''}</p>
         </div>
       )}
-      <RechargeHistory />
+      <RechargeHistory inReview={checking} />
       <div className="mt-6">
-        <RechargePanel first />
+        <RechargePanel first inReview={checking} />
       </div>
-      <p className="mt-6 text-[13px] text-slate-500">After you pay we register the number in your name, usually within a few hours. We email you when it's ready. Minimum first recharge: {formatBdt(me.activation_min)}.</p>
+      <p className="mt-6 text-[13px] text-slate-500">
+        {checking ? 'Once the payment is confirmed we register the number in your name, usually within a few hours.' : 'After you pay we register the number in your name, usually within a few hours.'} We email you when it's ready.
+        {checking ? '' : ` Minimum first recharge: ${formatBdt(me.activation_min)}.`}
+      </p>
     </Frame>
   );
 }

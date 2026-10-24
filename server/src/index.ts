@@ -114,6 +114,9 @@ async function main(): Promise<void> {
   app.use('/api', authenticate);
   // Envo Phone works for pending accounts too: signing up, the registration and the first recharge.
   app.use('/api/phone', phoneRouter);
+  app.use('/api', (req, _res, next) =>
+    next(req.user!.accountKind === 'personal' && !PERSONAL_PATHS.some((p) => req.path === p || req.path.startsWith(`${p}/`)) ? forbidden('Envo Phone accounts use the Phone page') : undefined),
+  );
   // Plan, usage and billing stay reachable while an account is pending or suspended.
   app.use('/api/account/billing', billingRouter);
   app.use('/api/account', accountRouter);
@@ -123,9 +126,6 @@ async function main(): Promise<void> {
   app.use('/api/admin', requireRole('superadmin'), adminConsoleRouter);
   app.use('/api/admin', requireRole('superadmin'), adminRouter);
   app.use('/api', requireActiveAccount);
-  app.use('/api', (req, _res, next) =>
-    next(req.user!.accountKind === 'personal' && !PERSONAL_PATHS.some((p) => req.path === p || req.path.startsWith(`${p}/`)) ? forbidden('Envo Phone accounts use the Phone page') : undefined),
-  );
   app.use('/api/tenants', tenantRouter);
   app.use('/api/extensions', extensionRouter);
   app.use('/api/trunks', trunkRouter);

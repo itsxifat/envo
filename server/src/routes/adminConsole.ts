@@ -85,6 +85,9 @@ async function onlineExtensions(where = '', params: unknown[] = []): Promise<{ t
 }
 
 // ---------------------------------------------------------------------------------- overview
+/** SQL on invoices `i`: not an Envo Phone recharge (an unpaid one is a payment someone started, not a debt). */
+const NOT_PHONE_RECHARGE = "NOT (i.kind = 'topup' AND i.account_id IN (SELECT id FROM accounts WHERE kind = 'personal'))";
+
 adminConsoleRouter.get('/overview', async (_req, res) => {
   const [counts, recent, money, unverified, lines, tenants, devices, supply] = await Promise.all([
     one<Record<string, number>>(
@@ -94,26 +97,26 @@ adminConsoleRouter.get('/overview', async (_req, res) => {
               count(*) FILTER (WHERE status = 'suspended') AS suspended,
               count(*) FILTER (WHERE status = 'closed') AS closed,
               count(*) FILTER (WHERE created_at >= now() - interval '7 days' AND NOT internal) AS new_week
-         FROM accounts`,
+         FROM accounts WHERE kind = 'business'`,
     ),
     many(
       `SELECT a.id, a.name, a.status, a.created_at, p.name AS package_name
          FROM accounts a
          LEFT JOIN subscriptions s ON s.account_id = a.id AND s.status <> 'cancelled'
          LEFT JOIN packages p ON p.id = s.package_id
-        WHERE NOT a.internal ORDER BY a.created_at DESC LIMIT 6`,
+        WHERE NOT a.internal AND a.kind = 'business' ORDER BY a.created_at DESC LIMIT 6`,
     ),
     one<{ mrr: string; outstanding: string; overdue: number; reviews: number }>(
       `SELECT (SELECT COALESCE(sum(s.price), 0) FROM subscriptions s JOIN accounts a ON a.id = s.account_id
                 WHERE s.status <> 'cancelled' AND a.status = 'active' AND NOT a.internal) AS mrr,
-              (SELECT COALESCE(sum(amount), 0) FROM invoices WHERE status = 'unpaid') AS outstanding,
-              (SELECT count(*) FROM invoices WHERE status = 'unpaid' AND due_at < now()) AS overdue,
+              (SELECT COALESCE(sum(amount), 0) FROM invoices i WHERE status = 'unpaid' AND ${NOT_PHONE_RECHARGE}) AS outstanding,
+              (SELECT count(*) FROM invoices i WHERE status = 'unpaid' AND due_at < now() AND ${NOT_PHONE_RECHARGE}) AS overdue,
               (SELECT count(*) FROM payments WHERE status = 'pending_review') AS reviews`,
     ),
     many<{ account_id: number; account_name: string; email: string; created_at: string }>(
       `SELECT a.id AS account_id, a.name AS account_name, u.email, u.created_at
          FROM users u JOIN accounts a ON a.id = u.account_id
-        WHERE u.is_owner AND u.email_verified_at IS NULL AND a.status <> 'closed' AND u.created_at < now() - interval '1 hour'
+        WHERE u.is_owner AND u.email_verified_at IS NULL AND a.status <> 'closed' AND a.kind = 'business' AND u.created_at < now() - interval '1 hour'
         ORDER BY u.created_at DESC LIMIT 5`,
     ),
     many<LineRow>('SELECT id, name, host, port, auth_mode, username, enabled, qualify, tenant_id FROM trunks'),

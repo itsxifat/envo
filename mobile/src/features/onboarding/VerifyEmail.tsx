@@ -17,7 +17,7 @@ import { StepDots } from './StepDots';
 /** Step 2: the six-digit code from the email (it confirms the address before the registration). */
 export function VerifyEmailScreen() {
   const { colors } = useTheme();
-  const { account, verifyEmail, resendCode, changeEmail, signOut } = useSession();
+  const { account, verifyEmail, resendCode, changeEmail, refresh, signOut } = useSession();
   const input = useRef<InputRef>(null);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -45,6 +45,8 @@ export function VerifyEmailScreen() {
       setError(errorText(err));
       setCode('');
       input.current?.focus();
+      // The answer may have been lost on the way although Envo took the code: then this moves on.
+      void refresh().catch(() => undefined);
     } finally {
       setBusy(false);
     }
@@ -58,6 +60,8 @@ export function VerifyEmailScreen() {
       setNote('A new code is on its way.');
     } catch (err) {
       setError(errorText(err));
+      // e.g. the email is confirmed already: then this moves on.
+      void refresh().catch(() => undefined);
     }
   };
 

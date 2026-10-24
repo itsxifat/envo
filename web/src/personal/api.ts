@@ -16,6 +16,8 @@ export interface PhoneMe {
   balance: number;
   activation_min: number;
   close_requested: boolean;
+  /** A recharge the person paid (bKash / Nagad by hand, or a card payment to look at) waits for support's check. */
+  payment_in_review: boolean;
 }
 
 export interface PhoneConfig {
@@ -70,8 +72,13 @@ export function usePhoneMe() {
   return useQuery({
     queryKey: ME_KEY,
     queryFn: () => api.get<PhoneMe>('/api/phone/me'),
-    // Waiting for support (a payment to check, a number to register): look again now and then.
-    refetchInterval: (q) => (q.state.data?.stage === 'activate' || q.state.data?.stage === 'registering' ? 30_000 : false),
+    // Waiting for support (a payment to check, a number to register): look again now and then. With a
+    // working number the balance goes down as calls are charged, and calling stops at zero.
+    refetchInterval: (q) => {
+      const d = q.state.data;
+      if (d?.stage === 'activate' || d?.stage === 'registering' || d?.payment_in_review) return 30_000;
+      return d?.stage === 'active' ? 60_000 : false;
+    },
   });
 }
 

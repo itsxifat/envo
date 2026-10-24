@@ -10,6 +10,7 @@ import { ErrorBlock, LoadingBlock, Menu } from '../components/ui';
 import { LogoMark, SupportBanner } from '../components/Layout';
 import { PhoneProvider } from '../phone/PhoneProvider';
 import { LandingPage } from '../pages/public/Landing';
+import { PersonalLandingPage } from '../pages/public/Personal';
 import { usePhoneMe, type PhoneMe } from './api';
 import { ActivateStep, PausedStep, RegistrationStep, VerifyEmailStep } from './Onboarding';
 import { AccountPage, BalancePage, CallsPage, PhonePage } from './Pages';
@@ -37,6 +38,7 @@ export function PersonalApp() {
     return (
       <Routes>
         <Route path="home" element={<LandingPage />} />
+        <Route path="home/phone" element={<PersonalLandingPage />} />
         <Route element={<Shell me={m} tabs={false} />}>
           <Route path="*" element={step} />
         </Route>
@@ -47,6 +49,7 @@ export function PersonalApp() {
     <PhoneProvider>
       <Routes>
         <Route path="home" element={<LandingPage />} />
+        <Route path="home/phone" element={<PersonalLandingPage />} />
         <Route element={<Shell me={m} tabs />}>
           <Route path="phone" element={<PhonePage me={m} />} />
           <Route path="phone/calls" element={<CallsPage me={m} />} />

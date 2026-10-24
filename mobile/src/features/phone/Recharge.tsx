@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -30,14 +30,22 @@ type Done = { amount: number; checking: boolean };
  */
 export function RechargeScreen({ activation }: { activation?: boolean }) {
   const { colors } = useTheme();
-  const { account, config, minActivation, createRecharge, payOnline, payManual } = useSession();
+  const { account, config, minActivation, createRecharge, payOnline, payManual, refresh } = useSession();
   const min = activation ? minActivation : (config?.recharge.min ?? 50);
   const max = config?.recharge.max ?? 10_000;
   const presets = (config?.recharge.presets ?? [100, 200, 500, 1000]).filter((a) => a >= min);
-  const [preset, setPreset] = useState<number>(presets.find((a) => a >= 200) ?? presets[0] ?? min);
+  const [picked, setPreset] = useState<number | null>(null);
+  // Like the method below: the tapped amount counts while it is offered (the settings can arrive later).
+  const preset = picked !== null && presets.includes(picked) ? picked : (presets.find((a) => a >= 200) ?? presets[0] ?? min);
   const [custom, setCustom] = useState('');
   const methods: Method[] = [...(config?.payment.online ? (['online'] as const) : []), ...(config?.payment.manual ? (['manual'] as const) : [])];
-  const [method, setMethod] = useState<Method | null>(methods[0] ?? null);
+  const [chosen, setMethod] = useState<Method | null>(null);
+  // The settings can arrive (or change) after the screen opens: a choice counts while it is offered.
+  const method = chosen && methods.includes(chosen) ? chosen : (methods[0] ?? null);
+  // Without the settings there is nothing to pay with: ask for them again.
+  useEffect(() => {
+    if (!config) void refresh().catch(() => undefined);
+  }, [config, refresh]);
   const [channel, setChannel] = useState<(typeof CHANNELS)[number]['id']>('bkash');
   const [reference, setReference] = useState('');
   const [busy, setBusy] = useState(false);
@@ -67,7 +75,9 @@ export function RechargeScreen({ activation }: { activation?: boolean }) {
       setOpen(null);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
+      // The server's own words, e.g. while the last payment is still being checked.
       setError(errorText(err));
+      void refresh().catch(() => undefined);
     } finally {
       setBusy(false);
     }

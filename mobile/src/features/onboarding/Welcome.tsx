@@ -19,6 +19,8 @@ export function WelcomeScreen() {
   const insets = useSafeAreaInsets();
   const { config } = useSession();
   const closed = config ? !config.signups : false;
+  // Calls to Envo numbers are free only when Enfinito makes them so.
+  const free = !!config?.free_onnet;
   const float = useSharedValue(0);
   useEffect(() => {
     float.value = withRepeat(withTiming(1, { duration: 2600, easing: Easing.inOut(Easing.sin) }), -1, true);
@@ -49,14 +51,14 @@ export function WelcomeScreen() {
                 <Text style={styles.cardNumber}>09639 437 015</Text>
                 <View style={styles.cardBottom}>
                   <PhoneCall size={14} color="rgba(255,255,255,0.6)" />
-                  <Text style={styles.cardHint}>Calls to Envo numbers are free</Text>
+                  <Text style={styles.cardHint}>{free ? 'Calls to Envo numbers are free' : 'Call any phone in Bangladesh'}</Text>
                 </View>
               </Animated.View>
             </Animated.View>
 
             <Animated.View entering={FadeInDown.delay(220).duration(600)}>
               <Text style={styles.headline}>Your own phone number. Calls from anywhere.</Text>
-              <Text style={styles.sub}>Get a number in minutes, call any phone in Bangladesh, and call friends on Envo for free.</Text>
+              <Text style={styles.sub}>{free ? 'Get a number in minutes, call any phone in Bangladesh, and call friends on Envo for free.' : 'Get a number in minutes and call any phone in Bangladesh.'}</Text>
             </Animated.View>
 
             <Animated.View entering={FadeInDown.delay(320).duration(600)} style={styles.points}>

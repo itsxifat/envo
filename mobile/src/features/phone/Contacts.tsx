@@ -19,11 +19,13 @@ import { radius, space } from '@/theme/tokens';
 
 export function ContactsScreen() {
   const { colors } = useTheme();
-  const { account } = useSession();
+  const { account, config } = useSession();
   const { dial } = useCalls();
   const { allowed, people, ask } = useContacts();
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<string | null>(null);
+  // Calls to Envo numbers are free only when Enfinito makes them so.
+  const free = !!config?.free_onnet;
 
   const sections = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -37,10 +39,10 @@ export function ContactsScreen() {
       byLetter.set(letter, [...(byLetter.get(letter) ?? []), p]);
     }
     return [
-      ...(envo.length ? [{ title: 'On Envo · free calls', data: envo, envo: true }] : []),
+      ...(envo.length ? [{ title: free ? 'On Envo · free calls' : 'On Envo', data: envo, envo: true }] : []),
       ...[...byLetter.entries()].sort(([a], [b]) => (a === '#' ? 1 : b === '#' ? -1 : a.localeCompare(b))).map(([title, data]) => ({ title, data, envo: false })),
     ];
-  }, [people, q]);
+  }, [people, q, free]);
 
   const call = (number: string, name: string) => (account?.stage === 'active' ? dial(number, name) : router.push('/'));
 
@@ -55,7 +57,7 @@ export function ContactsScreen() {
             Call your contacts from Envo
           </Text>
           <Text tone="secondary" align="center">
-            Envo shows your phone's contacts here and marks the ones you can call for free. They stay on your phone.
+            {free ? "Envo shows your phone's contacts here and marks the ones you can call for free. They stay on your phone." : "Envo shows your phone's contacts here, so you can call them in a tap. They stay on your phone."}
           </Text>
           <Button
             title="Allow access to contacts"
@@ -111,7 +113,7 @@ export function ContactsScreen() {
                     {many ? `  ·  ${item.numbers.length - 1} more` : ''}
                   </Text>
                 </View>
-                {item.envo && <Badge label="Free" tone="call" style={styles.badge} />}
+                {free && item.envo && <Badge label="Free" tone="call" style={styles.badge} />}
                 {many ? (
                   <View style={[styles.callIcon, { backgroundColor: colors.element }]}>
                     {expanded ? <ChevronUp size={18} color={colors.textSecondary} /> : <ChevronDown size={18} color={colors.textSecondary} />}
@@ -128,7 +130,7 @@ export function ContactsScreen() {
                     <Text variant="body" style={{ flex: 1 }}>
                       {formatPhone(n)}
                     </Text>
-                    {isEnvoNumber(n) && <Badge label="Free" tone="call" style={styles.badge} />}
+                    {free && isEnvoNumber(n) && <Badge label="Free" tone="call" style={styles.badge} />}
                     <View style={[styles.callIcon, { backgroundColor: colors.callSoft }]}>
                       <Phone size={17} color={colors.call} />
                     </View>

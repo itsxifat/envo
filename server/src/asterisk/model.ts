@@ -228,6 +228,16 @@ export async function loadModel(): Promise<Model> {
       many<Conference>('SELECT * FROM conferences ORDER BY id'),
     ]);
   await applyPlans(tenants, extensions, numbers);
+  // Envo Phone calls out from a balance: once it is used up, calls out stop (calls in still ring).
+  const noBalance = new Set(
+    (
+      await many<{ id: number }>(
+        `SELECT t.id FROM tenants t JOIN accounts a ON a.id = t.account_id AND a.kind = 'personal'
+          WHERE COALESCE((SELECT sum(l.amount) FROM balance_ledger l WHERE l.account_id = a.id), 0) <= 0`,
+      )
+    ).map((t) => t.id),
+  );
+  for (const r of routes) if (noBalance.has(r.tenant_id)) r.enabled = false;
   return { settings, tenants, extensions, trunks, numbers, routes, sounds, ivrs, ringGroups, queues, timeConditions, blocked, conferences };
 }
 

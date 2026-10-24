@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { toast } from 'sonner';
@@ -13,8 +13,9 @@ type Method = 'online' | 'manual';
 /**
  * Choosing an amount and paying it: online (card, bKash, Nagad through the payment page) or by sending
  * bKash / Nagad yourself and entering the transaction ID. `first` is the recharge that activates the number.
+ * `inReview`: a payment waits for support's check (PhoneMe.payment_in_review), so nothing is paid twice.
  */
-export function RechargePanel({ first, onDone }: { first?: boolean; onDone?: () => void }) {
+export function RechargePanel({ first, inReview, onDone }: { first?: boolean; inReview?: boolean; onDone?: () => void }) {
   const config = usePhoneConfig();
   const qc = useQueryClient();
   const c = config.data;
@@ -25,6 +26,10 @@ export function RechargePanel({ first, onDone }: { first?: boolean; onDone?: () 
   const [method, setMethod] = useState<Method | null>(null);
   const [manual, setManual] = useState({ channel: 'bkash', reference: '' });
   const [sent, setSent] = useState(false);
+  // Support confirmed the payment that was sent from here: recharging is open again.
+  useEffect(() => {
+    if (!inReview) setSent(false);
+  }, [inReview]);
   const chosen = custom ? Number(custom) : (amount ?? presets[0] ?? min);
   const how: Method | null = method ?? (c?.payment.online ? 'online' : c?.payment.manual ? 'manual' : null);
   const tooSmall = !!c && chosen < min;
@@ -51,23 +56,23 @@ export function RechargePanel({ first, onDone }: { first?: boolean; onDone?: () 
   });
 
   if (!c) return <div className="skeleton h-64 rounded-2xl" />;
-  if (!c.payment.online && !c.payment.manual) {
-    return <Notice tone="warn" title="Recharging is paused">Payments are not open right now. Please try again a little later.</Notice>;
-  }
-  if (sent) {
+  if (sent || inReview) {
     return (
       <div className="rounded-2xl bg-emerald-50 p-5 ring-1 ring-emerald-600/15">
         <div className="flex items-center gap-3">
-          <span className="flex size-10 items-center justify-center rounded-full bg-emerald-600 text-white">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white">
             <Check className="size-5" />
           </span>
           <div>
-            <p className="font-semibold text-emerald-950">Thank you! We're checking your payment</p>
-            <p className="text-[13.5px] text-emerald-900/80">It usually takes a few minutes. {first ? 'Your number is activated as soon as it is confirmed.' : 'The amount goes on your balance once it is confirmed.'}</p>
+            <p className="font-semibold text-emerald-950">{sent ? "Thank you! We're checking your payment." : "We're checking your payment."}</p>
+            <p className="text-[13.5px] text-emerald-900/80">This usually takes a few hours. {first ? 'Your number is activated as soon as it is confirmed.' : 'The amount goes on your balance once it is confirmed.'}</p>
           </div>
         </div>
       </div>
     );
+  }
+  if (!c.payment.online && !c.payment.manual) {
+    return <Notice tone="warn" title="Recharging is paused">Payments are not open right now. Please try again a little later.</Notice>;
   }
 
   return (
@@ -176,8 +181,8 @@ const STATUS: Record<Recharge['status'], { label: string; tone: 'green' | 'amber
   cancelled: { label: 'Cancelled', tone: 'gray' },
 };
 
-/** Recharges, newest first; an unpaid one can be paid online or dropped. */
-export function RechargeHistory() {
+/** Recharges, newest first; an unpaid one can be paid online or dropped (not while a payment is being checked). */
+export function RechargeHistory({ inReview }: { inReview?: boolean }) {
   const list = useRecharges();
   const qc = useQueryClient();
   const act = useMutation({
@@ -208,7 +213,7 @@ export function RechargeHistory() {
               </p>
             </div>
             <Badge tone={s.tone}>{s.label}</Badge>
-            {r.status === 'awaiting_payment' && !r.in_review && (
+            {r.status === 'awaiting_payment' && !r.in_review && !inReview && (
               <div className="flex gap-1.5">
                 {config.data?.payment.online && (
                   <Button size="sm" variant="primary" loading={act.isPending && act.variables?.id === r.id && act.variables.action === 'pay'} onClick={() => act.mutate({ id: r.id, action: 'pay' })}>

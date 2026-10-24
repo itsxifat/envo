@@ -77,6 +77,9 @@ adminRouter.put('/packages/:id', async (req, res) => {
   const id = intParam(req.params.id);
   const d = packageSchema.parse(req.body);
   if (await one('SELECT 1 FROM packages WHERE slug = $1 AND id <> $2', [d.slug, id])) throw conflict(`The short name "${d.slug}" is taken`);
+  // Envo Phone finds its package by this short name (a first recharge moves the person onto it).
+  if (d.slug !== 'phone' && (await one("SELECT 1 FROM packages WHERE id = $1 AND slug = 'phone'", [id]))) throw badRequest('Envo Phone needs this package\'s short name to stay "phone"');
+  if (d.slug === 'phone' && d.public) throw badRequest('The Envo Phone package stays hidden from the business packages');
   const row = await one(
     `UPDATE packages SET name=$1, slug=$2, tagline=$3, price_monthly=$4, public=$5, highlight=$6, sort_order=$7, active=$8, max_servers=$9,
        max_dids=$10, max_extensions=$11, max_channels=$12, max_ivrs=$13, recording_days=$14, recording_mb=$15, ivr_tier=$16,
@@ -94,6 +97,7 @@ adminRouter.put('/packages/:id', async (req, res) => {
 
 adminRouter.delete('/packages/:id', async (req, res) => {
   const id = intParam(req.params.id);
+  if (await one("SELECT 1 FROM packages WHERE id = $1 AND slug = 'phone'", [id])) throw badRequest('Envo Phone uses this package, so it stays');
   const used = await one<{ count: number }>('SELECT count(*) AS count FROM subscriptions WHERE package_id = $1 OR next_package_id = $1', [id]);
   if ((used?.count ?? 0) > 0) throw badRequest('Customers use this package. Hide it (turn off "Active") instead of deleting it.');
   const row = await one<{ name: string }>('DELETE FROM packages WHERE id = $1 RETURNING name', [id]);

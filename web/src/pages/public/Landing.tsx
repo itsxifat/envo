@@ -381,7 +381,7 @@ export function LandingPage() {
             </div>
             <p className="mt-6 text-[14px] text-[#8a8f9a]">
               Just want a number for yourself?{' '}
-              <Link to="/phone" className="font-medium text-[#0b0d12] underline decoration-[#c6cad2] underline-offset-4 hover:decoration-[#0b0d12]">
+              <Link to="/home/phone" className="font-medium text-[#0b0d12] underline decoration-[#c6cad2] underline-offset-4 hover:decoration-[#0b0d12]">
                 Get Envo Phone
               </Link>
             </p>

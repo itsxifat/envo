@@ -7,7 +7,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
 import { Screen } from '@/components/ui/Screen';
 import { Text } from '@/components/ui/Text';
-import { formatDuration, formatPhone, formatWhen } from '@/lib/format';
+import { formatBdt, formatDuration, formatPhone, formatWhen } from '@/lib/format';
 import { useCalls } from '@/state/calls';
 import { useContacts } from '@/state/contacts';
 import { useSession, type CallLog } from '@/state/session';
@@ -88,7 +88,14 @@ function RecentRow({ item, onCall }: { item: CallLog; onCall: () => void }) {
         <Text variant="caption" tone="tertiary">
           {formatWhen(item.at)}
         </Text>
-        {item.free && <Badge label="Free" tone="call" />}
+        {/* What a call out cost; calls in, missed calls and ones not charged yet show none. */}
+        {item.free ? (
+          <Badge label="Free" tone="call" />
+        ) : item.cost != null ? (
+          <Text variant="caption" tone="secondary">
+            {formatBdt(item.cost)}
+          </Text>
+        ) : null}
       </View>
     </Pressable>
   );

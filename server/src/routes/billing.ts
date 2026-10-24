@@ -237,6 +237,8 @@ adminBillingRouter.post('/invoices/:id/void', async (req, res) => {
   const id = intParam(req.params.id);
   const n = await exec("UPDATE invoices SET status = 'void', updated_at = now() WHERE id = $1 AND status = 'unpaid'", [id]);
   if (!n) throw badRequest('Only unpaid invoices can be cancelled');
+  // A cancelled top-up invoice cancels the top-up (the customer no longer sees it as payable).
+  await exec("UPDATE topups SET status = 'cancelled', updated_at = now() WHERE invoice_id = $1 AND status = 'awaiting_payment'", [id]);
   await audit(req, 'void', 'invoice', id, '', null);
   res.json({ ok: true });
 });

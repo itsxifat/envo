@@ -128,4 +128,48 @@ if ! grep -q client_max_body_size "$NGINX_SITE"; then
 fi
 log "nginx: $(grep -o 'client_max_body_size [^;]*' "$NGINX_SITE")"
 
+# 7. Live selfie on the website (Envo Phone sign-up): a Permissions-Policy of camera=() blocks the
+#    camera in every browser. Allow it for Envo's own pages, wherever the header is set.
+HEADERS=/etc/nginx/snippets/envo-headers.conf
+camera_fixed=""
+for f in "$NGINX_SITE" "$HEADERS"; do
+  [ -f "$f" ] && grep -q 'camera=()' "$f" || continue
+  backup "$f"
+  sed -i 's/camera=()/camera=(self)/' "$f"
+  camera_fixed=1
+done
+if [ -n "$camera_fixed" ]; then nginx -t && systemctl reload nginx; fi
+log "nginx: $(cat "$NGINX_SITE" "$HEADERS" 2>/dev/null | grep -o 'camera=([^)]*)' | sort -u | tr '\n' ' ' || true)"
+
+# 8. envo.enfinito.cloud is proxied through Cloudflare, so every visitor seemed to come from a
+#    Cloudflare address and per-address limits (sign-ups, sign-ins) hit many people at once. Take the
+#    visitor's address from CF-Connecting-IP, only on connections that come from Cloudflare.
+CF_SNIPPET=/etc/nginx/snippets/envo-cloudflare.conf
+cf_ranges=$( { curl -fsS --max-time 20 https://www.cloudflare.com/ips-v4 && echo && curl -fsS --max-time 20 https://www.cloudflare.com/ips-v6; } 2>/dev/null | tr -s ' \r\n' '\n' | sed '/^$/d' || true)
+if [ "$(echo "$cf_ranges" | grep -c .)" -ge 10 ] && ! echo "$cf_ranges" | grep -qvE '^[0-9a-f.:]+/[0-9]{1,3}$'; then
+  had_snippet=""; [ -f "$CF_SNIPPET" ] && had_snippet=1 && cp -a "$CF_SNIPPET" "$CF_SNIPPET.prev"
+  { echo "# Cloudflare's addresses (office-fixups.sh): visitors' own addresses come from CF-Connecting-IP."
+    echo "$cf_ranges" | sed 's/.*/set_real_ip_from &;/'
+    echo "real_ip_header CF-Connecting-IP;"; } > "$CF_SNIPPET"
+  site_changed=""
+  if ! grep -q envo-cloudflare.conf "$NGINX_SITE"; then
+    backup "$NGINX_SITE"
+    cp -a "$NGINX_SITE" "$NGINX_SITE.prev"
+    sed -i "s|^\(\s*\)index index.html;|&\n\1include $CF_SNIPPET;   # visitors' addresses behind Cloudflare|" "$NGINX_SITE"
+    site_changed=1
+  fi
+  if nginx -t 2>/dev/null; then
+    systemctl reload nginx
+    log "nginx: $(grep -c set_real_ip_from "$CF_SNIPPET") Cloudflare ranges, visitors' addresses from CF-Connecting-IP"
+  else
+    # Leave nginx exactly as it was.
+    [ -n "$site_changed" ] && mv "$NGINX_SITE.prev" "$NGINX_SITE"
+    if [ -n "$had_snippet" ]; then mv "$CF_SNIPPET.prev" "$CF_SNIPPET"; else rm -f "$CF_SNIPPET"; fi
+    log "nginx: the Cloudflare address setting did not pass nginx -t, left out"
+  fi
+  rm -f "$NGINX_SITE.prev" "$CF_SNIPPET.prev"
+else
+  log "nginx: could not get Cloudflare's address list, visitors' addresses left as before"
+fi
+
 log "done"

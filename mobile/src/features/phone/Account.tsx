@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BellRing, CircleHelp, Copy, Grid3x3, KeyRound, LogOut, PhoneIncoming, Plus, ShieldCheck, Trash2, Vibrate } from 'lucide-react-native';
+import { BellRing, CircleHelp, Clock3, Copy, Grid3x3, KeyRound, LogOut, PhoneIncoming, Plus, ShieldCheck, Trash2, Vibrate } from 'lucide-react-native';
 
 import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
@@ -34,6 +34,8 @@ export function AccountScreen() {
   const settings = useSettings();
   if (!account) return null;
   const status = STATUS[account.stage];
+  // The first recharge is paid and support is checking it: nothing to pay again.
+  const checking = account.stage === 'activate' && account.paymentInReview;
   const tone = RINGTONES.find((r) => r.id === settings.ringtone)?.name ?? 'Envo';
   const support = [
     ...(config?.support.phone ? [{ text: `Call ${config.support.phone}`, onPress: () => void Linking.openURL(`tel:${config.support.phone}`) }] : []),
@@ -85,15 +87,24 @@ export function AccountScreen() {
         <Text style={styles.balanceLabel}>Calling balance</Text>
         <Text style={styles.balance}>{formatBdt(account.balance)}</Text>
         <View style={styles.balanceBottom}>
-          <Text style={styles.balanceHint}>Calls to Envo numbers are free</Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.push(account.stage === 'activate' ? '/activate' : '/recharge')}
-            style={({ pressed }) => [styles.rechargeButton, { opacity: pressed ? 0.85 : 1 }]}
-          >
-            <Plus size={16} color={palette.ink950} strokeWidth={2.6} />
-            <Text style={styles.rechargeText}>{account.stage === 'activate' ? 'Activate' : 'Recharge'}</Text>
-          </Pressable>
+          {checking ? (
+            <>
+              <Clock3 size={18} color="#FFFFFF" />
+              <Text style={styles.balanceHint}>We're checking your payment. Your number is activated as soon as it is confirmed.</Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.balanceHint}>{config?.free_onnet ? 'Calls to Envo numbers are free' : ''}</Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push(account.stage === 'activate' ? '/activate' : '/recharge')}
+                style={({ pressed }) => [styles.rechargeButton, { opacity: pressed ? 0.85 : 1 }]}
+              >
+                <Plus size={16} color={palette.ink950} strokeWidth={2.6} />
+                <Text style={styles.rechargeText}>{account.stage === 'activate' ? 'Activate' : 'Recharge'}</Text>
+              </Pressable>
+            </>
+          )}
         </View>
       </View>
 

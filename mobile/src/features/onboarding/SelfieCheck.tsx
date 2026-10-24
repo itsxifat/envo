@@ -51,8 +51,12 @@ export function SelfieCheckScreen() {
   const circumference = 2 * Math.PI * ring;
   const ringProps = useAnimatedProps(() => ({ strokeDashoffset: circumference * (1 - progress.value) }));
 
+  // Asks by itself once when the screen opens; after a "no", only the 'Allow the camera' button asks again.
+  const asked = useRef(false);
   useEffect(() => {
-    if (permission && !permission.granted && permission.canAskAgain) void requestPermission();
+    if (asked.current || !permission || permission.granted || !permission.canAskAgain) return;
+    asked.current = true;
+    void requestPermission();
   }, [permission, requestPermission]);
 
   // A phone without a working front camera never gets ready: say so instead of waiting.

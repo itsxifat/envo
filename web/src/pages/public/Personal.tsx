@@ -19,8 +19,8 @@ function usePublicPhoneConfig() {
   return useQuery({ queryKey: ['public', 'phone-config'], queryFn: () => api.get<PhoneConfig>('/api/public/phone/config'), staleTime: 5 * 60_000 });
 }
 
-/** The app, drawn small: the number card and a free call coming in. Example data. */
-function PhoneMock() {
+/** The app, drawn small: the number card and a call from another Envo number coming in. Example data. */
+function PhoneMock({ free }: { free: boolean }) {
   return (
     <div className="relative mx-auto w-full max-w-[340px]" aria-hidden>
       <div className="rounded-[44px] bg-[#0b0d12] p-3 shadow-[0_40px_80px_-30px_rgb(11_13_18/0.55)]">
@@ -34,7 +34,7 @@ function PhoneMock() {
             <div className="mt-2 text-[12px] text-white/55">Balance BDT 245.50</div>
           </div>
           <div className="mt-10 text-center">
-            <div className="text-[11px] font-medium tracking-wide text-white/50 uppercase">Envo call · free</div>
+            <div className="text-[11px] font-medium tracking-wide text-white/50 uppercase">Envo call{free ? ' · free' : ''}</div>
             <div className="font-display mt-2 text-[26px] font-semibold">Karim Hossain</div>
             <div className="mt-1 text-[13px] text-white/55 tabular-nums">09639 437 022</div>
             <div className="mx-auto mt-7 flex size-24 items-center justify-center rounded-full bg-white/[0.08] text-[30px] font-semibold ring-8 ring-white/[0.04]">KH</div>
@@ -58,12 +58,14 @@ export function PersonalLandingPage() {
   const c = config.data;
   const rate = c ? formatBdt(c.rate_per_min) : 'BDT 0.40';
   const start = c ? formatBdt(c.activation_min) : 'BDT 100';
+  // Calls between Envo numbers are free only while the admin setting says so.
+  const free = !!c?.free_onnet;
   const faq: [string, string][] = [
     ['Is the number really mine?', `Yes. It is registered in your name with ${c?.operator || 'the operator'}, as the BTRC requires, and it stays yours while you use it.`],
     ['What do I need to sign up?', 'Your NID, a photo of yourself and a photo of the front of your NID. You can take both photos with your phone while you sign up.'],
     ['How soon can I call?', 'Your number is chosen the moment you send the registration. After your first recharge we register it in your name, usually within a few hours, and email you when it is ready.'],
     ['Where can I use it?', 'In the Envo Phone app on Android, and in any browser on envo.enfinito.cloud. Calls to your number ring wherever you are signed in.'],
-    ['Is there a monthly fee?', `No. You only pay for calls to other networks, ${rate} a minute, from the balance you recharge. Calls to other Envo numbers are free.`],
+    ['Is there a monthly fee?', `No. You only pay for calls to other networks, ${rate} a minute, from the balance you recharge.${free ? ' Calls to other Envo numbers are free.' : ''}`],
     ['Need a phone system for a business?', 'Envo also runs phone systems for teams, with extensions, call menus and queues. See Envo for business.'],
   ];
   return (
@@ -73,7 +75,7 @@ export function PersonalLandingPage() {
           <p className="site-label">Envo Phone · for you</p>
           <h1 className="font-display mt-5 text-[44px] leading-[0.98] font-semibold tracking-[-0.045em] text-balance sm:text-[64px] xl:text-[76px]">Your own phone number, wherever you are.</h1>
           <p className="mt-6 max-w-[32rem] text-[17px] leading-[1.6] text-[#5b616e] sm:text-[18px]">
-            Get a 09639 number in minutes. Call any phone in Bangladesh from your Android phone or your browser, and call other Envo numbers for free.
+            Get a 09639 number in minutes. Call any phone in Bangladesh from your Android phone or your browser{free ? ', and call other Envo numbers for free' : ''}.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-4">
             <Link to="/phone/signup" className="site-btn site-btn-lg">
@@ -87,15 +89,15 @@ export function PersonalLandingPage() {
           </div>
           <p className="mt-5 text-[14px] text-[#8a8f9a]">No monthly fee. Start with {start}, all of it for calls.</p>
         </div>
-        <PhoneMock />
+        <PhoneMock free={free} />
       </section>
 
       <section className="bg-[#0b0d12] text-white">
-        <dl className={clsx(WRAP, 'grid gap-x-10 gap-y-10 py-16 sm:grid-cols-2 sm:py-20 lg:grid-cols-4')}>
+        <dl className={clsx(WRAP, 'grid gap-x-10 gap-y-10 py-16 sm:grid-cols-2 sm:py-20', free ? 'lg:grid-cols-4' : 'lg:grid-cols-3')}>
           {[
             ['No fee', 'Every month. No package, no contract.'],
             [rate, 'A minute to any mobile or landline in Bangladesh.'],
-            ['Free', 'Calls between Envo numbers, as long as you like.'],
+            ...(free ? [['Free', 'Calls between Envo numbers, as long as you like.']] : []),
             [start, 'Your first recharge activates the number and all of it is yours to call with.'],
           ].map(([big, d]) => (
             <div key={d} className="border-t border-[#262a35] pt-5">
@@ -140,7 +142,7 @@ export function PersonalLandingPage() {
                   {q.startsWith('Need a phone system') && (
                     <>
                       {' '}
-                      <Link to="/" className="font-medium text-[#0b0d12] underline underline-offset-4">
+                      <Link to="/home" className="font-medium text-[#0b0d12] underline underline-offset-4">
                         Envo for business
                       </Link>
                     </>

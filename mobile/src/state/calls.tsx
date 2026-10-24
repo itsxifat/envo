@@ -1,11 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Vibration } from 'react-native';
+import { Alert, Vibration } from 'react-native';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 
 import { isEnvoNumber } from '@/lib/numbers';
 import { RINGTONES, useSettings } from './settings';
-import { useSession } from './session';
+import { outOfBalance, useSession } from './session';
 import { Sounds } from './sounds';
 
 /*
@@ -25,7 +25,7 @@ export interface Call {
   connectedAt: number | null;
   muted: boolean;
   speaker: boolean;
-  /** Between two Envo numbers: free. */
+  /** Between two Envo numbers, when Enfinito makes those free. */
   free: boolean;
 }
 
@@ -48,8 +48,18 @@ const CallsContext = createContext<CallsValue | null>(null);
 
 export { isEnvoNumber } from '@/lib/numbers';
 
+/** The calling balance has run out, so Envo doesn't put calls out through: offer a recharge instead. */
+export function askToRecharge() {
+  Alert.alert('Recharge to call', 'Your calling balance has run out. Recharge to make calls again. You can still get calls.', [
+    { text: 'Not now', style: 'cancel' },
+    { text: 'Recharge', onPress: () => router.push('/recharge') },
+  ]);
+}
+
 export function CallsProvider({ children }: { children: ReactNode }) {
-  const { addCall } = useSession();
+  const { account, config, addCall } = useSession();
+  const blocked = outOfBalance(account);
+  const freeOnnet = !!config?.free_onnet;
   const { ringtone, vibrate } = useSettings();
   const [call, setCall] = useState<Call | null>(null);
   const [incoming, setIncoming] = useState<Call | null>(null);
@@ -69,7 +79,8 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       Sounds.ringback(false);
       Sounds.hangup();
       const duration = c.connectedAt ? Math.round((Date.now() - c.connectedAt) / 1000) : 0;
-      addCall({ name: c.name, number: c.number, direction: c.direction === 'in' ? 'in' : 'out', duration, free: c.free });
+      // Only a call out can be free; calls in never show a price.
+      addCall({ name: c.name, number: c.number, direction: c.direction === 'in' ? 'in' : 'out', duration, free: c.direction === 'out' && c.free });
       setCall({ ...c, state: 'ended' });
       later(900, () => {
         setCall(null);
@@ -81,7 +92,9 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
   const dial = useCallback((number: string, name: string | null = null) => {
     if (callRef.current) return;
-    const c: Call = { id: String(Date.now()), number, name, direction: 'out', state: 'calling', connectedAt: null, muted: false, speaker: false, free: isEnvoNumber(number) };
+    // Every place that starts a call comes through here.
+    if (blocked) return askToRecharge();
+    const c: Call = { id: String(Date.now()), number, name, direction: 'out', state: 'calling', connectedAt: null, muted: false, speaker: false, free: freeOnnet && isEnvoNumber(number) };
     setCall(c);
     router.push('/call');
     later(1100, () => {
@@ -93,7 +106,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setCall((x) => (x && x.state === 'ringing' ? { ...x, state: 'connected', connectedAt: Date.now() } : x));
     });
-  }, []);
+  }, [blocked, freeOnnet]);
 
   // The incoming call rings (and buzzes) until it is answered or declined.
   useEffect(() => {
@@ -116,7 +129,7 @@ export function CallsProvider({ children }: { children: ReactNode }) {
 
   const decline = useCallback(() => {
     if (!incoming) return;
-    addCall({ name: incoming.name, number: incoming.number, direction: 'missed', duration: 0, free: incoming.free });
+    addCall({ name: incoming.name, number: incoming.number, direction: 'missed', duration: 0, free: false });
     setIncoming(null);
     if (router.canGoBack()) router.back();
   }, [incoming, addCall]);
@@ -139,11 +152,11 @@ export function CallsProvider({ children }: { children: ReactNode }) {
       sendDigit: (d) => Sounds.key(d),
       simulateIncoming: (from = { number: '09639437022', name: 'Karim Hossain' }) => {
         if (callRef.current) return;
-        setIncoming({ id: String(Date.now()), number: from.number, name: from.name, direction: 'in', state: 'ringing', connectedAt: null, muted: false, speaker: false, free: isEnvoNumber(from.number) });
+        setIncoming({ id: String(Date.now()), number: from.number, name: from.name, direction: 'in', state: 'ringing', connectedAt: null, muted: false, speaker: false, free: freeOnnet && isEnvoNumber(from.number) });
         router.push('/incoming');
       },
     }),
-    [call, incoming, dial, answer, decline, hangup],
+    [call, incoming, dial, answer, decline, hangup, freeOnnet],
   );
   return <CallsContext.Provider value={value}>{children}</CallsContext.Provider>;
 }

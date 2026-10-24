@@ -13,7 +13,7 @@ import { formatBdt, formatPhone, formatTyping } from '@/lib/format';
 import { isEnvoNumber } from '@/lib/numbers';
 import { useCalls } from '@/state/calls';
 import { useContacts } from '@/state/contacts';
-import { useSession } from '@/state/session';
+import { outOfBalance, useSession } from '@/state/session';
 import { useSettings } from '@/state/settings';
 import { Sounds } from '@/state/sounds';
 import { useTheme } from '@/theme/theme';
@@ -37,7 +37,7 @@ const KEYS: [string, string][] = [
 export function KeypadScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const { account, recents, minActivation } = useSession();
+  const { account, config, recents, minActivation } = useSession();
   const { nameOf } = useContacts();
   const { dial } = useCalls();
   const { keypadSounds } = useSettings();
@@ -45,10 +45,14 @@ export function KeypadScreen() {
   const shake = useSharedValue(0);
   const shaking = useAnimatedStyle(() => ({ transform: [{ translateX: shake.value }] }));
   const stage = account?.stage ?? 'activate';
+  // The first recharge is paid and support is checking it: nothing to pay again.
+  const checking = stage === 'activate' && !!account?.paymentInReview;
+  // Active, but the balance has run out: Envo stops calls out until a recharge.
+  const empty = outOfBalance(account);
 
   // A name for the number, when it was called before.
   const known = useMemo(() => nameOf(digits) ?? recents.find((r) => r.name && r.number === digits)?.name ?? null, [nameOf, recents, digits]);
-  const free = isEnvoNumber(digits);
+  const free = !!config?.free_onnet && isEnvoNumber(digits);
 
   const press = (d: string) => {
     if (digits.length >= 15) return;
@@ -64,10 +68,11 @@ export function KeypadScreen() {
       if (last) setDigits(last.number);
       return;
     }
-    if (stage !== 'active') {
+    if (stage !== 'active' || empty) {
       shake.value = withSequence(withTiming(-8, { duration: 50 }), withTiming(8, { duration: 50 }), withTiming(-6, { duration: 50 }), withTiming(0, { duration: 50 }));
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      if (stage === 'activate') router.push('/activate');
+      if (empty) router.push('/recharge');
+      else if (stage === 'activate' && !checking) router.push('/activate');
       return;
     }
     dial(digits, known);
@@ -81,7 +86,7 @@ export function KeypadScreen() {
           <View style={[styles.dot, { backgroundColor: stage === 'active' ? colors.call : colors.warning }]} />
           <Text variant="label">{account?.number ? formatPhone(account.number) : 'No number yet'}</Text>
         </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Recharge" onPress={() => router.push(stage === 'activate' ? '/activate' : '/recharge')} style={[styles.chip, { backgroundColor: colors.brandSoft }]}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Recharge" disabled={checking} onPress={() => router.push(stage === 'activate' ? '/activate' : '/recharge')} style={[styles.chip, { backgroundColor: colors.brandSoft }]}>
           <Wallet size={15} color={colors.brand} />
           <Text variant="label" tone="brand">
             {formatBdt(account?.balance ?? 0)}
@@ -89,7 +94,18 @@ export function KeypadScreen() {
         </Pressable>
       </View>
 
-      {stage === 'activate' && (
+      {checking && (
+        <View style={[styles.banner, { backgroundColor: colors.warningSoft }]}>
+          <Clock3 size={18} color={colors.warning} />
+          <View style={{ flex: 1 }}>
+            <Text variant="label">We're checking your payment</Text>
+            <Text variant="caption" tone="secondary">
+              Usually a few minutes. Your number is activated as soon as it is confirmed.
+            </Text>
+          </View>
+        </View>
+      )}
+      {stage === 'activate' && !checking && (
         <Pressable accessibilityRole="button" onPress={() => router.push('/activate')} style={[styles.banner, { backgroundColor: colors.brandSoft }]}>
           <Sparkles size={18} color={colors.brand} />
           <View style={{ flex: 1 }}>
@@ -113,6 +129,20 @@ export function KeypadScreen() {
             </Text>
           </View>
         </View>
+      )}
+      {empty && (
+        <Pressable accessibilityRole="button" onPress={() => router.push('/recharge')} style={[styles.banner, { backgroundColor: colors.brandSoft }]}>
+          <Wallet size={18} color={colors.brand} />
+          <View style={{ flex: 1 }}>
+            <Text variant="label">Recharge to call</Text>
+            <Text variant="caption" tone="secondary">
+              Your calling balance has run out. You can still get calls.
+            </Text>
+          </View>
+          <Text variant="label" tone="brand">
+            Recharge
+          </Text>
+        </Pressable>
       )}
 
       <Pressable
@@ -167,7 +197,7 @@ export function KeypadScreen() {
             accessibilityRole="button"
             accessibilityLabel="Call"
             onPress={call}
-            style={({ pressed }) => [styles.callButton, { backgroundColor: colors.call, opacity: stage === 'active' || !digits ? 1 : 0.55, transform: [{ scale: pressed ? 0.94 : 1 }] }]}
+            style={({ pressed }) => [styles.callButton, { backgroundColor: colors.call, opacity: (stage === 'active' && !empty) || !digits ? 1 : 0.55, transform: [{ scale: pressed ? 0.94 : 1 }] }]}
           >
             <Phone size={30} color="#FFFFFF" fill="#FFFFFF" />
           </Pressable>

@@ -66,6 +66,7 @@ function AdminApp() {
     <LiveProvider>
       <Routes>
         <Route path="home" element={<LandingPage />} />
+        <Route path="home/phone" element={<PersonalLandingPage />} />
         <Route path="admin" element={<AdminLayout />}>
           <Route index element={<AdminOverviewPage />} />
           <Route path="customers" element={<CustomersPage />} />
@@ -97,6 +98,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/home" element={<LandingPage />} />
+        <Route path="/home/phone" element={<PersonalLandingPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/phone" element={<PersonalLandingPage />} />
@@ -123,6 +125,7 @@ export function App() {
           <Routes>
             {/* Signed in, "/" is the dashboard: the website stays reachable here. */}
             <Route path="home" element={<LandingPage />} />
+            <Route path="home/phone" element={<PersonalLandingPage />} />
             <Route element={<Layout />}>
               <Route index element={<DashboardPage />} />
               <Route path="get-started" element={<RequireRole roles={ADMIN}><GetStartedPage /></RequireRole>} />

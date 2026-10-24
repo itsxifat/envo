@@ -233,7 +233,7 @@ numberRequestsRouter.post('/', uploadDocuments, async (req, res) => {
  * Closes a request without a number (the customer withdrew, or support rejected it): the reserved
  * number goes back to the pool, and only the subscriber's name is kept, not their ID data.
  */
-async function closeRequest(id: number, where: string, params: unknown[], set: { status: 'cancelled' | 'rejected'; reason?: string; by?: number }): Promise<boolean> {
+export async function closeRequest(id: number, where: string, params: unknown[], set: { status: 'cancelled' | 'rejected'; reason?: string; by?: number }): Promise<boolean> {
   const closed = await tx(async (db) => {
     const r = (
       await db.query<{ pool_id: number | null }>(
@@ -516,6 +516,12 @@ adminSupplyRouter.post('/requests/:id/connect', async (req, res) => {
     // The reserved number is now taken; if a different one was given instead, the reserved one is free again.
     if (r.pool_id) await db.query("UPDATE number_pool SET status = 'available', updated_at = now() WHERE id = $1 AND number <> $2", [r.pool_id, d.number]);
     await db.query("UPDATE number_pool SET status = 'assigned', updated_at = now() WHERE number = $1", [d.number]);
+    // Envo Phone: recharges made before the number worked are for the number connected now.
+    await db.query(
+      `UPDATE topups SET number_id = $1, number = $2, updated_at = now()
+        WHERE account_id = $3 AND number_id IS NULL AND status IN ('awaiting_payment', 'paid') AND account_id IN (SELECT id FROM accounts WHERE kind = 'personal')`,
+      [created.number_id, d.number, r.account_id],
+    );
   });
   await audit(req, 'connect', 'number_request', id, d.number, r.tenant_id);
   notifyNumberReady(r.account_id, d.number);

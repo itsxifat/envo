@@ -21,8 +21,18 @@ export async function runBillingClock(now = new Date()): Promise<{ invoiced: num
   const touched = new Set<number>();
   let invoiced = 0;
 
-  const due = await many<{ id: number; account_id: number; current_period_end: Date; price: string; next_package_id: number | null; pkg_name: string; next_name: string | null; next_price: string | null }>(
-    `SELECT s.id, s.account_id, s.current_period_end, s.price, s.next_package_id, p.name AS pkg_name, n.name AS next_name, n.price_monthly AS next_price
+  const due = await many<{
+    id: number;
+    account_id: number;
+    kind: string;
+    current_period_end: Date;
+    price: string;
+    next_package_id: number | null;
+    pkg_name: string;
+    next_name: string | null;
+    next_price: string | null;
+  }>(
+    `SELECT s.id, s.account_id, a.kind, s.current_period_end, s.price, s.next_package_id, p.name AS pkg_name, n.name AS next_name, n.price_monthly AS next_price
        FROM subscriptions s
        JOIN accounts a ON a.id = s.account_id AND NOT a.internal AND a.status <> 'closed'
        JOIN packages p ON p.id = s.package_id
@@ -36,14 +46,18 @@ export async function runBillingClock(now = new Date()): Promise<{ invoiced: num
   );
   for (const sub of due) {
     const amount = sub.next_package_id ? Number(sub.next_price ?? sub.price) : Number(sub.price);
-    // A free package (Envo Phone) renews by itself: nothing to pay, nothing to remind.
-    if (amount === 0) {
+    // Envo Phone's free package renews by itself when the month is over: nothing to pay or remind.
+    if (amount === 0 && sub.kind === 'personal') {
+      if (sub.current_period_end > now) continue;
       await exec(
-        `UPDATE subscriptions SET status = 'active', current_period_start = greatest(current_period_end, now()),
-                current_period_end = greatest(current_period_end, now()) + interval '1 month',
-                package_id = COALESCE(next_package_id, package_id), next_package_id = NULL, updated_at = now() WHERE id = $1`,
+        `UPDATE subscriptions s SET status = 'active', current_period_start = greatest(s.current_period_end, now()),
+                current_period_end = greatest(s.current_period_end, now()) + interval '1 month',
+                package_id = COALESCE(s.next_package_id, s.package_id),
+                price = COALESCE((SELECT price_monthly FROM packages WHERE id = s.next_package_id), s.price),
+                next_package_id = NULL, updated_at = now() WHERE s.id = $1`,
         [sub.id],
       );
+      touched.add(sub.account_id);
       continue;
     }
     // One customer's problem must not stop everyone else's billing.

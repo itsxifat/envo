@@ -2,7 +2,7 @@ import { Router, type Request } from 'express';
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import { many, one, exec } from '../db.js';
-import { canAccessTenant, requireRole, hashPassword, tenantOf, type Role } from '../auth.js';
+import { canAccessTenant, requireRole, hashPassword, issueSession, tenantOf, type Role } from '../auth.js';
 import { badRequest, conflict, forbidden, intParam, notFound } from '../lib/http.js';
 import { audit } from '../lib/validate.js';
 import { issueToken } from '../lib/tokens.js';
@@ -215,7 +215,11 @@ userRouter.put('/:id', async (req, res) => {
       WHERE id = $9`,
     [data.email, data.name, data.role, data.account_id, data.is_owner, data.tenant_id, data.extension_id, data.enabled, existing.id],
   );
-  if (data.password) await exec('UPDATE users SET password_hash = $1 WHERE id = $2', [await hashPassword(data.password), existing.id]);
+  if (data.password) {
+    // A new password signs that login out everywhere (a lost phone too); your own browser signs in again here.
+    await exec('UPDATE users SET password_hash = $1, sessions_valid_after = $2 WHERE id = $3', [await hashPassword(data.password), new Date(), existing.id]);
+    if (existing.id === req.user!.id && !req.user!.impersonator) issueSession(res, existing.id);
+  }
   await audit(req, 'update', 'user', existing.id, data.email, data.tenant_id);
   res.json({ ok: true });
 });

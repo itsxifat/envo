@@ -141,9 +141,10 @@ done
 if [ -n "$camera_fixed" ]; then nginx -t && systemctl reload nginx; fi
 log "nginx: $(cat "$NGINX_SITE" "$HEADERS" 2>/dev/null | grep -o 'camera=([^)]*)' | sort -u | tr '\n' ' ' || true)"
 
-# 8. envo.enfinito.cloud is proxied through Cloudflare, so every visitor seemed to come from a
-#    Cloudflare address and per-address limits (sign-ups, sign-ins) hit many people at once. Take the
-#    visitor's address from CF-Connecting-IP, only on connections that come from Cloudflare.
+# 8. Only if envo.enfinito.cloud is ever proxied through Cloudflare (on 2026-10-24 its DNS pointed
+#    straight at the office, so this wasn't needed): every visitor would seem to come from a
+#    Cloudflare address and per-address limits (sign-ups, sign-ins) would hit many people at once.
+#    Take the visitor's address from CF-Connecting-IP, only on connections that come from Cloudflare.
 CF_SNIPPET=/etc/nginx/snippets/envo-cloudflare.conf
 cf_ranges=$( { curl -fsS --max-time 20 https://www.cloudflare.com/ips-v4 && echo && curl -fsS --max-time 20 https://www.cloudflare.com/ips-v6; } 2>/dev/null | tr -s ' \r\n' '\n' | sed '/^$/d' || true)
 if [ "$(echo "$cf_ranges" | grep -c .)" -ge 10 ] && ! echo "$cf_ranges" | grep -qvE '^[0-9a-f.:]+/[0-9]{1,3}$'; then

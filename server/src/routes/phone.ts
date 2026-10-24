@@ -1,5 +1,6 @@
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request, type RequestHandler, type Response } from 'express';
 import crypto from 'node:crypto';
+import multer from 'multer';
 import { z } from 'zod';
 import { exec, many, one, tx } from '../db.js';
 import { config } from '../config.js';
@@ -11,10 +12,12 @@ import { emails } from '../lib/emails.js';
 import { createInvoice, startOnlinePayment, submitManualPayment } from '../billing/invoices.js';
 import { publicPaymentOptions } from '../billing/settings.js';
 import { getSupplySettings } from '../supply/settings.js';
-import { deleteDocuments, idDocumentOf, saveDocument } from '../supply/files.js';
+import { deleteCheckFrames, deleteDocuments, idDocumentOf, readCheckFrames, saveCheckFrames, saveDocument } from '../supply/files.js';
 import { needsSetup } from '../setup.js';
 import { phoneState, provisionPersonal, reserveRandomNumber, stageOf } from '../phone/account.js';
 import { adjustBalance, balanceOf } from '../phone/balance.js';
+import { checkIdentity, identity } from '../phone/check.js';
+import type { Liveness } from '../phone/identity.js';
 import { getPhoneSettings, updatePhoneSettings } from '../phone/settings.js';
 import { detailsSchema, uploadDocuments } from './numberRequests.js';
 import { guard } from './signup.js';
@@ -66,6 +69,7 @@ phonePublicRouter.get('/config', async (_req, res) => {
     recharge: s.recharge,
     rate_per_min: s.rate_per_min,
     free_onnet: s.free_onnet,
+    selfie_check: s.selfie_check,
     support: s.support,
     min_app_version: s.min_app_version,
     update_url: s.update_url,
@@ -190,10 +194,40 @@ phoneRouter.put('/email', async (req, res) => {
   res.json(await phoneState(accountOf(req)));
 });
 
+const frames = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 3, fields: 2 } }).fields([
+  { name: 'straight', maxCount: 1 },
+  { name: 'turn_1', maxCount: 1 },
+  { name: 'turn_2', maxCount: 1 },
+]);
+const uploadFrames: RequestHandler = (req, res, next) =>
+  frames(req, res, (err: unknown) => next((err as { code?: string } | undefined)?.code === 'LIMIT_FILE_SIZE' ? badRequest('Each picture can be at most 5 MB') : err));
+
 /**
- * The registration (KYC): the details as JSON, a photo of the person and of their NID, and the consent.
- * Name, mobile and email come from the account. Makes the person's SIP server and reserves a random
- * number from the pool (when none is left, support picks one when connecting).
+ * The live selfie: three pictures, looking straight and then turning the head one way and the other.
+ * Checked right away (one face, the same person, a real head turn), so a retake can be asked for on
+ * the spot; a passed check is kept for the registration, which matches it with the NID photo.
+ */
+phoneRouter.post('/selfie', uploadFrames, async (req, res) => {
+  guard(req, `phone-selfie-${req.user!.id}`, 15, 15 * 60_000);
+  const accountId = accountOf(req);
+  if ((await phoneState(accountId)).stage !== 'kyc') throw badRequest('Your registration is already with us');
+  const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+  const list = ['straight', 'turn_1', 'turn_2'].map((k) => files?.[k]?.[0]?.buffer);
+  if (list.some((b) => !b)) throw badRequest('Send all three pictures');
+  const id = await identity();
+  const { result, descriptor } = await id.checkLiveness(list as [Buffer, Buffer, Buffer]);
+  if (!result.ok || !descriptor) throw new HttpError(422, id.PROBLEM_TEXT[result.problem ?? 'no_face'], { code: result.problem, result });
+  const checkId = crypto.randomUUID();
+  await saveCheckFrames(checkId, list as Buffer[]);
+  await exec('INSERT INTO selfie_checks (id, account_id, result, descriptor) VALUES ($1, $2, $3, $4)', [checkId, accountId, JSON.stringify(result), JSON.stringify(descriptor)]);
+  res.status(201).json({ id: checkId });
+});
+
+/**
+ * The registration (KYC): the details as JSON, the live selfie (a passed check) or a photo, the NID's
+ * two sides (or one file with both), and the consent. Name, mobile and email come from the account.
+ * Makes the person's SIP server, reserves a random number from the pool (when none is left, support
+ * picks one when connecting) and matches the selfie with the NID photo for support.
  */
 phoneRouter.post('/kyc', uploadDocuments, async (req, res) => {
   const accountId = accountOf(req);
@@ -204,6 +238,7 @@ phoneRouter.post('/kyc', uploadDocuments, async (req, res) => {
     .object({
       details: z.string().max(20_000),
       consent: z.string().refine((v) => v === 'true', 'agree to share these details with the operator'),
+      selfie_check: z.uuid().optional(),
     })
     .parse(req.body);
   let raw: unknown;
@@ -214,12 +249,33 @@ phoneRouter.post('/kyc', uploadDocuments, async (req, res) => {
   }
   const details = detailsSchema.parse({ ...(raw as object), subscriber_type: 'individual', authorized_person: '', name: state.name, phone: state.mobile, email: state.email });
   const files = req.files as Record<string, Express.Multer.File[]> | undefined;
-  const photo = files?.photo?.[0];
-  if (!photo) throw badRequest('Add a photo of yourself');
+  const settings = await getPhoneSettings();
+  // The selfie: a live one checked moments ago, or (with the check off) any photo.
+  let photo: Buffer;
+  let turns: Buffer[] = [];
+  let liveness: Liveness | null = null;
+  let selfie: Buffer | number[];
+  if (body.selfie_check) {
+    const check = await one<{ result: Liveness; descriptor: number[] }>(
+      "SELECT result, descriptor FROM selfie_checks WHERE id = $1 AND account_id = $2 AND used_at IS NULL AND created_at > now() - interval '1 hour'",
+      [body.selfie_check, accountId],
+    );
+    if (!check) throw badRequest('Your selfie is too old. Please take it again.');
+    [photo, ...turns] = (await readCheckFrames(body.selfie_check)) as [Buffer, ...Buffer[]];
+    liveness = check.result;
+    selfie = check.descriptor;
+  } else {
+    if (settings.selfie_check) throw badRequest('Take your selfie with the camera: look at it, then turn your head when asked');
+    const p = files?.photo?.[0];
+    if (!p) throw badRequest('Add a photo of yourself');
+    photo = p.buffer;
+    selfie = p.buffer;
+  }
   // The two sides become one page, the way the operator wants it.
   const idDoc = await idDocumentOf(files);
   if (!idDoc) throw badRequest('Add photos of the front and back of your NID');
-  const fallbackProvider = (await getPhoneSettings()).provider;
+  const check = await checkIdentity(liveness, selfie, files?.id_front?.[0]?.buffer ?? idDoc);
+  const fallbackProvider = settings.provider;
 
   let requestId = 0;
   try {
@@ -234,11 +290,14 @@ phoneRouter.post('/kyc', uploadDocuments, async (req, res) => {
         )
       ).rows[0]!;
       requestId = row.id;
-      const photoFile = await saveDocument(row.id, 'photo', photo.buffer, false);
+      const photoFile = await saveDocument(row.id, 'photo', photo, false);
       const idFile = await saveDocument(row.id, 'id', idDoc, true);
-      await db.query('UPDATE number_requests SET photo_file = $1, id_file = $2 WHERE id = $3', [photoFile, idFile, row.id]);
+      for (const [i, turn] of turns.entries()) await saveDocument(row.id, i === 0 ? 'turn-1' : 'turn-2', turn, false);
+      await db.query('UPDATE number_requests SET photo_file = $1, id_file = $2, identity = $3 WHERE id = $4', [photoFile, idFile, JSON.stringify(check), row.id]);
+      if (body.selfie_check) await db.query('UPDATE selfie_checks SET used_at = now() WHERE id = $1', [body.selfie_check]);
       return { id: row.id, number: picked?.number ?? null, tenantId };
     });
+    if (body.selfie_check) await deleteCheckFrames(body.selfie_check).catch(() => undefined);
     await audit(req, 'create', 'number_request', created.id, `Envo Phone: ${created.number ?? 'number to be chosen'}`, created.tenantId);
     res.status(201).json(await phoneState(accountId));
   } catch (err) {
@@ -429,6 +488,7 @@ const settingsSchema = z
     recharge: z.object({ min: z.number().min(1).max(100_000), max: z.number().min(1).max(1_000_000), presets: z.array(z.number().positive().max(1_000_000)).max(6) }),
     rate_per_min: z.number().min(0).max(1000),
     free_onnet: z.boolean(),
+    selfie_check: z.boolean().default(true),
     support: z.object({ phone: z.string().trim().max(30), email: z.union([z.literal(''), z.email('enter a valid email')]) }),
     min_app_version: z.string().trim().regex(/^\d+\.\d+\.\d+$/, 'a version like 1.0.0'),
     update_url: z.union([z.literal(''), z.url('enter a full link, like https://…')]),

@@ -359,6 +359,17 @@
   animation: ring-pulse 1.4s infinite;
 }
 
+/* The live selfie's ring: fills once over the step's length (the duration is set inline). */
+@keyframes selfie-ring {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.selfie-ring {
+  stroke-dashoffset: 1;
+  animation: selfie-ring linear forwards;
+}
+
 @keyframes slide-up {
   from {
     transform: translateY(12px);

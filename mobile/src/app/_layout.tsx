@@ -72,6 +72,7 @@ function Navigator() {
         </Stack.Protected>
         <Stack.Protected guard={stage === 'kyc'}>
           <Stack.Screen name="kyc" />
+          <Stack.Screen name="selfie" options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
         </Stack.Protected>
         <Stack.Protected guard={stage === 'suspended'}>
           <Stack.Screen name="paused" />

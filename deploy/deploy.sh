@@ -46,6 +46,8 @@ STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/envo/server" "$STAGE/envo/web"
 cp server/dist/index.mjs server/dist/index.mjs.map "$STAGE/envo/server/"
+# The selfie check's face models and WebAssembly files.
+cp -r server/dist/faces "$STAGE/envo/server/faces"
 cp -r web/dist/. "$STAGE/envo/web/"
 if [ "$TARGET" = vps ]; then cp -r deploy "$STAGE/envo/deploy"; fi
 echo "$VERSION" > "$STAGE/envo/VERSION"

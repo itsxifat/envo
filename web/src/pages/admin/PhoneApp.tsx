@@ -61,6 +61,7 @@ interface PhoneSettings {
   recharge: { min: number; max: number; presets: number[] };
   rate_per_min: number;
   free_onnet: boolean;
+  selfie_check: boolean;
   support: { phone: string; email: string };
   min_app_version: string;
   update_url: string;
@@ -357,6 +358,12 @@ function SettingsForm() {
               ))}
             </Select>
           </Field>
+          <Toggle
+            checked={form.selfie_check}
+            onChange={(v) => set('selfie_check', v)}
+            label="Check selfies automatically"
+            description="A live selfie (looking at the camera, then turning the head) is checked here and matched with the NID photo, like banking apps do. Off: any photo, and you compare by eye."
+          />
           <Field label="First recharge, at least (BDT)" hint="It activates the number; all of it becomes calling balance.">
             <NumberInput value={form.activation_min} onChange={(v) => set('activation_min', v)} min={0} />
           </Field>

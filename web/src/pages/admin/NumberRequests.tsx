@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ExternalLink, FileText, Inbox, Plus, Trash2 } from 'lucide-react';
+import clsx from 'clsx';
+import { ExternalLink, FileText, Inbox, Plus, ScanFace, ShieldCheck, Trash2 } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api';
 import { formatBdt, formatDateTime, timeAgo } from '../../lib/format';
 import type { NumberRequestStatus, SubscriberDetails, SupplyCounts, SupplyProvider, SupplySettings, TopupStatus } from '../../lib/types';
@@ -53,12 +54,63 @@ interface RequestRow {
   account_kind: 'business' | 'personal';
   /** Envo Phone: the first recharge is not paid yet, so the number is not registered yet. */
   awaiting_payment: boolean;
+  /** The automatic face check: passed, or review (support compares by eye); null before it existed. */
+  identity_verdict: 'passed' | 'review' | null;
   tenant_id: number | null;
   tenant_name: string | null;
   connected_number: string | null;
 }
 
+interface IdentityCheck {
+  verdict: 'passed' | 'review';
+  /** The live selfie (looking straight, then turning the head); null when a photo was uploaded. */
+  liveness: { ok: boolean; problem?: string; yaws: number[]; same: number[] } | null;
+  match: { verdict: 'match' | 'unsure' | 'no_match' | 'no_face' | 'unreadable'; distance: number | null };
+  at: string;
+}
+
+const MATCH_TEXT: Record<IdentityCheck['match']['verdict'], string> = {
+  match: 'The selfie matches the face on the NID',
+  unsure: 'The selfie may match the face on the NID: compare them',
+  no_match: "The selfie doesn't look like the face on the NID",
+  no_face: 'No face was found to compare',
+  unreadable: "The ID couldn't be compared automatically (a PDF?)",
+};
+
+/** What the automatic check found, so support knows how closely to look before registering. */
+function IdentityPanel({ check, files }: { check: IdentityCheck | null; files: string }) {
+  if (!check) return null;
+  const passed = check.verdict === 'passed';
+  const strong = check.match.distance !== null && check.match.distance <= 0.4;
+  return (
+    <div className={clsx('rounded-xl p-3.5 text-[13px] ring-1 ring-inset', passed ? 'bg-emerald-50 text-emerald-950 ring-emerald-600/15' : 'bg-amber-50 text-amber-950 ring-amber-600/20')}>
+      <p className="flex items-center gap-1.5 font-semibold">
+        {passed ? <ShieldCheck className="size-4 text-emerald-600" /> : <ScanFace className="size-4 text-amber-600" />}
+        {passed ? 'Identity checked' : 'Compare the faces by eye'}
+      </p>
+      <ul className="mt-2 space-y-1">
+        <li>{check.liveness ? (check.liveness.ok ? 'Live selfie: looked at the camera and turned the head both ways.' : 'The live selfie did not pass.') : 'An uploaded photo, not a live selfie.'}</li>
+        <li>
+          {MATCH_TEXT[check.match.verdict]}
+          {check.match.verdict === 'match' && strong ? ', closely' : ''}.
+          {check.match.distance !== null && <span className="ml-1 text-current/60">(distance {check.match.distance.toFixed(2)})</span>}
+        </li>
+      </ul>
+      {check.liveness?.ok && (
+        <div className="mt-2.5 flex gap-2">
+          {['turn-1', 'turn-2'].map((t) => (
+            <a key={t} href={`${files}/${t}`} target="_blank" rel="noreferrer">
+              <img src={`${files}/${t}`} alt="Head turned during the live selfie" className="size-16 rounded-lg object-cover ring-1 ring-black/10" />
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface RequestDetail extends RequestRow {
+  identity: IdentityCheck | null;
   details: Partial<SubscriberDetails>;
   pool_id: number | null;
   consent_at: string;
@@ -205,6 +257,7 @@ function RequestsTab() {
                         {STATUS[r.status].label}
                       </Badge>
                       {r.awaiting_payment && (r.status === 'submitted' || r.status === 'in_review') && <Badge tone="gray">Not paid yet</Badge>}
+                      {r.identity_verdict && (r.status === 'submitted' || r.status === 'in_review') && <Badge tone={r.identity_verdict === 'passed' ? 'green' : 'amber'}>{r.identity_verdict === 'passed' ? 'Face checked' : 'Check face'}</Badge>}
                     </div>
                   </td>
                   <td className="text-sm text-slate-600">{timeAgo(r.created_at)}</td>
@@ -382,6 +435,7 @@ function RequestModal({ id, onClose }: { id: number; onClose: () => void }) {
               </p>
             </div>
             <div className="space-y-3">
+              <IdentityPanel check={d.identity} files={`${base}/requests/${id}/files`} />
               <p className="text-sm font-semibold text-slate-900">Documents</p>
               {d.has_photo ? (
                 <a href={`${base}/requests/${id}/files/photo`} target="_blank" rel="noreferrer" className="block">

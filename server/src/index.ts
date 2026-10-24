@@ -48,7 +48,7 @@ import { startBillingClock } from './billing/jobs.js';
 import { adminBillingRouter, billingRouter, enfinitoPayRouter, gatewayRouter } from './routes/billing.js';
 import { signupRouter } from './routes/signup.js';
 import { adminPhoneRouter, phonePublicRouter, phoneRouter } from './routes/phone.js';
-import { startCallCharging } from './phone/balance.js';
+import { startPhoneJobs } from './phone/jobs.js';
 
 /** Envo Phone accounts use their phone (the app or the Phone page), not the PBX's settings. */
 const PERSONAL_PATHS = ['/webphone'];
@@ -181,7 +181,7 @@ async function main(): Promise<void> {
   startWebhooks();
   startRetention();
   startBillingClock();
-  startCallCharging();
+  startPhoneJobs();
   void checkEmailOnStart();
   ami.start();
   // Write the Asterisk config right away, even if Asterisk is not reachable yet.

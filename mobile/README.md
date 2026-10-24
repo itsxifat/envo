@@ -1,8 +1,9 @@
 # Envo Phone (Android app)
 
 The phone app for people who want an Envo number without a PBX: sign up, send the BTRC registration
-(NID, address, a selfie and both sides of the NID), get a 09639 number picked from Enfinito's pool, activate it with a first
-recharge, then call any number in Bangladesh (free between Envo numbers).
+(NID details, a live selfie and both sides of the NID), get a 09639 number picked from Enfinito's
+pool, activate it with a first recharge, then call any number in Bangladesh (free between Envo
+numbers).
 
 Expo SDK 58 / React Native 0.88, expo-router, TypeScript. **Status:** sign-up, the email code, the
 registration (NID front and back, which the server puts on one page for the operator), recharges,

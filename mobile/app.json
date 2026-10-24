@@ -62,6 +62,13 @@
           "cameraPermission": "Envo takes the photos of you and your NID that the BTRC requires to register your number.",
           "photosPermission": "Envo uses a photo you choose for your number registration."
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Envo takes a live selfie to check it's really you, like banking apps do, and photos of your NID.",
+          "barcodeScannerEnabled": false
+        }
       ]
     ],
     "experiments": {

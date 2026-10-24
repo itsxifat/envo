@@ -109,6 +109,14 @@ number, balance, corrections, support access) with the app's settings: sign-ups 
 come from, first and later recharges, price per minute, free Envo calls, support contacts, and the
 oldest app version that still works. Real calling from the app (SIP over WebSocket) is the next step.
 
+**Automatic selfie check**, like banking apps: the app and the website take a live selfie (looking at
+the camera, then turning the head one way and the other) and Envo's own server checks that it is one
+real person who really turned their head (a printed photo can't), then matches the face with the
+photo on the NID. Support sees the result on each request (checked, or compare by eye) with the
+pictures; the NID's front and back reach support, and the operator, as one page. It runs without any
+outside service; it does not check the NID with the Election Commission (that needs a paid eKYC
+provider). It can be turned off in /admin → Envo Phone.
+
 ### Before selling for real
 
 1. **Payment settings** (Payments in /admin): the Enfinito Pay secret key and webhook signing

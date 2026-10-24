@@ -15,6 +15,7 @@ import { deleteDocuments, documentPath, idDocumentOf, saveDocument } from '../su
 import { supplyCounts } from '../supply/counts.js';
 import { connectLine, defaultDestination, lineInput } from './setup.js';
 import { notifyNumberReady } from '../phone/account.js';
+import { checkIdentity } from '../phone/check.js';
 
 /*
  * Numbers Enfinito provides from its operator allocation (e.g. ICC). A customer picks a free number
@@ -217,6 +218,11 @@ numberRequestsRouter.post('/', uploadDocuments, async (req, res) => {
     });
     await audit(req, 'create', 'number_request', created.id, body.special ? `special number: ${body.special}` : created.number || 'any free number', body.tenant_id);
     res.status(201).json(created);
+    // The subscriber's photo against the face on their ID, for support (after answering: it takes a moment).
+    const front = files?.id_front?.[0]?.buffer ?? idDoc;
+    void checkIdentity(null, photo.buffer, front)
+      .then((check) => exec('UPDATE number_requests SET identity = $1 WHERE id = $2', [JSON.stringify(check), created.id]))
+      .catch(() => undefined);
   } catch (err) {
     if (requestId) await deleteDocuments(requestId).catch(() => undefined);
     throw err;
@@ -399,6 +405,7 @@ adminSupplyRouter.get('/requests', async (req, res) => {
     await many(
       `SELECT r.id, r.status, r.provider, r.requested_number, r.special, r.reason, r.created_at, r.updated_at, r.details->>'name' AS subscriber_name,
               r.account_id, a.name AS account_name, a.kind AS account_kind, r.tenant_id, t.name AS tenant_name, n.number AS connected_number,
+              r.identity->>'verdict' AS identity_verdict,
               -- Envo Phone: support registers the number once the first recharge is paid.
               (a.kind = 'personal' AND NOT EXISTS (SELECT 1 FROM topups x WHERE x.account_id = a.id AND x.status IN ('paid', 'applied'))) AS awaiting_payment
          FROM number_requests r JOIN accounts a ON a.id = r.account_id LEFT JOIN tenants t ON t.id = r.tenant_id
@@ -428,9 +435,13 @@ adminSupplyRouter.get('/requests/:id', async (req, res) => {
 
 /** The subscriber's photo or ID document, for support only. */
 adminSupplyRouter.get('/requests/:id/files/:which', async (req, res) => {
-  const column = req.params.which === 'photo' ? 'photo_file' : req.params.which === 'id' ? 'id_file' : null;
-  if (!column) throw notFound('File');
-  const r = await one<{ f: string }>(`SELECT ${column} AS f FROM number_requests WHERE id = $1`, [intParam(req.params.id)]);
+  const id = intParam(req.params.id);
+  const which = req.params.which;
+  // The live selfie's head turns have no column: they are there when the selfie was taken live.
+  const turn = which === 'turn-1' || which === 'turn-2' ? `${id}/${which}.jpg` : null;
+  const column = which === 'photo' ? 'photo_file' : which === 'id' ? 'id_file' : null;
+  if (!column && !turn) throw notFound('File');
+  const r = column ? await one<{ f: string }>(`SELECT ${column} AS f FROM number_requests WHERE id = $1`, [id]) : { f: turn };
   const doc = r?.f ? documentPath(r.f) : null;
   if (!doc) throw notFound('File');
   const data = await fs.readFile(doc.file).catch(() => null);

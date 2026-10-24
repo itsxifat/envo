@@ -24,6 +24,8 @@ export interface PhoneConfig {
   recharge: { min: number; max: number; presets: number[] };
   rate_per_min: number;
   free_onnet: boolean;
+  /** The selfie is taken live and checked automatically (else any photo). */
+  selfie_check: boolean;
   support: { phone: string; email: string };
   min_app_version: string;
   update_url: string;

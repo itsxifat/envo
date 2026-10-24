@@ -142,6 +142,16 @@ labels copied from the header by `lib/tableCards.ts`) — keep tables plain with
   which signs out older tokens (`iatms` claim). Personal logins only reach `/api/phone` and
   `/api/webphone`. Free packages renew by themselves in the billing clock. A payment started with
   `from: 'app'` returns to `envophone://payment?…`; personal ones on the web to `/phone/balance`.
+- ID documents: registrations send the NID's `id_front` + `id_back` (or one `id_document`); the server
+  puts the two sides on one A4 PDF page for the operator (`supply/files.ts`, pdf-lib).
+- Selfie check (`phone/faces.ts`, `identity.ts`, `check.ts`; setting `selfie_check`): the app/website
+  take three live pictures (straight, then the head turned each way) and `POST /api/phone/selfie`
+  checks one face, the same person, and a real head turn (nose offset between the eyes). KYC then
+  sends `selfie_check` (its id) and the face is matched with the NID front; the result is
+  `number_requests.identity` (shown to support). Faces run on this server with face-api.js models on
+  TensorFlow's WebAssembly backend, loaded on first use; the build copies the models and `.wasm`
+  files to `dist/faces/` (`face-assets.mjs`) and deploy ships them. Business requests get the match
+  too (photo vs NID). Thresholds were tried on sample photos only: tune them with real ones.
 - SSLCommerz sandbox for testing: store `testbox` / `qwerty`, card 4111111111111111 12/26 CVV 111,
   OTP page has a "Success" button.
 

@@ -4,6 +4,7 @@
 // configs, sounds and recordings go to ../.dev/ instead of /etc/asterisk and /var.
 // First start: open the one-time /setup link printed in the log to create the platform admin.
 import { context } from 'esbuild';
+import { copyFaceAssets } from './face-assets.mjs';
 import { spawn, execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
@@ -73,6 +74,7 @@ const restart = () => {
   child = spawn(process.execPath, ['--enable-source-maps', 'dist/index.mjs'], { env, stdio: 'inherit' });
 };
 
+copyFaceAssets();
 const ctx = await context({
   entryPoints: ['src/index.ts'],
   outfile: 'dist/index.mjs',
@@ -84,7 +86,7 @@ const ctx = await context({
   loader: { '.sql': 'text', '.conf': 'text' },
   external: ['pg-native', 'bufferutil', 'utf-8-validate'],
   banner: {
-    js: "import { createRequire as __envoCreateRequire } from 'node:module'; const require = __envoCreateRequire(import.meta.url);",
+    js: "import { createRequire as __envoCreateRequire } from 'node:module'; import { fileURLToPath as __envoFileURLToPath } from 'node:url'; const require = __envoCreateRequire(import.meta.url); const __filename = __envoFileURLToPath(import.meta.url); const __dirname = __filename.slice(0, __filename.lastIndexOf('/'));",
   },
   logLevel: 'warning',
   plugins: [

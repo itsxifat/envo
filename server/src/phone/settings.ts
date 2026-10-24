@@ -18,6 +18,11 @@ export interface PhoneSettings {
   rate_per_min: number;
   /** Calls between Envo numbers cost nothing. */
   free_onnet: boolean;
+  /**
+   * The selfie is taken live (looking straight, then turning the head) and checked automatically, and
+   * matched with the NID photo. Off: any photo is accepted and support compares by eye.
+   */
+  selfie_check: boolean;
   /** Shown under "Help and support" in the app. */
   support: { phone: string; email: string };
   /** Older apps are asked to update before they can be used (e.g. "1.0.0"). */
@@ -33,6 +38,7 @@ export const DEFAULT_PHONE: PhoneSettings = {
   recharge: { min: 50, max: 10_000, presets: [100, 200, 500, 1000] },
   rate_per_min: 0.4,
   free_onnet: true,
+  selfie_check: true,
   support: { phone: '', email: '' },
   min_app_version: '1.0.0',
   update_url: '',

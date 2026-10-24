@@ -58,7 +58,9 @@ const addressOk = (a: Address) => a.street.trim().length >= 3 && a.city.trim().l
 
 export function KycScreen() {
   const { colors } = useTheme();
-  const { account, config, submitKyc, signOut } = useSession();
+  const { account, config, submitKyc, signOut, liveSelfie } = useSession();
+  // Taken live and checked by Envo (like banking apps), unless Enfinito turned the check off.
+  const live = config?.selfie_check !== false;
   const [failed, setFailed] = useState<string | null>(null);
   const [part, setPart] = useState<Part>('you');
   const [tried, setTried] = useState(false);
@@ -96,7 +98,8 @@ export function KycScreen() {
     mother: mother.trim().length < 2 ? "Enter your mother's name" : null,
   };
   const idReady = idMode === 'sides' ? !!front && !!backSide : !!oneFile;
-  const ready = { you: !Object.values(youErrors).some(Boolean), home: !Object.values(homeErrors).some(Boolean), photos: !!selfie && idReady && consent };
+  const selfieReady = live ? !!liveSelfie : !!selfie;
+  const ready = { you: !Object.values(youErrors).some(Boolean), home: !Object.values(homeErrors).some(Boolean), photos: selfieReady && idReady && consent };
 
   const next = async () => {
     setTried(true);
@@ -119,7 +122,7 @@ export function KycScreen() {
           father_name: father.trim(),
           mother_name: mother.trim(),
         },
-        selfie!,
+        live ? liveSelfie! : selfie!,
         idMode === 'sides' ? { front: front!, back: backSide! } : { one: oneFile! },
       );
       router.replace('/your-number');
@@ -144,6 +147,7 @@ export function KycScreen() {
 
   // The selfie is taken live; documents can also come from the gallery or the phone's files.
   const takeSelfie = async () => {
+    if (live) return router.push('/selfie');
     const f = await pickFile('camera', { selfie: true }).catch(() => null);
     if (f) setSelfie(f.uri);
   };
@@ -157,7 +161,7 @@ export function KycScreen() {
   const titles: Record<Part, [string, string]> = {
     you: ['About you', 'As written on your NID.'],
     home: ['Where you live', 'Your address and your parents’ names, as on your NID.'],
-    photos: ['Photos', 'A clear photo of your face, and both sides of your NID.'],
+    photos: ['Photos', 'A live selfie, and both sides of your NID.'],
   };
 
   return (
@@ -241,7 +245,14 @@ export function KycScreen() {
 
       {part === 'photos' && (
         <View style={styles.fields}>
-          <PhotoSlot icon={<UserRound size={26} color={colors.brand} />} title="Your photo" hint="Face the camera in good light" file={selfie ? { uri: selfie, kind: 'image' } : null} onPress={() => void takeSelfie()} />
+          <PhotoSlot
+            icon={<UserRound size={26} color={colors.brand} />}
+            title={live ? 'Live selfie' : 'Your photo'}
+            hint={live ? 'Look at the camera, then turn your head when asked' : 'Face the camera in good light'}
+            file={live ? (liveSelfie ? { uri: liveSelfie.uri, kind: 'image' } : null) : selfie ? { uri: selfie, kind: 'image' } : null}
+            done={live ? 'Checked · tap to take again' : undefined}
+            onPress={() => void takeSelfie()}
+          />
           <View style={styles.idHead}>
             <Text variant="bodyMedium">Your NID</Text>
             <View style={[styles.segment, { backgroundColor: colors.element }]}>
@@ -328,7 +339,7 @@ function AddressFields({ title, value, onChange, error }: { title: string; value
   );
 }
 
-function PhotoSlot({ icon, title, hint, file, onPress }: { icon: React.ReactNode; title: string; hint: string; file: PickedFile | null; onPress: () => void }) {
+function PhotoSlot({ icon, title, hint, file, done, onPress }: { icon: React.ReactNode; title: string; hint: string; file: PickedFile | null; done?: string; onPress: () => void }) {
   const { colors } = useTheme();
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={file ? `Change: ${title}` : `Add: ${title}`} onPress={onPress} style={({ pressed }) => [styles.slot, { backgroundColor: pressed ? colors.elementPressed : colors.surface, borderColor: file ? colors.call : colors.border }]}>
@@ -344,7 +355,7 @@ function PhotoSlot({ icon, title, hint, file, onPress }: { icon: React.ReactNode
       <View style={{ flex: 1, gap: 2 }}>
         <Text variant="bodyMedium">{title}</Text>
         <Text variant="caption" tone={file ? 'call' : 'secondary'}>
-          {file ? `Added${file.kind === 'pdf' ? ' (PDF)' : ''} · tap to change` : hint}
+          {file ? (done ?? `Added${file.kind === 'pdf' ? ' (PDF)' : ''} · tap to change`) : hint}
         </Text>
       </View>
       <Camera size={20} color={colors.textSecondary} />

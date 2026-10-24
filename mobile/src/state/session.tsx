@@ -43,6 +43,8 @@ export interface PhoneConfig {
   recharge: { min: number; max: number; presets: number[] };
   rate_per_min: number;
   free_onnet: boolean;
+  /** The selfie is taken live and checked automatically (else any photo). */
+  selfie_check: boolean;
   support: { phone: string; email: string };
   min_app_version: string;
   update_url: string;
@@ -88,6 +90,12 @@ export interface PickedFile {
 /** The NID: its two sides (Envo puts them on one page for the operator), or one file with both. */
 export type IdFiles = { front: PickedFile; back: PickedFile } | { one: PickedFile };
 
+/** A live selfie the server checked: its id goes with the registration, the picture shows in the form. */
+export interface LiveSelfie {
+  id: string;
+  uri: string;
+}
+
 /** The screen each stage starts on. */
 export const startOf = (stage: Stage) => (stage === 'verify' ? '/verify' : stage === 'kyc' ? '/kyc' : stage === 'suspended' ? '/paused' : '/') as '/verify' | '/kyc' | '/paused' | '/';
 
@@ -108,7 +116,12 @@ export interface SessionValue {
   verifyEmail: (code: string) => Promise<void>;
   resendCode: () => Promise<void>;
   changeEmail: (email: string) => Promise<void>;
-  submitKyc: (details: KycDetails, photo: string, id: IdFiles) => Promise<void>;
+  /** The selfie: a checked live one (by its id), or a photo when Enfinito turned the check off. */
+  submitKyc: (details: KycDetails, selfie: LiveSelfie | string, id: IdFiles) => Promise<void>;
+  /** Sends the three live pictures (straight, then the two head turns); the server checks them. */
+  checkSelfie: (frames: [string, string, string]) => Promise<string>;
+  liveSelfie: LiveSelfie | null;
+  setLiveSelfie: (s: LiveSelfie | null) => void;
   /** Starts a recharge; pay it next with payOnline or payManual. Returns its id. */
   createRecharge: (amount: number) => Promise<number>;
   /** Opens the payment page; resolves when the person comes back to the app. */
@@ -157,6 +170,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [calls, setCalls] = useState<CallLog[]>([]);
   const [local, setLocal] = useState<CallLog[]>([]);
   const [recentsSeenAt, setRecentsSeenAt] = useState(0);
+  const [liveSelfie, setLiveSelfie] = useState<LiveSelfie | null>(null);
   const signedIn = useRef(false);
 
   const signOut = useCallback(() => {
@@ -165,6 +179,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setMe(null);
     setCalls([]);
     setLocal([]);
+    setLiveSelfie(null);
     void SecureStore.deleteItemAsync(TOKEN_KEY);
   }, []);
 
@@ -245,19 +260,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const resendCode = useCallback(async () => void (await api.post('/phone/email/resend')), []);
   const changeEmail = useCallback(async (email: string) => setMe(await api.put<Me>('/phone/email', { email })), []);
 
-  const submitKyc = useCallback(async (details: KycDetails, photo: string, id: IdFiles) => {
-    // React Native uploads a file from its uri.
-    const part = (f: PickedFile, name: string) => ({ uri: f.uri, name: `${name}.${f.kind === 'pdf' ? 'pdf' : 'jpg'}`, type: f.kind === 'pdf' ? 'application/pdf' : 'image/jpeg' }) as unknown as Blob;
+  // React Native uploads a file from its uri.
+  const part = (f: PickedFile, name: string) => ({ uri: f.uri, name: `${name}.${f.kind === 'pdf' ? 'pdf' : 'jpg'}`, type: f.kind === 'pdf' ? 'application/pdf' : 'image/jpeg' }) as unknown as Blob;
+
+  const checkSelfie = useCallback(async (frames: [string, string, string]) => {
+    const body = new FormData();
+    ['straight', 'turn_1', 'turn_2'].forEach((name, i) => body.append(name, part({ uri: frames[i]!, kind: 'image' }, name)));
+    return (await api.post<{ id: string }>('/phone/selfie', body)).id;
+  }, []);
+
+  const submitKyc = useCallback(async (details: KycDetails, selfie: LiveSelfie | string, id: IdFiles) => {
     const body = new FormData();
     body.append('details', JSON.stringify(details));
     body.append('consent', 'true');
-    body.append('photo', part({ uri: photo, kind: 'image' }, 'photo'));
+    if (typeof selfie === 'string') body.append('photo', part({ uri: selfie, kind: 'image' }, 'photo'));
+    else body.append('selfie_check', selfie.id);
     if ('one' in id) body.append('id_document', part(id.one, 'nid'));
     else {
       body.append('id_front', part(id.front, 'nid-front'));
       body.append('id_back', part(id.back, 'nid-back'));
     }
     setMe(await api.post<Me>('/phone/kyc', body));
+    setLiveSelfie(null);
   }, []);
 
   const createRecharge = useCallback(async (amount: number) => (await api.post<{ id: number }>('/phone/recharges', { amount })).id, []);
@@ -331,6 +355,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       resendCode,
       changeEmail,
       submitKyc,
+      checkSelfie,
+      liveSelfie,
+      setLiveSelfie,
       createRecharge,
       payOnline,
       payManual,
@@ -340,7 +367,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       signOut,
       addCall,
     }),
-    [ready, account, config, me?.activation_min, recents, recentsSeenAt, markRecentsSeen, signIn, signUp, verifyEmail, resendCode, changeEmail, submitKyc, createRecharge, payOnline, payManual, refresh, changePassword, closeAccount, signOut, addCall],
+    [ready, account, config, me?.activation_min, recents, recentsSeenAt, markRecentsSeen, signIn, signUp, verifyEmail, resendCode, changeEmail, submitKyc, checkSelfie, liveSelfie, createRecharge, payOnline, payManual, refresh, changePassword, closeAccount, signOut, addCall],
   );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

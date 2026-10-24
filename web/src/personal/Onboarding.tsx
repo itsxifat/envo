@@ -2,13 +2,14 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { toast } from 'sonner';
-import { Camera, FileText, IdCard, MailCheck, PartyPopper, PauseCircle, UserRound } from 'lucide-react';
+import { Camera, FileText, IdCard, MailCheck, PartyPopper, PauseCircle, ScanFace, UserRound } from 'lucide-react';
 import { api, errorMessage } from '../lib/api';
 import { formatBdt } from '../lib/format';
 import { toJpeg } from '../lib/images';
 import { Button, Field, Input, Notice, Select, Tabs } from '../components/ui';
 import { ME_KEY, formatNumber, usePhoneConfig, type PhoneMe } from './api';
 import { RechargeHistory, RechargePanel } from './Recharge';
+import { LiveSelfie, type CheckedSelfie } from './LiveSelfie';
 
 const STEPS = ['Email', 'Registration', 'Activation'] as const;
 
@@ -180,6 +181,10 @@ export function RegistrationStep({ me }: { me: PhoneMe }) {
   const [same, setSame] = useState(true);
   const [permanent, setPermanent] = useState<Address>(emptyAddress);
   const [photo, setPhoto] = useState<File | null>(null);
+  // Taken live and checked by Envo (like banking apps), unless Enfinito turned the check off.
+  const liveMode = config.data?.selfie_check !== false;
+  const [live, setLive] = useState<CheckedSelfie | null>(null);
+  const [selfieOpen, setSelfieOpen] = useState(false);
   // The NID's two sides (we put them on one page for the operator), or one file that has both.
   const [idMode, setIdMode] = useState<'sides' | 'one'>('sides');
   const [idFront, setIdFront] = useState<File | null>(null);
@@ -198,7 +203,7 @@ export function RegistrationStep({ me }: { me: PhoneMe }) {
     permanent: same || addressOk(permanent) ? null : 'Fill in the street, city and 4-digit postcode',
     father: f.father.trim().length >= 2 ? null : "Enter your father's name",
     mother: f.mother.trim().length >= 2 ? null : "Enter your mother's name",
-    photo: photo ? null : 'Add a photo of yourself',
+    photo: (liveMode ? live : photo) ? null : liveMode ? 'Take your live selfie' : 'Add a photo of yourself',
     idFront: idMode === 'one' || idFront ? null : 'Add the front of your NID',
     idBack: idMode === 'one' || idBack ? null : 'Add the back of your NID',
     idOne: idMode === 'sides' || idOne ? null : 'Add the file with both sides of your NID',
@@ -224,7 +229,8 @@ export function RegistrationStep({ me }: { me: PhoneMe }) {
         }),
       );
       body.set('consent', 'true');
-      body.set('photo', photo!);
+      if (liveMode) body.set('selfie_check', live!.id);
+      else body.set('photo', photo!);
       if (idMode === 'sides') {
         body.set('id_front', idFront!);
         body.set('id_back', idBack!);
@@ -313,7 +319,39 @@ export function RegistrationStep({ me }: { me: PhoneMe }) {
         </Section>
 
         <Section title="Photos">
-          <PhotoInput file={photo} onFile={setPhoto} icon={<UserRound className="size-6" />} title="Your photo" hint="Face the camera in good light" accept="image/*" capture="user" error={show(errors.photo)} />
+          {liveMode ? (
+            <button
+              type="button"
+              onClick={() => setSelfieOpen(true)}
+              className={clsx('flex w-full items-center gap-4 rounded-2xl p-4 text-left ring-1 transition hover:bg-slate-50', live ? 'ring-2 ring-emerald-500' : show(errors.photo) ? 'bg-rose-50/50 ring-rose-300' : 'ring-slate-200')}
+            >
+              {live ? (
+                <img src={live.preview} alt="" className="size-14 shrink-0 rounded-xl object-cover" />
+              ) : (
+                <span className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
+                  <ScanFace className="size-6" />
+                </span>
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block text-[14.5px] font-semibold text-slate-950">Live selfie</span>
+                <span className={clsx('block text-[12.5px]', live ? 'text-emerald-700' : show(errors.photo) ? 'text-rose-600' : 'text-slate-500')}>
+                  {live ? 'Checked · click to take again' : (show(errors.photo) ?? 'Look at the camera, then turn your head when asked')}
+                </span>
+              </span>
+              <Camera className="size-5 shrink-0 text-slate-400" />
+            </button>
+          ) : (
+            <PhotoInput file={photo} onFile={setPhoto} icon={<UserRound className="size-6" />} title="Your photo" hint="Face the camera in good light" accept="image/*" capture="user" error={show(errors.photo)} />
+          )}
+          {selfieOpen && (
+            <LiveSelfie
+              onClose={() => setSelfieOpen(false)}
+              onDone={(s) => {
+                setLive(s);
+                setSelfieOpen(false);
+              }}
+            />
+          )}
           <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
             <p className="text-[13px] font-medium text-slate-700">Your NID</p>
             <Tabs

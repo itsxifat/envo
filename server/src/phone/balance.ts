@@ -80,9 +80,3 @@ export async function chargeCalls(): Promise<number> {
 export async function adjustBalance(accountId: number, amount: number, note: string, by: number): Promise<void> {
   await exec("INSERT INTO balance_ledger (account_id, kind, amount, note, created_by) VALUES ($1, 'adjustment', $2, $3, $4)", [accountId, round2(amount), note, by]);
 }
-
-export function startCallCharging(): void {
-  const run = () => void chargeCalls().catch((err) => console.warn('[phone] charging calls failed:', (err as Error).message));
-  setTimeout(run, 20_000).unref();
-  setInterval(run, 60_000).unref();
-}

@@ -24,11 +24,14 @@ function sniff(buf: Buffer): Kind | null {
   return null;
 }
 
+/** The documents of a request: the photo, the ID, and the two head turns of a live selfie. */
+export type DocumentKind = 'photo' | 'id' | 'turn-1' | 'turn-2';
+
 /** Stores one document of a request; returns its path relative to the KYC folder. */
-export async function saveDocument(requestId: number, which: 'photo' | 'id', buf: Buffer, allowPdf: boolean): Promise<string> {
+export async function saveDocument(requestId: number, which: DocumentKind, buf: Buffer, allowPdf: boolean): Promise<string> {
   const kind = sniff(buf);
   if (!kind || (kind === 'application/pdf' && !allowPdf)) {
-    throw badRequest(which === 'photo' ? 'The photo must be a JPG, PNG or WebP image' : 'The ID document must be a JPG, PNG, WebP image or a PDF');
+    throw badRequest(which === 'id' ? 'The ID document must be a JPG, PNG, WebP image or a PDF' : 'The photo must be a JPG, PNG or WebP image');
   }
   const dir = path.join(root(), String(requestId));
   await fs.mkdir(dir, { recursive: true, mode: 0o700 });
@@ -39,7 +42,7 @@ export async function saveDocument(requestId: number, which: 'photo' | 'id', buf
 
 /** Absolute path of a stored document; only names this module created are accepted. */
 export function documentPath(rel: string): { file: string; type: Kind } | null {
-  const m = /^(\d+)\/(photo|id)\.(jpg|png|webp|pdf)$/.exec(rel);
+  const m = /^(\d+)\/(photo|id|turn-1|turn-2)\.(jpg|png|webp|pdf)$/.exec(rel);
   if (!m) return null;
   return { file: path.join(root(), rel), type: FILE_TYPES[m[3]!]! };
 }
@@ -98,6 +101,27 @@ export async function idDocumentOf(files: Record<string, Express.Multer.File[]> 
   if (front && back) return combineIdSides(front.buffer, back.buffer);
   if (front || back) throw badRequest(`Add the ${front ? 'back' : 'front'} of the NID too`);
   return files?.id_document?.[0]?.buffer ?? null;
+}
+
+// ------------------------------------------------------------------------------- selfie checks
+/** A live selfie's three pictures (straight, then the two head turns) until a registration takes them. */
+const checkDir = (id: string) => path.join(root(), 'checks', id);
+const FRAMES = ['straight', 'turn-1', 'turn-2'] as const;
+
+export async function saveCheckFrames(id: string, frames: Buffer[]): Promise<void> {
+  if (!/^[0-9a-f-]{36}$/.test(id)) throw new Error('bad check id');
+  await fs.mkdir(checkDir(id), { recursive: true, mode: 0o700 });
+  await Promise.all(frames.map((f, i) => fs.writeFile(path.join(checkDir(id), `${FRAMES[i]}.jpg`), f, { mode: 0o600 })));
+}
+
+/** The pictures of a selfie check, straight first. */
+export async function readCheckFrames(id: string): Promise<Buffer[]> {
+  if (!/^[0-9a-f-]{36}$/.test(id)) throw new Error('bad check id');
+  return Promise.all(FRAMES.map((f) => fs.readFile(path.join(checkDir(id), `${f}.jpg`))));
+}
+
+export async function deleteCheckFrames(id: string): Promise<void> {
+  if (/^[0-9a-f-]{36}$/.test(id)) await fs.rm(checkDir(id), { recursive: true, force: true });
 }
 
 export async function deleteDocuments(requestId: number): Promise<void> {

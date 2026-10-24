@@ -74,19 +74,22 @@ labels copied from the header by `lib/tableCards.ts`) — keep tables plain with
   (warnings name other customers' trunks) goes to platform admins only.
 - `billing/retention.ts` trims each account's recordings to its package (days, then MB) every 6 h.
 - Billing: `billing/invoices.ts` (checkout, `markInvoicePaid` applies an invoice exactly once inside a
-  transaction, SSLCommerz settle/reconcile, manual review), `billing/jobs.ts` (hourly clock),
-  `billing/provision.ts` (first SIP server on first package). Gateway callbacks are public
-  (`/api/public/sslcommerz/*`) and trust only the Validation API, never the posted fields. The
-  browser returns by cross-site POST without the SameSite=Strict cookie, so the callback answers with
-  a page that hops back same-site. Billing and SMTP settings live in their own `settings` rows and
-  are never returned with passwords; `getSettings()` only returns known public keys.
-- Enfinito Pay (`billing/enfinitoPay.ts`, pay.enfinito.com) takes online payments instead of
-  SSLCommerz once its secret key and webhook secret are saved (Payments page). One open checkout per
-  invoice (reused or cancelled before a new one, so nothing is paid twice). The signed webhook
-  (`/api/public/enfinito-pay/webhook`) needs the raw body, so that router is mounted before
-  `express.json`; the return link (`/return`) and the hourly clock ask for the checkout server to
-  server. Wrong amounts and payments for paid/void invoices go to review, never applied. Test against
-  a local stand-in by setting `ENFINITO_PAY_API`.
+  transaction, review), `billing/jobs.ts` (hourly clock), `billing/provision.ts` (first SIP server on
+  first package). Billing and SMTP settings live in their own `settings` rows and are never returned
+  with passwords; `getSettings()` only returns known public keys.
+- Customers pay **only through Enfinito Pay** (`billing/enfinitoPay.ts`, pay.enfinito.com; docs at
+  pay.enfinito.com's Developers page), in the app and on the website, once its secret key and
+  webhook secret are saved (Payments page); its page offers bKash, Nagad, Rocket, cards and banking.
+  There is no paying by hand and no other gateway: support's only manual step is "mark paid" for
+  cash. One open checkout per invoice (reused or cancelled before a new one, so nothing is paid
+  twice). The signed webhook (`/api/public/enfinito-pay/webhook`) needs the raw body, so that router
+  is mounted before `express.json`; the return link (`/return?payment=…&session_id={SESSION_ID}`)
+  and the hourly clock ask for the checkout server to server. The browser comes back cross-site
+  without the SameSite=Strict cookie, so the return answers with a page that hops on same-site (the
+  app gets a 302 to `envophone://`). Wrong amounts and payments for paid/void invoices go to review,
+  never applied. Test against a local stand-in by setting `ENFINITO_PAY_API`. SSLCommerz (the old
+  gateway, `billing/sslcommerz.ts`, `/api/public/sslcommerz/*`) only settles payments started
+  there before; nothing new starts on it.
 - Numbers from Enfinito (`routes/numberRequests.ts`, `supply/`): customers pick a free number from
   `number_pool` and send the operator's subscriber registration (details JSON + photo + NID under
   `<data dir>/kyc/<id>/`, 0600, served to platform admins only; dropped when a request is cancelled
@@ -141,9 +144,9 @@ labels copied from the header by `lib/tableCards.ts`) — keep tables plain with
   number of a supply provider on Envo, dialled as 0…, 880… or +880…, `envoNumberSql`). At BDT 0 or
   less `asterisk/model.ts` leaves out the person's outbound routes (calls in still ring); a charge
   that empties a balance and any correction call `scheduleApply()`. A reservation without a first
-  recharge is cancelled after 7 days (`phone/jobs.ts`, the person sees the reason). While a reported
-  payment is checked, `payment_in_review` is set and no new recharge can start; Pay again reuses
-  the open recharge of that amount. The app signs in with a Bearer JWT (`issueAppToken`, aud
+  recharge is cancelled after 7 days (`phone/jobs.ts`, the person sees the reason). While a payment
+  waits for support (one Enfinito Pay reported that doesn't fit, or a risky one), `payment_in_review`
+  is set and no new recharge can start; Pay again reuses the open recharge of that amount. The app signs in with a Bearer JWT (`issueAppToken`, aud
   `app`); `userFromToken` accepts only sessions (no aud) and app tokens, because the embedded
   phone's tokens share the secret. Password changes (also by an admin) set
   `users.sessions_valid_after`, which signs out older tokens (`iatms` claim). Personal logins only
@@ -166,8 +169,6 @@ labels copied from the header by `lib/tableCards.ts`) — keep tables plain with
   them. One waiting check per person (an hour, the age KYC accepts); KYC deletes it, so no face data
   outlives the request. Business requests get the match too (photo vs NID). Thresholds were tried on
   sample photos only: tune them with real ones.
-- SSLCommerz sandbox for testing: store `testbox` / `qwerty`, card 4111111111111111 12/26 CVV 111,
-  OTP page has a "Success" button.
 
 ## Gotchas found the hard way
 

@@ -78,7 +78,7 @@ function Shell({ me, tabs }: { me: PhoneMe; tabs: boolean }) {
   useEffect(() => {
     if (!payment) return;
     const [text, kind] = PAYMENT[payment] ?? ["We couldn't confirm the payment yet. If money was taken, it shows here shortly.", 'info'];
-    toast[kind](text);
+    toast[kind](text, { id: 'payment-return' });
     void qc.invalidateQueries({ queryKey: ['phone'] });
     setParams({}, { replace: true });
   }, [payment, qc, setParams]);

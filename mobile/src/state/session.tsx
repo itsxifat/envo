@@ -32,7 +32,7 @@ export interface Account {
   /** Reserved from KYC on, connected once it works; null while none is chosen. */
   number: string | null;
   balance: number;
-  /** A recharge the person paid (bKash / Nagad by hand, or a card payment to look at) waits for support's check. */
+  /** A recharge paid on Enfinito Pay that didn't fit its invoice (or looked risky) waits for support's check. */
   paymentInReview: boolean;
   /** The latest registration, with the reason when it was turned down or closed. */
   request: { id: number; status: string; reason: string } | null;
@@ -55,7 +55,8 @@ export interface PhoneConfig {
   update_url: string;
   operator: string;
   prefix: string;
-  payment: { online: boolean; manual: boolean; manual_instructions: string };
+  /** Payments go through Enfinito Pay; false while it isn't switched on. */
+  payment: { online: boolean };
 }
 
 export interface CallLog {
@@ -129,12 +130,10 @@ export interface SessionValue {
   checkSelfie: (frames: [string, string, string]) => Promise<string>;
   liveSelfie: LiveSelfie | null;
   setLiveSelfie: (s: LiveSelfie | null) => void;
-  /** Starts a recharge; pay it next with payOnline or payManual. Returns its id. */
+  /** Starts a recharge; pay it next with payOnline. Returns its id. */
   createRecharge: (amount: number) => Promise<number>;
-  /** Opens the payment page; resolves when the person comes back to the app. */
+  /** Opens Enfinito Pay's payment page; resolves when the person comes back to the app. */
   payOnline: (rechargeId: number) => Promise<PaymentResult>;
-  /** A bKash / Nagad payment the person sent themselves, for support to check. */
-  payManual: (rechargeId: number, channel: string, reference: string) => Promise<void>;
   refresh: () => Promise<void>;
   changePassword: (current: string, next: string) => Promise<void>;
   /** Deletes an account that never started, or asks support to close it. True when deleted. */
@@ -207,8 +206,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
-    // The settings come along every time, so a failed first try or a change in the admin (payment
-    // methods, prices) reaches the app without restarting it.
+    // The settings come along every time, so a failed first try or a change in the admin (payments
+    // switched on or off, prices) reaches the app without restarting it.
     const settings = loadConfig().catch(() => undefined);
     try {
       if (!signedIn.current) return;
@@ -346,14 +345,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [refresh],
   );
 
-  const payManual = useCallback(
-    async (rechargeId: number, channel: string, reference: string) => {
-      await api.post(`/phone/recharges/${rechargeId}/pay-manual`, { channel, reference });
-      await refresh().catch(() => undefined);
-    },
-    [refresh],
-  );
-
   const changePassword = useCallback(
     async (current: string, next: string) => {
       const r = await api.post<{ token: string }>('/phone/password', { current, next, client: 'app' });
@@ -409,14 +400,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setLiveSelfie,
       createRecharge,
       payOnline,
-      payManual,
       refresh,
       changePassword,
       closeAccount,
       signOut,
       addCall,
     }),
-    [ready, account, offline, config, me?.activation_min, recents, recentsSeenAt, markRecentsSeen, signIn, signUp, verifyEmail, resendCode, changeEmail, submitKyc, checkSelfie, liveSelfie, createRecharge, payOnline, payManual, refresh, changePassword, closeAccount, signOut, addCall],
+    [ready, account, offline, config, me?.activation_min, recents, recentsSeenAt, markRecentsSeen, signIn, signUp, verifyEmail, resendCode, changeEmail, submitKyc, checkSelfie, liveSelfie, createRecharge, payOnline, refresh, changePassword, closeAccount, signOut, addCall],
   );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

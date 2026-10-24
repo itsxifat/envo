@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Printer } from 'lucide-react';
 import { api } from '../lib/api';
 import { LogoMark } from '../components/Layout';
-import { formatBdt, formatDate, formatDateTime } from '../lib/format';
+import { formatBdt, formatDate, formatDateTime, paymentMethodLabel } from '../lib/format';
 import type { Invoice, PaymentRow } from '../lib/types';
 import { Badge, Button, Card, ErrorBlock, LoadingBlock } from '../components/ui';
 import { PayDialog } from '../components/billing';
@@ -113,7 +113,7 @@ export function InvoiceViewPage() {
                 return (
                   <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                     <span className="text-slate-700">
-                      {p.method === 'sslcommerz' ? `Online${p.card_type ? ` · ${p.card_type}` : ''}` : `${p.channel || 'Manual'}${p.reference ? ` · ${p.reference}` : ''}`}
+                      {paymentMethodLabel(p)}
                       <span className="ml-2 text-xs text-slate-400">{formatDateTime(p.updated_at)}</span>
                     </span>
                     <span className="flex items-center gap-2">

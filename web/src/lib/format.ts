@@ -1,3 +1,5 @@
+import type { PaymentRow } from './types';
+
 export function formatDuration(totalSec: number): string {
   const s = Math.max(0, Math.floor(totalSec));
   const h = Math.floor(s / 3600);
@@ -86,6 +88,35 @@ export const ACCOUNT_STATUS: Record<string, { label: string; tone: 'green' | 'am
   suspended: { label: 'Suspended', tone: 'red' },
   closed: { label: 'Closed', tone: 'gray' },
 };
+
+/** Ways of paying as Enfinito Pay and support write them (bkash, visa, cash…), in people's words. */
+const PAY_WAYS: Record<string, string> = {
+  bkash: 'bKash',
+  nagad: 'Nagad',
+  rocket: 'Rocket',
+  upay: 'upay',
+  visa: 'Visa',
+  mastercard: 'Mastercard',
+  amex: 'American Express',
+  bank: 'Bank',
+  cash: 'Cash',
+  other: 'Other',
+};
+
+function payWay(v: string): string {
+  return PAY_WAYS[v.toLowerCase()] ?? v.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+}
+
+/**
+ * How a payment was made: "Enfinito Pay · bKash". Older ones still read: "Online · VISA-…" (the
+ * gateway used before) and those support recorded, "Cash" or "bKash · 9JH4K2L8PQ".
+ */
+export function paymentMethodLabel(p: Pick<PaymentRow, 'method' | 'card_type' | 'channel' | 'reference'>): string {
+  if (p.method === 'enfinito_pay') return p.card_type ? `Enfinito Pay · ${payWay(p.card_type)}` : 'Enfinito Pay';
+  if (p.method === 'sslcommerz') return p.card_type ? `Online · ${p.card_type}` : 'Online';
+  const way = p.channel ? payWay(p.channel) : 'Other';
+  return p.reference ? `${way} · ${p.reference}` : way;
+}
 
 /** 1536 -> "1.5 KB", 5242880 -> "5 MB". */
 export function formatBytes(bytes: number | null | undefined): string {

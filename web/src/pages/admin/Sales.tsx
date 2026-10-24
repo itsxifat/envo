@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Ban, Banknote, Check, Plus, Receipt, Settings2, X } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api';
-import { formatBdt, formatDate, formatDateTime } from '../../lib/format';
+import { formatBdt, formatDate, formatDateTime, paymentMethodLabel } from '../../lib/format';
 import type { AccountRow, BillingOverview, Invoice, PaymentRow } from '../../lib/types';
 import { Badge, Button, Card, CardHeader, EmptyState, Field, IconButton, Input, Modal, NumberInput, PageHeader, Select, Stat, TableSkeleton, Tabs, useConfirm } from '../../components/ui';
 
@@ -152,7 +152,7 @@ export function SalesPage() {
 
       {(toReview.data?.length ?? 0) > 0 && (
         <Card className="mt-4 overflow-hidden border-amber-200 sm:mt-6">
-          <CardHeader title={`Payments to confirm (${toReview.data!.length})`} description="Check the transaction in your bKash, bank or SSLCommerz statement, then confirm. Confirming activates what was bought." />
+          <CardHeader title={`Payments to confirm (${toReview.data!.length})`} description="Look the payment up in Enfinito Pay's admin by its transaction id, then confirm or reject it. Confirming activates what was bought." />
           <ul className="divide-y divide-slate-100">
             {toReview.data!.map((p) => (
               <li key={p.id} className="flex flex-wrap items-center gap-3 px-4 py-3.5 sm:px-5">
@@ -161,7 +161,8 @@ export function SalesPage() {
                     {p.account_name} · {formatBdt(p.amount)}
                   </div>
                   <div className="text-xs text-slate-500">
-                    {p.method === 'manual' ? `${p.channel} · TrxID ${p.reference}` : `Online · ${p.card_type ?? ''} flagged as risky`}
+                    {paymentMethodLabel(p)}
+                    {p.bank_tran_id ? ` · Transaction ${p.bank_tran_id}` : ''}
                     {p.note ? ` · "${p.note}"` : ''} · {p.invoice_number} · {formatDateTime(p.created_at)}
                   </div>
                 </div>
@@ -203,7 +204,7 @@ export function SalesPage() {
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm text-slate-800">{p.account_name}</div>
                       <div className="truncate text-xs text-slate-500">
-                        {p.method === 'sslcommerz' ? (p.card_type ?? 'Online') : p.channel} · {formatDateTime(p.updated_at)}
+                        {paymentMethodLabel(p)} · {formatDateTime(p.updated_at)}
                       </div>
                     </div>
                     <span className="text-sm font-medium tabular-nums">{formatBdt(p.amount)}</span>

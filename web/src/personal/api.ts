@@ -16,7 +16,7 @@ export interface PhoneMe {
   balance: number;
   activation_min: number;
   close_requested: boolean;
-  /** A recharge the person paid (bKash / Nagad by hand, or a card payment to look at) waits for support's check. */
+  /** A recharge paid on Enfinito Pay that didn't fit its invoice, or a risky one, waits for support's check. */
   payment_in_review: boolean;
 }
 
@@ -33,7 +33,8 @@ export interface PhoneConfig {
   update_url: string;
   operator: string;
   prefix: string;
-  payment: { online: boolean; manual: boolean; manual_instructions: string };
+  /** Recharges are paid on Enfinito Pay only; false until it is switched on. */
+  payment: { online: boolean };
 }
 
 export interface Recharge {
@@ -44,7 +45,7 @@ export interface Recharge {
   invoice_id: number;
   invoice_number: string;
   invoice_status: string;
-  /** A bKash / Nagad payment the person reported, waiting for support to check it. */
+  /** Its payment waits for support's check (it didn't fit the invoice, or was risky). */
   in_review: boolean;
 }
 

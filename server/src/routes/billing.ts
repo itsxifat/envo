@@ -17,7 +17,6 @@ import {
   returnFromCheckout,
   reviewPayment,
   startOnlinePayment,
-  submitManualPayment,
   type GatewayOutcome,
 } from '../billing/invoices.js';
 import { checkKey, keyMode, verifySignature, type WebhookEvent } from '../billing/enfinitoPay.js';
@@ -68,20 +67,6 @@ billingRouter.post('/checkout', async (req, res) => {
 
 billingRouter.post('/invoices/:id/pay-online', async (req, res) => {
   res.json(await startOnlinePayment(intParam(req.params.id), accountOf(req)));
-});
-
-billingRouter.post('/invoices/:id/pay-manual', async (req, res) => {
-  if (!(await publicPaymentOptions()).manual) throw badRequest('Manual payments are not accepted');
-  const data = z
-    .object({
-      channel: z.enum(['bkash', 'nagad', 'rocket', 'bank', 'cash', 'other']),
-      reference: z.string().trim().min(3, 'enter the transaction ID').max(80),
-      note: z.string().trim().max(300).default(''),
-    })
-    .parse(req.body);
-  const payment = await submitManualPayment(intParam(req.params.id), accountOf(req), data);
-  await audit(req, 'manual_payment', 'billing', payment.id, `${data.channel} ${data.reference}`, null);
-  res.status(201).json({ ok: true });
 });
 
 /** Cancel (or keep) the package at the end of the paid period. */
@@ -165,9 +150,15 @@ enfinitoPayRouter.post('/webhook', express.raw({ type: () => true, limit: '256kb
   res.json({ received: true });
 });
 
-/** Back from the checkout (paid or cancelled), with ?session_id= added by Enfinito Pay. */
+/**
+ * Back from the checkout (paid or cancelled), with the checkout's id in session_id ({SESSION_ID} in
+ * the link we gave). Also read when it was added as a second "?session_id=" after ?payment=.
+ */
 enfinitoPayRouter.get('/return', async (req, res) => {
-  const r = await returnFromCheckout(Number(req.query.payment), String(req.query.session_id ?? '')).catch((): GatewayOutcome => ({ invoiceId: null, status: 'unknown' }));
+  const first = (v: unknown) => String((Array.isArray(v) ? v[0] : v) ?? '');
+  const payment = first(req.query.payment);
+  const sessionId = first(req.query.session_id) || (/[?&]session_id=([\w-]+)/.exec(payment)?.[1] ?? '');
+  const r = await returnFromCheckout(Number.parseInt(payment, 10), sessionId).catch((): GatewayOutcome => ({ invoiceId: null, status: 'unknown' }));
   await backToApp(res, r);
 });
 
@@ -298,22 +289,17 @@ const settingsSchema = z.object({
       webhook_secret: z.union([z.literal(''), z.string().trim().regex(/^whsec_\S{4,200}$/, 'use the webhook signing secret from Enfinito Pay (whsec_…)')]).default(''),
     })
     .default({ enabled: false, secret_key: '', webhook_secret: '' }),
-  sslcommerz: z.object({
-    enabled: z.boolean(),
-    sandbox: z.boolean(),
-    store_id: z.string().trim().max(80),
-    /** Empty keeps the stored password. */
-    store_passwd: z.string().max(200).default(''),
-  }),
-  manual: z.object({ enabled: z.boolean(), instructions: z.string().trim().max(2000) }),
   grace_days: z.number().int().min(0).max(60),
   renewal_notice_days: z.number().int().min(1).max(60),
   business: z.object({ name: z.string().trim().min(1).max(80), address: z.string().trim().max(300), email: z.string().trim().max(120), phone: z.string().trim().max(40) }),
 });
 
+/** The settings as admins see them: Enfinito Pay without its secrets, and the billing rules. */
 function maskSecrets(s: BillingSettings) {
   return {
-    ...s,
+    grace_days: s.grace_days,
+    renewal_notice_days: s.renewal_notice_days,
+    business: s.business,
     enfinito_pay: {
       enabled: s.enfinito_pay.enabled,
       secret_key: '',
@@ -325,7 +311,6 @@ function maskSecrets(s: BillingSettings) {
       webhook_url: `${config.publicUrl}/api/public/enfinito-pay/webhook`,
       return_domain: new URL(config.publicUrl).host,
     },
-    sslcommerz: { ...s.sslcommerz, store_passwd: '', has_passwd: !!s.sslcommerz.store_passwd },
   };
 }
 
@@ -337,20 +322,20 @@ adminBillingRouter.put('/settings', async (req, res) => {
   const d = settingsSchema.parse(req.body);
   const current = await getBillingSettings();
   const next: BillingSettings = {
+    ...current,
     ...d,
     enfinito_pay: {
       enabled: d.enfinito_pay.enabled,
       secret_key: d.enfinito_pay.secret_key || current.enfinito_pay.secret_key,
       webhook_secret: d.enfinito_pay.webhook_secret || current.enfinito_pay.webhook_secret,
     },
-    sslcommerz: { ...d.sslcommerz, store_passwd: d.sslcommerz.store_passwd || current.sslcommerz.store_passwd },
   };
   // Without the signing secret every webhook would be refused, and payments would wait for the hourly check.
   if (next.enfinito_pay.enabled && (!next.enfinito_pay.secret_key || !next.enfinito_pay.webhook_secret)) {
     throw badRequest('To take payments through Enfinito Pay, add both its secret key and its webhook signing secret');
   }
   const saved = await updateBillingSettings(next);
-  const detail = next.enfinito_pay.enabled ? `enfinito pay ${keyMode(next.enfinito_pay.secret_key)}` : `sslcommerz ${next.sslcommerz.sandbox ? 'sandbox' : 'live'}`;
+  const detail = next.enfinito_pay.enabled ? `enfinito pay ${keyMode(next.enfinito_pay.secret_key)}` : 'enfinito pay off';
   await audit(req, 'update', 'billing_settings', '', detail, null);
   res.json(maskSecrets(saved));
 });

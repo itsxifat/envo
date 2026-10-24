@@ -2,7 +2,7 @@ import { exec, one } from '../db.js';
 
 /** Billing configuration (platform admins only): kept apart from the general settings customers can read. */
 export interface BillingSettings {
-  /** Enfinito Pay (pay.enfinito.com). When on, it takes online payments instead of SSLCommerz. */
+  /** Enfinito Pay (pay.enfinito.com): the only way customers pay, in the app and on the website. */
   enfinito_pay: {
     enabled: boolean;
     /** sk_test_… (sandbox, no real money) or sk_live_…. */
@@ -10,17 +10,13 @@ export interface BillingSettings {
     /** whsec_…: signs the webhooks Enfinito Pay sends us. */
     webhook_secret: string;
   };
+  /** The gateway used before Enfinito Pay: kept only so payments started there can still settle. */
   sslcommerz: {
     enabled: boolean;
     /** Sandbox (sandbox.sslcommerz.com) or live (securepay.sslcommerz.com). */
     sandbox: boolean;
     store_id: string;
     store_passwd: string;
-  };
-  manual: {
-    enabled: boolean;
-    /** Shown to customers: bKash/Nagad merchant numbers, bank account, what to write as reference. */
-    instructions: string;
   };
   /** Days after a period ends before an unpaid account is suspended. */
   grace_days: number;
@@ -33,10 +29,6 @@ export interface BillingSettings {
 export const DEFAULT_BILLING: BillingSettings = {
   enfinito_pay: { enabled: false, secret_key: '', webhook_secret: '' },
   sslcommerz: { enabled: false, sandbox: true, store_id: '', store_passwd: '' },
-  manual: {
-    enabled: true,
-    instructions: 'Send the invoice amount by bKash or bank transfer, then enter the transaction ID below. We confirm payments within a few hours.',
-  },
   grace_days: 3,
   renewal_notice_days: 7,
   business: { name: 'Enfinito', address: 'Dhaka, Bangladesh', email: '', phone: '' },
@@ -53,7 +45,6 @@ export async function getBillingSettings(): Promise<BillingSettings> {
     ...v,
     enfinito_pay: { ...DEFAULT_BILLING.enfinito_pay, ...(v.enfinito_pay ?? {}) },
     sslcommerz: { ...DEFAULT_BILLING.sslcommerz, ...(v.sslcommerz ?? {}) },
-    manual: { ...DEFAULT_BILLING.manual, ...(v.manual ?? {}) },
     business: { ...DEFAULT_BILLING.business, ...(v.business ?? {}) },
   };
   return cache;
@@ -69,21 +60,13 @@ export async function updateBillingSettings(next: BillingSettings): Promise<Bill
   return getBillingSettings();
 }
 
-/** The gateway that takes online payments: Enfinito Pay when it is set up, else SSLCommerz, else none. */
-export function onlineGateway(s: BillingSettings): 'enfinito_pay' | 'sslcommerz' | null {
-  if (s.enfinito_pay.enabled && s.enfinito_pay.secret_key) return 'enfinito_pay';
-  if (s.sslcommerz.enabled && s.sslcommerz.store_id && s.sslcommerz.store_passwd) return 'sslcommerz';
-  return null;
+/** Customers pay through Enfinito Pay only, once it is switched on with its keys. */
+export function onlineGateway(s: BillingSettings): 'enfinito_pay' | null {
+  return s.enfinito_pay.enabled && s.enfinito_pay.secret_key ? 'enfinito_pay' : null;
 }
 
 /** What customers may know about how to pay: never the gateway credentials. */
-export async function publicPaymentOptions(): Promise<{ online: boolean; gateway: 'enfinito_pay' | 'sslcommerz' | null; manual: boolean; manualInstructions: string }> {
-  const s = await getBillingSettings();
-  const gateway = onlineGateway(s);
-  return {
-    online: gateway !== null,
-    gateway,
-    manual: s.manual.enabled,
-    manualInstructions: s.manual.instructions,
-  };
+export async function publicPaymentOptions(): Promise<{ online: boolean; gateway: 'enfinito_pay' | null }> {
+  const gateway = onlineGateway(await getBillingSettings());
+  return { online: gateway !== null, gateway };
 }

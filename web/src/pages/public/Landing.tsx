@@ -349,7 +349,7 @@ function Pricing() {
 const FAQ = [
   ['Do I need a new phone number?', 'No. Bring the IP number (09…) you already have from your IPTSP. You enter its details once in the dashboard and calls to it start ringing in Envo.'],
   ['Which phones work with Envo?', 'The web phone in the dashboard works on any computer or mobile browser. Any SIP desk phone (Yealink, Grandstream, Fanvil…) and softphone apps like Zoiper or MicroSIP work too.'],
-  ['How do I pay?', 'Online through SSLCommerz with bKash, Nagad, Rocket, cards or internet banking, or by bank transfer. Packages renew monthly and every payment comes with an invoice.'],
+  ['How do I pay?', 'Online through Enfinito Pay, with bKash, Nagad, Rocket, cards or internet banking. Packages renew monthly and every payment comes with an invoice.'],
   ['Can I change my package later?', 'Yes. A bigger package starts right away and you pay only the difference for the rest of the month. A smaller one starts at your next renewal.'],
   ['What happens if I miss a renewal?', 'You get the invoice a week early and a few days of grace after the due date. If your system pauses, your settings, numbers and recordings are kept.'],
   ['Who can see my calls and recordings?', 'Only the people you add to your account. Each customer runs in a separate phone system with its own extensions and logins.'],
@@ -457,7 +457,7 @@ export function LandingPage() {
             {[
               ['BDT 499', 'Packages start here. Billed monthly in taka, with an invoice every time.'],
               ['09', 'Bring the IP number from your IPTSP. Envo registers it and keeps it online.'],
-              ['bKash', 'Or Nagad, Rocket, cards and internet banking through SSLCommerz, or bank transfer.'],
+              ['bKash', 'Or Nagad, Rocket, cards and internet banking, all online through Enfinito Pay.'],
               ['0', 'Servers, PBX boxes or phones to buy. Start with the browser you have.'],
             ].map(([big, d]) => (
               <div key={big} className="border-t border-[#262a35] pt-5">

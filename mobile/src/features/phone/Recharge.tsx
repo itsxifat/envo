@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
-import { CircleCheck, Clock3, CreditCard, Smartphone } from 'lucide-react-native';
+import { CircleCheck, Clock3, CreditCard } from 'lucide-react-native';
 
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -15,67 +15,51 @@ import { useSession } from '@/state/session';
 import { useTheme } from '@/theme/theme';
 import { fonts, radius, space } from '@/theme/tokens';
 
-const CHANNELS = [
-  { id: 'bkash', label: 'bKash', color: '#E2136E' },
-  { id: 'nagad', label: 'Nagad', color: '#F7941D' },
-  { id: 'rocket', label: 'Rocket', color: '#8C3494' },
-] as const;
-
-type Method = 'online' | 'manual';
 type Done = { amount: number; checking: boolean };
 
 /**
- * Add calling balance: on the payment page (card, bKash, Nagad), or by sending bKash / Nagad yourself
- * and entering the transaction ID. As the activation step it asks for at least Enfinito's minimum.
+ * Add calling balance, paid on Enfinito Pay's page (bKash, Nagad, Rocket, cards and more). As the
+ * activation step it asks for at least Enfinito's minimum.
  */
 export function RechargeScreen({ activation }: { activation?: boolean }) {
   const { colors } = useTheme();
-  const { account, config, minActivation, createRecharge, payOnline, payManual, refresh } = useSession();
+  const { account, config, minActivation, createRecharge, payOnline, refresh } = useSession();
   const min = activation ? minActivation : (config?.recharge.min ?? 50);
   const max = config?.recharge.max ?? 10_000;
   const presets = (config?.recharge.presets ?? [100, 200, 500, 1000]).filter((a) => a >= min);
   const [picked, setPreset] = useState<number | null>(null);
-  // Like the method below: the tapped amount counts while it is offered (the settings can arrive later).
+  // The tapped amount counts while it is offered (the settings can arrive or change after the screen opens).
   const preset = picked !== null && presets.includes(picked) ? picked : (presets.find((a) => a >= 200) ?? presets[0] ?? min);
   const [custom, setCustom] = useState('');
-  const methods: Method[] = [...(config?.payment.online ? (['online'] as const) : []), ...(config?.payment.manual ? (['manual'] as const) : [])];
-  const [chosen, setMethod] = useState<Method | null>(null);
-  // The settings can arrive (or change) after the screen opens: a choice counts while it is offered.
-  const method = chosen && methods.includes(chosen) ? chosen : (methods[0] ?? null);
+  // Payments go through Enfinito Pay, while Enfinito has it switched on.
+  const online = !!config?.payment.online;
   // Without the settings there is nothing to pay with: ask for them again.
   useEffect(() => {
     if (!config) void refresh().catch(() => undefined);
   }, [config, refresh]);
-  const [channel, setChannel] = useState<(typeof CHANNELS)[number]['id']>('bkash');
-  const [reference, setReference] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<Done | null>(null);
   // A recharge started but not paid (the payment page was closed): paying again uses it.
   const [open, setOpen] = useState<{ id: number; amount: number } | null>(null);
   const amount = custom ? Number(custom) : preset;
-  const valid = amount >= min && amount <= max && (method !== 'manual' || reference.trim().length >= 3);
+  const valid = amount >= min && amount <= max;
 
   const pay = async () => {
-    if (!valid || !method) return;
+    if (!valid || !online) return;
     setBusy(true);
     setError(null);
     try {
       const id = open && open.amount === amount ? open.id : await createRecharge(amount);
       setOpen({ id, amount });
-      if (method === 'manual') {
-        await payManual(id, channel, reference.trim());
-        setDone({ amount, checking: true });
-      } else {
-        const result = await payOnline(id);
-        if (result === 'paid' || result === 'review') setDone({ amount, checking: result === 'review' });
-        else if (result === 'failed') setError("The payment didn't go through. Please try again.");
-        else return;
-      }
+      const result = await payOnline(id);
+      if (result === 'paid' || result === 'review') setDone({ amount, checking: result === 'review' });
+      else if (result === 'failed') setError("The payment didn't go through. Please try again.");
+      else return;
       setOpen(null);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
-      // The server's own words, e.g. while the last payment is still being checked.
+      // The server's own words, e.g. while the last payment is still being checked or the payment page didn't open.
       setError(errorText(err));
       void refresh().catch(() => undefined);
     } finally {
@@ -108,9 +92,8 @@ export function RechargeScreen({ activation }: { activation?: boolean }) {
     );
   }
 
-  const label = method === 'manual' ? `I've sent ${formatBdt(amount)}` : `Pay ${formatBdt(amount)}`;
   return (
-    <Screen back title={activation ? 'Activate your number' : 'Recharge'} scroll footer={<Button title={label} onPress={pay} loading={busy} disabled={!valid || !method} block />}>
+    <Screen back title={activation ? 'Activate your number' : 'Recharge'} scroll footer={<Button title={`Pay ${formatBdt(amount)}`} onPress={pay} loading={busy} disabled={!valid || !online} block />}>
       <View style={[styles.summary, { backgroundColor: colors.surface }]}>
         <View>
           <Text variant="caption" tone="secondary">
@@ -164,51 +147,21 @@ export function RechargeScreen({ activation }: { activation?: boolean }) {
         error={custom && (amount < min || amount > max) ? `Choose between ${formatBdt(min)} and ${formatBdt(max)}` : null}
       />
 
-      <Text variant="heading" style={styles.section}>
-        Pay with
-      </Text>
-      {!methods.length ? (
-        <Text tone="secondary">Payments are paused right now. Please try again a little later.</Text>
+      {!online ? (
+        <Text tone="secondary" style={styles.note}>
+          Payments are paused right now. Please try again a little later.
+        </Text>
       ) : (
-        <View style={[styles.methods, { backgroundColor: colors.surface }]}>
-          {methods.map((m, i) => {
-            const on = method === m;
-            return (
-              <Pressable key={m} accessibilityRole="radio" accessibilityState={{ selected: on }} onPress={() => setMethod(m)} style={[styles.method, i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }]}>
-                <View style={[styles.methodIcon, { backgroundColor: colors.brandSoft }]}>{m === 'online' ? <CreditCard size={18} color={colors.brand} /> : <Smartphone size={18} color={colors.brand} />}</View>
-                <View style={{ flex: 1 }}>
-                  <Text variant="bodyMedium">{m === 'online' ? 'Card, bKash or Nagad' : 'Send money yourself'}</Text>
-                  <Text variant="caption" tone="secondary">
-                    {m === 'online' ? 'On a secure payment page, then straight back here' : 'bKash or Nagad, then enter the transaction ID'}
-                  </Text>
-                </View>
-                <View style={[styles.radio, { borderColor: on ? colors.brand : colors.textTertiary }]}>{on && <View style={[styles.radioDot, { backgroundColor: colors.brand }]} />}</View>
-              </Pressable>
-            );
-          })}
-        </View>
-      )}
-
-      {method === 'manual' && (
-        <View style={[styles.manual, { backgroundColor: colors.surface }]}>
-          {!!config?.payment.manual_instructions && <Text tone="secondary">{config.payment.manual_instructions}</Text>}
-          <View style={styles.channels}>
-            {CHANNELS.map((c) => {
-              const on = channel === c.id;
-              return (
-                <Pressable
-                  key={c.id}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: on }}
-                  onPress={() => setChannel(c.id)}
-                  style={[styles.channel, { backgroundColor: on ? `${c.color}1A` : colors.background, borderColor: on ? c.color : 'transparent' }]}
-                >
-                  <Text style={{ fontFamily: fonts.semibold, fontSize: 14, color: on ? c.color : colors.text }}>{c.label}</Text>
-                </Pressable>
-              );
-            })}
+        <View style={[styles.payment, { backgroundColor: colors.surface }]}>
+          <View style={[styles.paymentIcon, { backgroundColor: colors.brandSoft }]}>
+            <CreditCard size={18} color={colors.brand} />
           </View>
-          <Input label="Transaction ID" placeholder="e.g. 9JH4K2L8PQ" value={reference} onChangeText={(v) => setReference(v.replace(/\s/g, '').slice(0, 40))} autoCapitalize="characters" autoCorrect={false} />
+          <View style={{ flex: 1 }}>
+            <Text variant="bodyMedium">You pay on Enfinito Pay's secure page</Text>
+            <Text variant="caption" tone="secondary">
+              bKash, Nagad, Rocket, cards and more. Then you come straight back here.
+            </Text>
+          </View>
         </View>
       )}
 
@@ -228,13 +181,7 @@ const styles = StyleSheet.create({
   section: { marginTop: space.xl, marginBottom: space.md },
   amounts: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginBottom: space.lg },
   amount: { width: '48.5%', height: 58, borderRadius: radius.md, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  methods: { borderRadius: radius.lg, overflow: 'hidden' },
-  method: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingVertical: 14 },
-  methodIcon: { width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
-  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  radioDot: { width: 11, height: 11, borderRadius: 6 },
-  manual: { borderRadius: radius.lg, padding: space.lg, gap: space.md, marginTop: space.md },
-  channels: { flexDirection: 'row', gap: space.sm },
-  channel: { flex: 1, height: 44, borderRadius: radius.md, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  payment: { flexDirection: 'row', alignItems: 'center', gap: space.md, borderRadius: radius.lg, paddingHorizontal: space.lg, paddingVertical: 14, marginTop: space.lg },
+  paymentIcon: { width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   success: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.xl, paddingBottom: space.xxxl },
 });

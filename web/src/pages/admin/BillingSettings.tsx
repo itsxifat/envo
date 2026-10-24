@@ -37,8 +37,6 @@ export function BillingSettingsPage() {
   });
 
   if (q.isLoading || !form) return q.error ? <ErrorBlock error={q.error} /> : <LoadingBlock />;
-  const s = form.sslcommerz;
-  const setS = (patch: Partial<BillingSettings['sslcommerz']>) => setForm({ ...form, sslcommerz: { ...s, ...patch } });
   const e = form.enfinito_pay;
   const setE = (patch: Partial<BillingSettings['enfinito_pay']>) => setForm({ ...form, enfinito_pay: { ...e, ...patch } });
   const typedMode = e.secret_key.startsWith('sk_live_') ? 'live' : e.secret_key.startsWith('sk_test_') ? 'test' : null;
@@ -63,11 +61,12 @@ export function BillingSettingsPage() {
         <Card className="overflow-hidden">
           <CardHeader
             title="Enfinito Pay"
-            description="bKash, Nagad, Rocket, cards and internet banking on pay.enfinito.com"
+            description="The only way customers pay, in the app and on the website: bKash, Nagad, Rocket, cards and internet banking on pay.enfinito.com"
             actions={mode && <Badge tone={mode === 'live' ? 'green' : 'amber'}>{mode === 'live' ? 'Live' : 'Test mode'}</Badge>}
           />
           <div className="space-y-4 p-4 sm:p-5">
-            <Toggle checked={e.enabled} onChange={(v) => setE({ enabled: v })} label="Take online payments through Enfinito Pay" description="While this is on, it is used instead of SSLCommerz" />
+            <Toggle checked={e.enabled} onChange={(v) => setE({ enabled: v })} label="Take payments through Enfinito Pay" description="Cash you receive can still be marked paid in Sales" />
+            {(!e.enabled || (!e.has_secret_key && !e.secret_key)) && <Notice tone="warn">Customers cannot pay until this is on and its secret key is saved.</Notice>}
             {e.enabled && mode === 'live' && <Notice tone="warn">Live key: customers are charged for real.</Notice>}
             {e.enabled && mode === 'test' && <Notice tone="info">Test key: payments run against the sandbox and no real money moves.</Notice>}
             <div className="grid gap-4 sm:grid-cols-2">
@@ -94,38 +93,6 @@ export function BillingSettingsPage() {
               <CopyField label="Webhook URL" value={e.webhook_url ?? `${window.location.origin}/api/public/enfinito-pay/webhook`} />
               <CopyField label="Return domain" value={e.return_domain ?? window.location.host} />
             </div>
-          </div>
-        </Card>
-
-        <Card className="overflow-hidden">
-          <CardHeader title="SSLCommerz" description="Cards, bKash, Nagad, Rocket and internet banking on one payment page" />
-          <div className="space-y-4 p-4 sm:p-5">
-            {e.enabled && <Notice tone="info">Not used while Enfinito Pay is on.</Notice>}
-            <Toggle checked={s.enabled} onChange={(v) => setS({ enabled: v })} label="Accept online payments" />
-            <Toggle checked={s.sandbox} onChange={(v) => setS({ sandbox: v })} label="Sandbox (test mode)" description="No real money moves. Turn off with your live store ID." />
-            {s.sandbox && s.store_id === 'testbox' && <Notice tone="info">You are using SSLCommerz's public test store. Test card: 4111 1111 1111 1111, 12/26, CVV 111, OTP 111111.</Notice>}
-            {!s.sandbox && s.enabled && <Notice tone="warn">Live mode: customers are charged for real.</Notice>}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Store ID">
-                <Input value={s.store_id} onChange={(e) => setS({ store_id: e.target.value.trim() })} placeholder="yourstore0live" autoComplete="off" />
-              </Field>
-              <Field label="Store password" hint={s.has_passwd ? 'Saved; leave empty to keep it' : 'From your SSLCommerz merchant panel'}>
-                <Input type="password" value={s.store_passwd} onChange={(e) => setS({ store_passwd: e.target.value })} placeholder={s.has_passwd ? '••••••••' : ''} autoComplete="new-password" />
-              </Field>
-            </div>
-            <p className="text-xs text-slate-500">
-              Payments are confirmed directly with SSLCommerz (never trusted from the browser). If your merchant panel asks for an IPN address, use your dashboard address followed by <span className="font-mono">/api/public/sslcommerz/ipn</span>.
-            </p>
-          </div>
-        </Card>
-
-        <Card className="overflow-hidden">
-          <CardHeader title="Manual payments" description="bKash, Nagad or bank transfers you confirm yourself" />
-          <div className="space-y-4 p-4 sm:p-5">
-            <Toggle checked={form.manual.enabled} onChange={(v) => setForm({ ...form, manual: { ...form.manual, enabled: v } })} label="Accept manual payments" />
-            <Field label="Instructions shown to customers" hint="Your bKash/Nagad merchant numbers or bank account, and what to write as reference">
-              <Textarea rows={5} value={form.manual.instructions} onChange={(e) => setForm({ ...form, manual: { ...form.manual, instructions: e.target.value } })} />
-            </Field>
           </div>
         </Card>
 

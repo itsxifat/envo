@@ -2,12 +2,12 @@ import { useState } from 'react';
 import clsx from 'clsx';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Check, CreditCard, Landmark, Minus, Smartphone, Star } from 'lucide-react';
+import { Check, CreditCard, Minus, Star } from 'lucide-react';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../state/auth';
 import { IVR_TIER_LABELS, formatBdt, limitLabel } from '../lib/format';
 import type { CheckoutResult, Invoice, Onboarding, Package, PaymentOptions } from '../lib/types';
-import { Badge, Button, Field, Input, Modal, Notice, Select, Stepper, Tabs } from './ui';
+import { Badge, Button, Modal, Notice, Stepper, Tabs } from './ui';
 
 const MONTHS = [1, 3, 6, 12] as const;
 
@@ -168,20 +168,9 @@ export function PlanPicker({ onInvoice, onDone }: { onInvoice: (inv: Invoice) =>
   );
 }
 
-const CHANNELS = [
-  { value: 'bkash', label: 'bKash' },
-  { value: 'nagad', label: 'Nagad' },
-  { value: 'rocket', label: 'Rocket' },
-  { value: 'bank', label: 'Bank transfer' },
-  { value: 'other', label: 'Other' },
-];
-
-/** Pay one invoice: online (Enfinito Pay or SSLCommerz), or report a bKash / bank transfer. */
+/** Pay one invoice on Enfinito Pay's page (bKash, Nagad, Rocket, cards and internet banking). */
 export function PayDialog({ invoice, onClose }: { invoice: Invoice; onClose: () => void }) {
-  const qc = useQueryClient();
   const options = useQuery({ queryKey: ['account', 'billing', 'options'], queryFn: () => api.get<PaymentOptions>('/api/account/billing/options') });
-  const [mode, setMode] = useState<'choose' | 'manual'>('choose');
-  const [manual, setManual] = useState({ channel: 'bkash', reference: '', note: '' });
   const online = useMutation({
     mutationFn: () => api.post<{ url: string }>(`/api/account/billing/invoices/${invoice.id}/pay-online`),
     onSuccess: (r) => {
@@ -189,106 +178,29 @@ export function PayDialog({ invoice, onClose }: { invoice: Invoice; onClose: () 
     },
     onError: (err) => toast.error(errorMessage(err)),
   });
-  const report = useMutation({
-    mutationFn: () => api.post(`/api/account/billing/invoices/${invoice.id}/pay-manual`, manual),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['account'] });
-      toast.success('Thanks! We confirm your payment shortly.');
-      onClose();
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
   const o = options.data;
 
   return (
-    <Modal
-      open
-      onClose={onClose}
-      size="md"
-      title={`Pay ${formatBdt(invoice.amount)}`}
-      description={`${invoice.number} · ${invoice.description}`}
-      footer={
-        mode === 'manual' ? (
-          <>
-            <Button onClick={() => setMode('choose')}>Back</Button>
-            <Button variant="primary" loading={report.isPending} disabled={manual.reference.trim().length < 3} onClick={() => report.mutate()}>
-              Submit payment
-            </Button>
-          </>
-        ) : (
-          <Button onClick={onClose}>Not now</Button>
-        )
-      }
-    >
-      {mode === 'choose' ? (
-        <div className="space-y-3">
-          {o?.online && (
-            <button
-              type="button"
-              disabled={online.isPending}
-              onClick={() => online.mutate()}
-              className="flex w-full items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-brand-400 hover:bg-brand-50/40 disabled:opacity-60"
-            >
-              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
-                <CreditCard className="size-5" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block font-medium text-slate-900">{online.isPending ? 'Opening the secure payment page…' : 'Pay online'}</span>
-                <span className="block text-[13px] text-slate-500">
-                  bKash, Nagad, Rocket, cards or internet banking {o.gateway === 'enfinito_pay' ? 'on Enfinito Pay' : 'through SSLCommerz'}
-                </span>
-              </span>
-            </button>
-          )}
-          {o?.manual && (
-            <button
-              type="button"
-              onClick={() => setMode('manual')}
-              className="flex w-full items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-slate-300 hover:bg-slate-50"
-            >
-              <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
-                <Landmark className="size-5" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block font-medium text-slate-900">I paid by bKash or bank transfer</span>
-                <span className="block text-[13px] text-slate-500">Send us the transaction ID and we confirm it</span>
-              </span>
-            </button>
-          )}
-          {o && !o.online && !o.manual && <Notice tone="warn">Payments are not set up yet. Please contact Enfinito.</Notice>}
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {o?.manualInstructions && (
-            <Notice tone="info" title="How to pay">
-              <p className="whitespace-pre-line">{o.manualInstructions}</p>
-              <p className="mt-1">
-                Amount: <strong>{formatBdt(invoice.amount)}</strong> · Reference: <strong>{invoice.number}</strong>
-              </p>
-            </Notice>
-          )}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Paid with">
-              <Select value={manual.channel} onChange={(e) => setManual({ ...manual, channel: e.target.value })}>
-                {CHANNELS.map((c) => (
-                  <option key={c.value} value={c.value}>
-                    {c.label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Transaction ID">
-              <div className="relative">
-                <Smartphone className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" />
-                <Input value={manual.reference} onChange={(e) => setManual({ ...manual, reference: e.target.value })} className="pl-9" placeholder="e.g. 9JH4KL2M8N" autoFocus />
-              </div>
-            </Field>
-            <Field label="Note (optional)" className="sm:col-span-2">
-              <Input value={manual.note} onChange={(e) => setManual({ ...manual, note: e.target.value })} placeholder="Sender number or bank name" />
-            </Field>
-          </div>
-        </div>
-      )}
+    <Modal open onClose={onClose} size="md" title={`Pay ${formatBdt(invoice.amount)}`} description={`${invoice.number} · ${invoice.description}`} footer={<Button onClick={onClose}>Not now</Button>}>
+      <div className="space-y-3">
+        {o?.online && (
+          <button
+            type="button"
+            disabled={online.isPending}
+            onClick={() => online.mutate()}
+            className="flex w-full items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-brand-400 hover:bg-brand-50/40 disabled:opacity-60"
+          >
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
+              <CreditCard className="size-5" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-medium text-slate-900">{online.isPending ? 'Opening the secure payment page…' : 'Pay online'}</span>
+              <span className="block text-[13px] text-slate-500">You pay on Enfinito Pay's secure page: bKash, Nagad, Rocket, cards or internet banking.</span>
+            </span>
+          </button>
+        )}
+        {o && !o.online && <Notice tone="warn">Payments aren't open yet. Please contact Enfinito to pay this invoice.</Notice>}
+      </div>
     </Modal>
   );
 }
@@ -298,8 +210,8 @@ export function PaymentResult({ status }: { status: string | null }) {
   if (!status) return null;
   const map: Record<string, [tone: 'success' | 'warn' | 'danger' | 'info', title: string, text: string]> = {
     paid: ['success', 'Payment received', 'Thank you! Your payment is confirmed.'],
-    review: ['info', 'Payment received, being checked', 'Your bank flagged this payment for a quick review. We confirm it shortly.'],
-    failed: ['danger', 'The payment did not go through', 'Nothing was charged. Try again or use another method.'],
+    review: ['info', 'Payment received, being checked', 'We are taking a quick look at this payment and confirm it shortly.'],
+    failed: ['danger', 'The payment did not go through', "Nothing was charged. Try again; on Enfinito Pay's page you can also choose another way to pay."],
     cancelled: ['warn', 'Payment cancelled', 'You left the payment page. You can pay any time below.'],
     unknown: ['warn', 'We could not confirm the payment yet', 'If money left your account, it shows up here within a few minutes.'],
   };

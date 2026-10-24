@@ -1,11 +1,10 @@
-import crypto from 'node:crypto';
 import type pg from 'pg';
 import { many, one, tx } from '../db.js';
 import { config } from '../config.js';
 import { HttpError, badRequest, notFound } from '../lib/http.js';
 import { scheduleApply } from '../asterisk/apply.js';
 import { getUsage, invalidatePlans } from './plan.js';
-import { createSession, queryTransaction, validate, type Validation } from './sslcommerz.js';
+import { queryTransaction, validate, type Validation } from './sslcommerz.js';
 import { cancelCheckout, createCheckout, retrieveCheckout, type CheckoutSession, type WebhookEvent } from './enfinitoPay.js';
 import { bdMobile } from '../lib/validate.js';
 import { getBillingSettings, onlineGateway } from './settings.js';
@@ -277,32 +276,9 @@ async function payableInvoice(invoiceId: number, accountId: number | null): Prom
  */
 export async function startOnlinePayment(invoiceId: number, accountId: number, opts: { from?: 'app' | 'web' } = {}): Promise<{ url: string }> {
   const invoice = await payableInvoice(invoiceId, accountId);
-  const from = opts.from ?? 'web';
-  if (onlineGateway(await getBillingSettings()) === 'enfinito_pay') return startEnfinitoPayment(invoice, accountId, from);
-  const account = await one<{ name: string; email: string; phone: string; address: string }>('SELECT name, email, phone, address FROM accounts WHERE id = $1', [accountId]);
-  const tranId = `ENV${invoice.id}X${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
-  const payment = await one<Payment>(
-    `INSERT INTO payments (invoice_id, account_id, method, status, amount, tran_id, raw) VALUES ($1, $2, 'sslcommerz', 'initiated', $3, $4, jsonb_build_object('from', $5::text)) RETURNING *`,
-    [invoice.id, accountId, invoice.amount, tranId, from],
-  );
-  const cb = `${config.publicUrl}/api/public/sslcommerz`;
-  try {
-    const session = await createSession({
-      tranId,
-      amount: Number(invoice.amount),
-      productName: `${invoice.number} · ${invoice.description}`,
-      customer: { name: account?.name ?? 'Customer', email: account?.email ?? '', phone: account?.phone ?? '', address: account?.address ?? '' },
-      successUrl: `${cb}/success`,
-      failUrl: `${cb}/fail`,
-      cancelUrl: `${cb}/cancel`,
-      ipnUrl: `${cb}/ipn`,
-    });
-    await one("UPDATE payments SET raw = raw || jsonb_build_object('sessionkey', $1::text), updated_at = now() WHERE id = $2", [session.sessionKey, payment!.id]);
-    return { url: session.url };
-  } catch (err) {
-    await one("UPDATE payments SET status = 'failed', note = $1, updated_at = now() WHERE id = $2", [(err as Error).message.slice(0, 300), payment!.id]);
-    throw err;
-  }
+  // Every payment goes through Enfinito Pay: there is no other way to pay.
+  if (onlineGateway(await getBillingSettings()) !== 'enfinito_pay') throw badRequest('Online payment is not open yet. Please try again later.');
+  return startEnfinitoPayment(invoice, accountId, opts.from ?? 'web');
 }
 
 export type GatewayOutcome = { invoiceId: number | null; status: 'paid' | 'review' | 'failed' | 'cancelled' | 'unknown' };
@@ -353,7 +329,8 @@ async function startEnfinitoPayment(invoice: Invoice, accountId: number, from: '
     [invoice.id, accountId, invoice.amount, from],
   ))!;
   // Paid or not, the browser comes back to us; we ask Enfinito Pay before showing the result.
-  const back = `${config.publicUrl}/api/public/enfinito-pay/return?payment=${payment.id}`;
+  // {SESSION_ID} is replaced with the checkout's id (Enfinito Pay would otherwise add ?session_id=).
+  const back = `${config.publicUrl}/api/public/enfinito-pay/return?payment=${payment.id}&session_id={SESSION_ID}`;
   try {
     const session = await createCheckout(
       {
@@ -374,8 +351,9 @@ async function startEnfinitoPayment(invoice: Invoice, accountId: number, from: '
     await one("UPDATE payments SET tran_id = $1, raw = raw || jsonb_build_object('livemode', $2::boolean), updated_at = now() WHERE id = $3", [session.id, session.livemode, payment.id]);
     return { url: session.url };
   } catch (err) {
+    // What went wrong is kept on the payment (and in the log) for Enfinito; the customer is asked to try again.
     await one("UPDATE payments SET status = 'failed', note = $1, updated_at = now() WHERE id = $2", [(err as Error).message.slice(0, 300), payment.id]);
-    throw err;
+    throw new HttpError(502, "The payment page didn't open. Please try again in a few minutes.");
   }
 }
 
@@ -559,19 +537,7 @@ export async function reconcileOnlinePayments(): Promise<number> {
   return settled;
 }
 
-/** A customer reports a bKash / bank transfer; an admin confirms it. */
-export async function submitManualPayment(invoiceId: number, accountId: number, data: { channel: string; reference: string; note: string }): Promise<Payment> {
-  const invoice = await payableInvoice(invoiceId, accountId);
-  const dup = await one('SELECT 1 FROM payments WHERE invoice_id = $1 AND status = $2', [invoice.id, 'pending_review']);
-  if (dup) throw badRequest('A payment for this invoice is already waiting for confirmation');
-  return (await one<Payment>(
-    `INSERT INTO payments (invoice_id, account_id, method, status, amount, channel, reference, note)
-     VALUES ($1, $2, 'manual', 'pending_review', $3, $4, $5, $6) RETURNING *`,
-    [invoice.id, accountId, invoice.amount, data.channel, data.reference, data.note],
-  ))!;
-}
-
-/** Admin decision on a payment waiting for review (manual transfers, risky card payments). */
+/** Admin decision on a payment waiting for review (a risky card payment, or one that didn't fit its invoice). */
 export async function reviewPayment(paymentId: number, approve: boolean, reviewerId: number, note: string): Promise<void> {
   await tx(async (db) => {
     const p = (await db.query<Payment>('SELECT * FROM payments WHERE id = $1 FOR UPDATE', [paymentId])).rows[0];

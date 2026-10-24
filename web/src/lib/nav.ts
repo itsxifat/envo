@@ -78,7 +78,7 @@ export const NAV: NavGroup[] = [
       { to: '/voicemail', label: 'Voicemail', icon: Voicemail, keywords: 'messages inbox' },
       { to: '/numbers', label: 'Phone numbers', icon: Hash, roles: ADMINS, keywords: 'did inbound connect number get a new number buy special number top up recharge balance' },
       { to: '/extensions', label: 'Team & phones', icon: Users, roles: ADMINS, keywords: 'extensions people sip accounts phones desk softphone credentials add a person' },
-      { to: '/billing', label: 'Billing & top-ups', icon: CreditCard, roles: ['admin'], customer: true, owner: true, keywords: 'invoice pay payment bkash card renew upgrade package top up recharge calling balance' },
+      { to: '/billing', label: 'Billing & top-ups', icon: CreditCard, roles: ['admin'], customer: true, owner: true, keywords: 'invoice pay payment enfinito pay bkash nagad card renew upgrade package top up recharge calling balance' },
     ],
   },
   {
@@ -126,7 +126,7 @@ export const ADMIN_NAV: NavGroup[] = [
   {
     title: 'Business',
     items: [
-      { to: '/admin/sales', label: 'Sales & invoices', icon: Receipt, keywords: 'revenue invoices payments mrr approve bkash sslcommerz' },
+      { to: '/admin/sales', label: 'Sales & invoices', icon: Receipt, keywords: 'revenue invoices payments mrr approve confirm enfinito pay mark paid cash' },
       { to: '/admin/packages', label: 'Packages', icon: BadgeDollarSign, keywords: 'plans pricing limits price tiers' },
     ],
   },
@@ -134,7 +134,7 @@ export const ADMIN_NAV: NavGroup[] = [
     title: 'Platform',
     items: [
       { to: '/admin/system', label: 'System health', icon: Settings, keywords: 'asterisk modules cli logs settings sip domain' },
-      { to: '/admin/billing-settings', label: 'Payments', icon: CreditCard, keywords: 'sslcommerz manual payment settings grace' },
+      { to: '/admin/billing-settings', label: 'Payments', icon: CreditCard, keywords: 'enfinito pay payment settings secret key webhook grace renewal invoice business' },
       { to: '/admin/email', label: 'Email', icon: Mail, keywords: 'smtp mail notifications verification sender' },
       { to: '/admin/staff', label: 'Staff', icon: ShieldCheck, keywords: 'platform admins team support' },
     ],

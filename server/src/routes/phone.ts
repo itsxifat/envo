@@ -9,7 +9,7 @@ import { HttpError, badRequest, conflict, forbidden, intParam, notFound } from '
 import { audit, bdMobile } from '../lib/validate.js';
 import { sendMail } from '../lib/mailer.js';
 import { emails } from '../lib/emails.js';
-import { createInvoice, startOnlinePayment, submitManualPayment } from '../billing/invoices.js';
+import { createInvoice, startOnlinePayment } from '../billing/invoices.js';
 import { publicPaymentOptions } from '../billing/settings.js';
 import { getSupplySettings } from '../supply/settings.js';
 import { deleteCheckFrames, deleteDocuments, idDocumentOf, readCheckFrames, saveCheckFrames, saveDocument } from '../supply/files.js';
@@ -76,7 +76,8 @@ phonePublicRouter.get('/config', async (_req, res) => {
     update_url: s.update_url,
     operator: provider?.name ?? '',
     prefix: provider?.prefix ?? '',
-    payment: { online: pay.online, manual: pay.manual, manual_instructions: pay.manualInstructions },
+    // Enfinito Pay is the only way to pay (bKash, Nagad, cards and the rest are on its page).
+    payment: { online: pay.online },
   });
 });
 
@@ -384,23 +385,11 @@ async function ownRecharge(req: Request): Promise<{ id: number; invoice_id: numb
   return t;
 }
 
-/** Card, bKash or Nagad through the payment page. From the app, the page leads back into the app. */
+/** Pays on Enfinito Pay's page (bKash, Nagad, cards and more). From the app, the page leads back into the app. */
 phoneRouter.post('/recharges/:id/pay-online', async (req, res) => {
   const { from } = z.object({ from: z.enum(['app', 'web']).default('web') }).parse(req.body ?? {});
   const t = await ownRecharge(req);
   res.json(await startOnlinePayment(t.invoice_id, accountOf(req), { from }));
-});
-
-/** Sent by bKash or Nagad by hand: the transaction ID, which support checks. */
-phoneRouter.post('/recharges/:id/pay-manual', async (req, res) => {
-  if (!(await publicPaymentOptions()).manual) throw badRequest('Payments by hand are not accepted right now');
-  const d = z
-    .object({ channel: z.enum(['bkash', 'nagad', 'rocket', 'bank', 'other']), reference: z.string().trim().min(3, 'enter the transaction ID').max(80) })
-    .parse(req.body);
-  const t = await ownRecharge(req);
-  const payment = await submitManualPayment(t.invoice_id, accountOf(req), { ...d, note: 'Envo Phone recharge' });
-  await audit(req, 'manual_payment', 'billing', payment.id, `${d.channel} ${d.reference}`, null);
-  res.status(201).json({ ok: true });
 });
 
 /** Drops an unpaid recharge (and its invoice). */

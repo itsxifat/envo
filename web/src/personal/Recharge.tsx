@@ -1,21 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { toast } from 'sonner';
-import { Check, CreditCard, Smartphone } from 'lucide-react';
+import { Check, CreditCard } from 'lucide-react';
 import { api, errorMessage } from '../lib/api';
 import { formatBdt, formatDateTime } from '../lib/format';
-import { Badge, Button, Field, Input, Notice, Select } from '../components/ui';
+import { Badge, Button, Input, Notice } from '../components/ui';
 import { usePhoneConfig, useRecharges, type Recharge } from './api';
 
-type Method = 'online' | 'manual';
-
 /**
- * Choosing an amount and paying it: online (card, bKash, Nagad through the payment page) or by sending
- * bKash / Nagad yourself and entering the transaction ID. `first` is the recharge that activates the number.
- * `inReview`: a payment waits for support's check (PhoneMe.payment_in_review), so nothing is paid twice.
+ * Choosing an amount and paying it on Enfinito Pay's page (bKash, Nagad, Rocket, cards and more).
+ * `first` is the recharge that activates the number. `inReview`: a payment waits for support's check
+ * (PhoneMe.payment_in_review), so nothing is paid twice.
  */
-export function RechargePanel({ first, inReview, onDone }: { first?: boolean; inReview?: boolean; onDone?: () => void }) {
+export function RechargePanel({ first, inReview }: { first?: boolean; inReview?: boolean }) {
   const config = usePhoneConfig();
   const qc = useQueryClient();
   const c = config.data;
@@ -23,40 +21,22 @@ export function RechargePanel({ first, inReview, onDone }: { first?: boolean; in
   const presets = (c?.recharge.presets ?? []).filter((p) => p >= min);
   const [amount, setAmount] = useState<number | null>(null);
   const [custom, setCustom] = useState('');
-  const [method, setMethod] = useState<Method | null>(null);
-  const [manual, setManual] = useState({ channel: 'bkash', reference: '' });
-  const [sent, setSent] = useState(false);
-  // Support confirmed the payment that was sent from here: recharging is open again.
-  useEffect(() => {
-    if (!inReview) setSent(false);
-  }, [inReview]);
   const chosen = custom ? Number(custom) : (amount ?? presets[0] ?? min);
-  const how: Method | null = method ?? (c?.payment.online ? 'online' : c?.payment.manual ? 'manual' : null);
   const tooSmall = !!c && chosen < min;
   const tooBig = !!c && chosen > c.recharge.max;
 
   const pay = useMutation({
     mutationFn: async () => {
       const r = await api.post<{ id: number }>('/api/phone/recharges', { amount: chosen });
-      if (how === 'online') {
-        const { url } = await api.post<{ url: string }>(`/api/phone/recharges/${r.id}/pay-online`, { from: 'web' });
-        window.location.assign(url);
-        return 'redirect';
-      }
-      await api.post(`/api/phone/recharges/${r.id}/pay-manual`, manual);
-      return 'manual';
+      const { url } = await api.post<{ url: string }>(`/api/phone/recharges/${r.id}/pay-online`, { from: 'web' });
+      window.location.assign(url);
     },
-    onSuccess: (r) => {
-      void qc.invalidateQueries({ queryKey: ['phone'] });
-      if (r === 'manual') {
-        setSent(true);
-        onDone?.();
-      }
-    },
+    // The payment page didn't open: the recharge was made, so it shows in the list to pay later.
+    onError: () => void qc.invalidateQueries({ queryKey: ['phone'] }),
   });
 
   if (!c) return <div className="skeleton h-64 rounded-2xl" />;
-  if (sent || inReview) {
+  if (inReview) {
     return (
       <div className="rounded-2xl bg-emerald-50 p-5 ring-1 ring-emerald-600/15">
         <div className="flex items-center gap-3">
@@ -64,14 +44,14 @@ export function RechargePanel({ first, inReview, onDone }: { first?: boolean; in
             <Check className="size-5" />
           </span>
           <div>
-            <p className="font-semibold text-emerald-950">{sent ? "Thank you! We're checking your payment." : "We're checking your payment."}</p>
+            <p className="font-semibold text-emerald-950">We're checking your payment.</p>
             <p className="text-[13.5px] text-emerald-900/80">This usually takes a few hours. {first ? 'Your number is activated as soon as it is confirmed.' : 'The amount goes on your balance once it is confirmed.'}</p>
           </div>
         </div>
       </div>
     );
   }
-  if (!c.payment.online && !c.payment.manual) {
+  if (!c.payment.online) {
     return <Notice tone="warn" title="Recharging is paused">Payments are not open right now. Please try again a little later.</Notice>;
   }
 
@@ -116,61 +96,18 @@ export function RechargePanel({ first, inReview, onDone }: { first?: boolean; in
         {first && <p className="mt-2 text-[13px] text-slate-500">The first recharge is at least {formatBdt(c.activation_min)}. All of it becomes your calling balance.</p>}
       </div>
 
-      <div>
-        <p className="mb-2 text-[13px] font-medium text-slate-700">Pay with</p>
-        <div className="space-y-2">
-          {c.payment.online && (
-            <MethodOption on={how === 'online'} onSelect={() => setMethod('online')} icon={<CreditCard className="size-5" />} title="Card, bKash or Nagad" text="On a secure payment page; your balance updates right after." />
-          )}
-          {c.payment.manual && (
-            <MethodOption
-              on={how === 'manual'}
-              onSelect={() => setMethod('manual')}
-              icon={<Smartphone className="size-5" />}
-              title="Send money yourself"
-              text="Send by bKash or Nagad, then enter the transaction ID. We check it within a few hours."
-            />
-          )}
-        </div>
+      <div className="flex items-center gap-3.5 rounded-xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white text-slate-600 ring-1 ring-slate-200">
+          <CreditCard className="size-5" />
+        </span>
+        <p className="text-[13px] text-slate-600">You pay on Enfinito Pay's secure page: bKash, Nagad, Rocket, cards and more. Your balance updates right after.</p>
       </div>
 
-      {how === 'manual' && (
-        <div className="space-y-3 rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
-          <p className="text-[13.5px] whitespace-pre-line text-slate-700">{c.payment.manual_instructions}</p>
-          <div className="grid gap-3 sm:grid-cols-[10rem_1fr]">
-            <Field label="Sent by">
-              <Select value={manual.channel} onChange={(e) => setManual((m) => ({ ...m, channel: e.target.value }))}>
-                <option value="bkash">bKash</option>
-                <option value="nagad">Nagad</option>
-                <option value="rocket">Rocket</option>
-                <option value="bank">Bank transfer</option>
-              </Select>
-            </Field>
-            <Field label="Transaction ID">
-              <Input value={manual.reference} onChange={(e) => setManual((m) => ({ ...m, reference: e.target.value.trim() }))} placeholder="e.g. 9JH4K2L8PQ" required minLength={3} maxLength={80} />
-            </Field>
-          </div>
-        </div>
-      )}
-
       {pay.error && <Notice tone="danger">{errorMessage(pay.error)}</Notice>}
-      <Button type="submit" variant="primary" size="lg" className="w-full" loading={pay.isPending} disabled={tooSmall || tooBig || !how || (how === 'manual' && manual.reference.length < 3)}>
-        {how === 'online' ? `Pay ${formatBdt(chosen)}` : `I've sent ${formatBdt(chosen)}`}
+      <Button type="submit" variant="primary" size="lg" className="w-full" loading={pay.isPending} disabled={tooSmall || tooBig}>
+        Pay {formatBdt(chosen)}
       </Button>
     </form>
-  );
-}
-
-function MethodOption({ on, onSelect, icon, title, text }: { on: boolean; onSelect: () => void; icon: React.ReactNode; title: string; text: string }) {
-  return (
-    <label className={clsx('flex cursor-pointer items-center gap-3.5 rounded-xl px-4 py-3 ring-1 transition', on ? 'bg-brand-50/60 ring-2 ring-brand-600' : 'bg-white ring-slate-200 hover:ring-slate-300')}>
-      <input type="radio" name="pay-method" checked={on} onChange={onSelect} className="sr-only" />
-      <span className={clsx('flex size-10 shrink-0 items-center justify-center rounded-xl', on ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600')}>{icon}</span>
-      <span className="min-w-0">
-        <span className="block text-[14.5px] font-semibold text-slate-950">{title}</span>
-        <span className="block text-[13px] text-slate-500">{text}</span>
-      </span>
-    </label>
   );
 }
 

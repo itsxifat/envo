@@ -6,9 +6,10 @@ pool, activate it with a first recharge, then call any number in Bangladesh (fre
 numbers).
 
 Expo SDK 58 / React Native 0.88, expo-router, TypeScript. **Status:** sign-up, the email code, the
-registration (NID front and back, which the server puts on one page for the operator), recharges,
-balance and call history all use Envo's API (`/api/phone`, `src/lib/api.ts`). Calls themselves are
-still simulated (`src/state/calls.tsx`); real calling (SIP over WebSocket to Asterisk) is next.
+registration (NID front and back, which the server puts on one page for the operator), recharges
+(paid on Enfinito Pay's page only), balance and call history all use Envo's API (`/api/phone`,
+`src/lib/api.ts`). Calls themselves are still simulated (`src/state/calls.tsx`); real calling (SIP
+over WebSocket to Asterisk) is next.
 
 ## Run it on this Mac
 

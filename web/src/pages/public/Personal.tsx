@@ -115,7 +115,7 @@ export function PersonalLandingPage() {
           {[
             ['Sign up', 'Your name, mobile number and email. We send a code to confirm the email.'],
             ['Register with your NID', 'The details the BTRC asks for every number, and two photos. About three minutes.'],
-            ['Activate', `Recharge ${start} or more by bKash, Nagad or card. All of it becomes your calling balance.`],
+            ['Activate', `Recharge ${start} or more online through Enfinito Pay: bKash, Nagad, Rocket or card. All of it becomes your calling balance.`],
             ['Call', 'We register the number in your name, usually within a few hours. Then call from the app or the browser.'],
           ].map(([t, d], i) => (
             <li key={t} className="border-t border-[#e7e8ec] pt-5">

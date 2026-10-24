@@ -492,14 +492,17 @@ export type PaymentStatus = 'initiated' | 'pending_review' | 'succeeded' | 'fail
 export interface PaymentRow {
   id: number;
   invoice_id: number;
-  method: 'sslcommerz' | 'manual';
+  /** Enfinito Pay today; older payments may be SSLCommerz or recorded by hand ('manual', with channel and reference). */
+  method: 'enfinito_pay' | 'sslcommerz' | 'manual';
   status: PaymentStatus;
   amount: string;
+  /** How it was paid on the gateway's page: bkash, nagad, visa… */
   card_type: string | null;
   channel: string;
   reference: string;
   note?: string;
   tran_id?: string | null;
+  /** The payment's transaction id at the gateway (what Enfinito Pay's admin shows). */
   bank_tran_id?: string | null;
   created_at: string;
   updated_at: string;
@@ -509,12 +512,10 @@ export interface PaymentRow {
   account_name?: string;
 }
 
+/** Customers pay only through Enfinito Pay; `online` is false until it is switched on. */
 export interface PaymentOptions {
   online: boolean;
-  /** Which gateway takes online payments. */
-  gateway: 'enfinito_pay' | 'sslcommerz' | null;
-  manual: boolean;
-  manualInstructions: string;
+  gateway: 'enfinito_pay' | null;
 }
 
 export type CheckoutResult =
@@ -534,8 +535,6 @@ export interface BillingSettings {
     webhook_url?: string;
     return_domain?: string;
   };
-  sslcommerz: { enabled: boolean; sandbox: boolean; store_id: string; store_passwd: string; has_passwd?: boolean };
-  manual: { enabled: boolean; instructions: string };
   grace_days: number;
   renewal_notice_days: number;
   business: { name: string; address: string; email: string; phone: string };

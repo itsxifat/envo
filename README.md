@@ -75,7 +75,7 @@ where calls go, and a test call.
 | Who | Where | What |
 |---|---|---|
 | Visitors | `/`, `/signup` | Landing page with live pricing, sign-up, email confirmation, password reset |
-| Customers (owner) | Billing, Plan & usage | Choose / renew / upgrade (prorated) / switch at renewal, pay online or report a bKash/bank transfer, invoices, billing details |
+| Customers (owner) | Billing, Plan & usage | Choose / renew / upgrade (prorated) / switch at renewal, pay online through Enfinito Pay, invoices, billing details |
 | Customers (admins) | Everything PBX | Their account's SIP servers, extensions, numbers, trunks, team — within the package |
 | Customers (admins), support | Phone numbers → Add a number; Billing & top-ups → Calling balance; /admin → Number requests | Customers choose a number from a provider's allocation (the prefix, e.g. 09639 for ICC, is fixed; or apply for a special number) and send the registration (NID, photo); support registers it, connects it in one step, and adds paid top-ups. Providers (name, prefix, SIP server) are kept under Number requests → Settings |
 | Enfinito (platform admins) | Business → Customers, Sales, Packages, Email | Customers (suspend, close, package, custom limits, open their PBX), revenue and invoices, payments to confirm, package editor, payment and email settings |
@@ -89,8 +89,10 @@ where calls go, and a test call.
 - **Billing** runs by itself every hour: renewal invoices 7 days before a period ends, past due at
   the end, suspension after a 3-day grace (both adjustable), and a "payment received" email on
   every payment. A suspended account keeps its data; its phones stop until it pays.
-- **Payments**: SSLCommerz (bKash, Nagad, Rocket, cards, internet banking), each confirmed with
-  SSLCommerz's validation API; manual bKash/bank transfers are confirmed by an admin in Sales.
+- **Payments**: only through Enfinito Pay (pay.enfinito.com: bKash, Nagad, Rocket, cards, internet
+  banking), in the app and on the website. Each payment is confirmed server to server (signed
+  webhook, or by asking for the checkout); anything that doesn't fit its invoice waits for an admin
+  in Sales. Cash received in person is marked paid there by hand.
 
 ### Envo Phone (personal numbers)
 
@@ -125,8 +127,8 @@ it has been idle for a while.
 
 1. **Payment settings** (Payments in /admin): the Enfinito Pay secret key and webhook signing
    secret (`sk_test_…` first, then `sk_live_…`), and in the Enfinito Pay admin the webhook URL and
-   return domain shown there. Or, without Enfinito Pay, your live SSLCommerz store ID and password,
-   sandbox off (test with the sandbox store `testbox`: card 4111 1111 1111 1111, 12/26, 111).
+   return domain shown there. It is the only way customers can pay: until it is on, the app and the
+   website say payments are not open yet.
 2. **Email** (Business → Email): an SMTP mailbox (e.g. mailcow on the old VPS, or Brevo). Without
    it new customers cannot confirm their email (you can confirm them by hand on the customer page).
 3. **Packages**: check prices and limits in Business → Packages.

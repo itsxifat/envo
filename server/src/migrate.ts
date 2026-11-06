@@ -13,6 +13,7 @@ import m011 from '../migrations/011_onboarding.sql';
 import m012 from '../migrations/012_number_providers.sql';
 import m013 from '../migrations/013_personal_phone.sql';
 import m014 from '../migrations/014_selfie_check.sql';
+import m015 from '../migrations/015_crm_sync.sql';
 
 // Ordered list; append new migrations, never edit applied ones.
 const migrations: Array<[string, string]> = [
@@ -30,6 +31,7 @@ const migrations: Array<[string, string]> = [
   ['012_number_providers', m012],
   ['013_personal_phone', m013],
   ['014_selfie_check', m014],
+  ['015_crm_sync', m015],
 ];
 
 /** Applies pending migrations; returns the versions applied in this run. */

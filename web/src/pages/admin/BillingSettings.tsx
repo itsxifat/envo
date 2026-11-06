@@ -2,10 +2,123 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeft, CheckCircle2, Clock, CreditCard, Landmark, Play, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, CheckCircle2, Clock, CreditCard, Landmark, Play, RefreshCw, Scale, XCircle } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api';
-import type { BillingSettings } from '../../lib/types';
+import { formatBdt, formatDateTime } from '../../lib/format';
+import type { BillingSettings, CrmStatus } from '../../lib/types';
 import { Badge, Button, Card, CardHeader, CopyField, ErrorBlock, Field, Input, LoadingBlock, Notice, NumberInput, PageHeader, Textarea, Toggle } from '../../components/ui';
+
+const CRM_STATE: Record<string, [string, 'green' | 'amber' | 'red' | 'gray']> = {
+  pending: ['On its way', 'gray'],
+  review: ['Finance has to check', 'amber'],
+  rejected: ['Refused', 'red'],
+  mismatch: ['Differs', 'red'],
+};
+
+/** Invoices and payments on their way to the Enfinito CRM, and whether both sides agree. */
+function CrmCard() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ['admin', 'billing', 'crm'], queryFn: () => api.get<CrmStatus>('/api/admin/billing/crm'), refetchInterval: 15_000 });
+  const refresh = () => void qc.invalidateQueries({ queryKey: ['admin', 'billing', 'crm'] });
+  const sync = useMutation({
+    mutationFn: () => api.post<{ sent: number; failed: number }>('/api/admin/billing/crm/sync'),
+    onSuccess: (r) => {
+      refresh();
+      toast.success(r.failed ? `${r.sent} sent, ${r.failed} waiting` : `${r.sent} sent`);
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const compare = useMutation({
+    mutationFn: () => api.post<{ diffCount: number }>('/api/admin/billing/crm/reconcile'),
+    onSuccess: (r) => {
+      refresh();
+      if (r.diffCount) toast.warning(`${r.diffCount} difference(s) found`);
+      else toast.success('Both sides agree');
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const s = q.data;
+  if (!s) return null;
+  if (!s.enabled) {
+    return (
+      <Card className="overflow-hidden xl:col-span-2">
+        <CardHeader title="Enfinito CRM" description="Not connected. Set CRM_BASE_URL and CRM_API_SECRET on the server to send invoices and payments to it." />
+      </Card>
+    );
+  }
+  const c = s.counts ?? {};
+  const rec = s.reconcile;
+  const taxText = !s.policy ? 'not received yet' : s.policy.vatTreatment === 'NONE' ? 'no VAT' : `${s.policy.vatTreatment} ${s.policy.vatRate}% VAT, ${s.policy.pricesIncludeVat ? 'inside' : 'on top of'} prices`;
+  return (
+    <Card className="overflow-hidden xl:col-span-2">
+      <CardHeader
+        title="Enfinito CRM"
+        description={`Connected to ${s.target}. Tax comes from there: ${taxText}.`}
+        actions={
+          <>
+            <Button size="sm" icon={<RefreshCw className="size-3.5" />} loading={sync.isPending} onClick={() => sync.mutate()}>
+              Send now
+            </Button>
+            <Button size="sm" icon={<Scale className="size-3.5" />} loading={compare.isPending} onClick={() => compare.mutate()}>
+              Compare
+            </Button>
+          </>
+        }
+      />
+      <div className="space-y-4 p-4 sm:p-5">
+        {s.connection_error && <Notice tone="warn">{s.connection_error}. Invoices wait here and go as soon as it answers; customers are not affected.</Notice>}
+        <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-slate-600">
+          <span>
+            <strong className="text-slate-900 tabular-nums">{c.synced ?? 0}</strong> in step
+          </span>
+          <span>
+            <strong className="text-slate-900 tabular-nums">{c.pending ?? 0}</strong> on their way
+          </span>
+          <span>
+            <strong className="text-slate-900 tabular-nums">{(c.review ?? 0) + (c.rejected ?? 0) + (c.mismatch ?? 0)}</strong> need attention
+          </span>
+        </div>
+        {rec && (
+          <div className="flex items-start gap-2 rounded-xl bg-slate-50 p-3.5 text-[13px] text-slate-600">
+            {rec.diffCount === 0 ? <Check className="mt-0.5 size-4 shrink-0 text-emerald-600" /> : <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />}
+            <div className="min-w-0">
+              Compared {formatDateTime(rec.at)}: {rec.diffCount === 0 ? 'both sides agree' : `${rec.diffCount} difference(s)`}. Envo {rec.envo.count} invoices, {formatBdt(rec.envo.total)} billed, {formatBdt(rec.envo.paid)} paid. CRM {rec.crm.count} invoices, {formatBdt(rec.crm.total)} billed, {formatBdt(rec.crm.paid)} paid.
+              {rec.diffs.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {rec.diffs.slice(0, 10).map((d) => (
+                    <li key={`${d.id}${d.code}`}>
+                      <span className="font-mono text-xs">{d.number}</span> {d.detail}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+        {(s.problems ?? []).length > 0 && (
+          <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+            {s.problems!.map((p) => {
+              const [label, tone] = CRM_STATE[p.crm_state] ?? ['Waiting', 'gray'];
+              return (
+                <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-[13px]">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs font-medium text-slate-900">{p.number}</span>
+                      <span className="text-slate-500">{p.account_name}</span>
+                      <Badge tone={tone}>{label}</Badge>
+                    </div>
+                    {p.crm_error && <p className="mt-1 text-slate-600">{p.crm_error}</p>}
+                  </div>
+                  <span className="text-slate-700 tabular-nums">{formatBdt(p.amount)}</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </Card>
+  );
+}
 
 export function BillingSettingsPage() {
   const qc = useQueryClient();
@@ -58,6 +171,7 @@ export function BillingSettingsPage() {
         }
       />
       <div className="grid gap-4 sm:gap-6 xl:grid-cols-2">
+        <CrmCard />
         <Card className="overflow-hidden">
           <CardHeader
             title="Enfinito Pay"

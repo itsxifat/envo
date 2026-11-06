@@ -11,6 +11,8 @@ import { getBillingSettings, onlineGateway } from './settings.js';
 import { provisionFirstServer } from './provision.js';
 import { notifyPaymentReceived } from './notify.js';
 import { onTopupPaid } from '../phone/balance.js';
+import { currentPolicy } from './crm.js';
+import { priceInvoice, type VatTreatment } from './tax.js';
 
 export type InvoiceKind = 'subscription' | 'renewal' | 'upgrade' | 'manual' | 'topup';
 
@@ -23,6 +25,12 @@ export interface Invoice {
   months: number;
   description: string;
   amount: string;
+  subtotal: string;
+  vat_treatment: VatTreatment;
+  vat_rate: string;
+  sd_rate: string;
+  vat_amount: string;
+  sd_amount: string;
   currency: string;
   status: 'unpaid' | 'paid' | 'void';
   due_at: string;
@@ -66,19 +74,33 @@ type Db = pg.PoolClient;
 
 export const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/**
+ * The CRM's invoice number format, ENV<yymm> + series + serial, in a series of Envo's own (E; the CRM issues
+ * A), so the customer's invoice has one number everywhere and it never has to wait for the CRM.
+ */
 async function nextNumber(db: Db): Promise<string> {
   const { rows } = await db.query<{ n: string }>("SELECT nextval('invoice_number_seq') AS n");
-  return `INV-${new Date().getFullYear()}-${String(rows[0]!.n).padStart(6, '0')}`;
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Dhaka', year: '2-digit', month: '2-digit' }).formatToParts(new Date()).map((x) => [x.type, x.value]));
+  return `ENV${p.year}${p.month}E${String(rows[0]!.n).padStart(3, '0')}`;
 }
 
 export async function createInvoice(
   db: Db,
   args: { accountId: number; kind: InvoiceKind; packageId?: number | null; months?: number; amount: number; description: string; dueAt?: Date; periodStart?: Date | null; createdBy?: number | null },
 ): Promise<Invoice> {
+  // The tax settings the CRM last gave out, never a call to it: billing keeps working while it is away.
+  const policy = await currentPolicy();
+  if (!policy) throw new HttpError(503, 'Billing is starting up. Please try again in a minute.');
+  const tax = priceInvoice(round2(args.amount), policy, args.accountId, args.kind);
   const { rows } = await db.query<Invoice>(
-    `INSERT INTO invoices (number, account_id, kind, package_id, months, description, amount, due_at, period_start, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-    [await nextNumber(db), args.accountId, args.kind, args.packageId ?? null, args.months ?? 1, args.description, round2(args.amount), args.dueAt ?? new Date(), args.periodStart ?? null, args.createdBy ?? null],
+    `INSERT INTO invoices (number, account_id, kind, package_id, months, description, amount, subtotal, vat_treatment, vat_rate, sd_rate, vat_amount, sd_amount,
+       service_code, tax_policy_version, due_at, period_start, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *`,
+    [
+      await nextNumber(db), args.accountId, args.kind, args.packageId ?? null, args.months ?? 1, args.description,
+      tax.amount, tax.subtotal, tax.vat_treatment, tax.vat_rate, tax.sd_rate, tax.vat_amount, tax.sd_amount, tax.service_code, tax.tax_policy_version,
+      args.dueAt ?? new Date(), args.periodStart ?? null, args.createdBy ?? null,
+    ],
   );
   return rows[0]!;
 }
@@ -390,7 +412,7 @@ async function settleCheckout(paymentId: number, session: CheckoutSession, via: 
       return result('paid');
     }
     if (session.status === 'refunded') {
-      if (p.status === 'succeeded') {
+      if (p.status === 'succeeded' || p.status === 'pending_review') {
         await db.query("UPDATE payments SET status = 'refunded', note = 'Refunded at Enfinito Pay', raw = raw || $1::jsonb, updated_at = now() WHERE id = $2", [raw, p.id]);
       }
       return result('unknown');
@@ -522,7 +544,7 @@ export async function reconcileOnlinePayments(): Promise<number> {
   // Enfinito Pay checkouts whose webhook never arrived (or was refused): ask for each one.
   const checkouts = await many<Payment>(
     `SELECT * FROM payments WHERE method = 'enfinito_pay' AND status = 'initiated' AND tran_id IS NOT NULL
-      AND created_at < now() - interval '10 minutes' AND created_at > now() - interval '3 days' ORDER BY id LIMIT 50`,
+      AND created_at < now() - interval '10 minutes' AND created_at > now() - interval '3 days' ORDER BY id LIMIT 500`,
   );
   for (const p of checkouts) {
     try {

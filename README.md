@@ -123,6 +123,23 @@ provider). It can be turned off in /admin → Envo Phone. The face work runs in 
 on the server, so a check never holds up the dashboard or calls, and its memory is given back when
 it has been idle for a while.
 
+### The Enfinito CRM
+
+Every invoice and payment goes to the CRM by itself and counts under its Envo product, with the same
+number on both sides (`ENV2611E001`). VAT, service code, whether prices include VAT, and gateway
+charges are decided there (Configuration → Integrations → Envo) and Envo follows. Customers never wait
+for it: invoices are priced with the last tax settings it gave, and sent behind the scenes, so if the
+CRM is away they queue and go when it is back. Payment settings in /admin shows what is on its way,
+what finance has to check, and when both sides last agreed (*Compare* runs that now).
+
+```bash
+CRM_BASE_URL=https://demo-crm.enfinito.cloud   # then https://crm.enfinito.com
+CRM_API_SECRET=whsec_…                         # made in the CRM, same screen
+CRM_SYNC_FROM=2026-11-05                       # optional: invoices created and paid before this stay out of it
+```
+
+Changing the address sends everything to the new CRM and nothing is billed until that CRM has given its tax settings, so connect it there first. How the CRM treats it all is in its `docs/envo.md`.
+
 ### Before selling for real
 
 1. **Payment settings** (Payments in /admin): the Enfinito Pay secret key and webhook signing

@@ -478,6 +478,15 @@ export interface Invoice {
   months: number;
   description: string;
   amount: string;
+  subtotal: string;
+  vat_treatment: 'STANDARD' | 'REDUCED' | 'ZERO_RATED' | 'EXEMPT' | 'NONE';
+  vat_rate: string;
+  sd_rate: string;
+  vat_amount: string;
+  sd_amount: string;
+  service_code: string | null;
+  /** Seller and buyer as the CRM printed them, once it has the invoice. */
+  crm_snapshot: { clientCode: string | null; buyer: { name: string | null; bin: string | null; address: string | null } | null; seller: { name: string | null; bin: string | null; address: string | null } | null; issuedAt: string | null } | null;
   currency: string;
   status: 'unpaid' | 'paid' | 'void';
   due_at: string;
@@ -516,6 +525,27 @@ export interface PaymentRow {
 export interface PaymentOptions {
   online: boolean;
   gateway: 'enfinito_pay' | null;
+  /** "Prices include 15% VAT." as the CRM has it; empty without VAT. */
+  vatNote: string;
+}
+
+/** Admin: the connection to the Enfinito CRM. */
+export interface CrmStatus {
+  enabled: boolean;
+  target: string | null;
+  connection_error?: string | null;
+  sync_from?: string | null;
+  counts?: Record<string, number>;
+  problems?: { id: number; number: string; status: string; amount: string; crm_state: string; crm_code: string | null; crm_error: string | null; account_name: string }[];
+  reconcile?: {
+    at: string;
+    envo: { count: number; total: number; vat: number; paid: number };
+    crm: { count: number; total: number; vat: number; paid: number };
+    pending: number;
+    diffCount: number;
+    diffs: { id: number; number: string; code: string; detail: string }[];
+  } | null;
+  policy?: { vatTreatment: string; vatRate: number; sdRate: number; pricesIncludeVat: boolean } | null;
 }
 
 export type CheckoutResult =

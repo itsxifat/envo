@@ -87,6 +87,8 @@ function transporter(s: EmailSettings): Transporter {
     transport = {
       key,
       t: nodemailer.createTransport({
+        pool: true,
+        maxConnections: 5,
         host: s.host,
         port: s.port,
         secure: s.secure,

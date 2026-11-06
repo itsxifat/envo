@@ -29,6 +29,7 @@ export function PlanPicker({ onInvoice, onDone }: { onInvoice: (inv: Invoice) =>
   const qc = useQueryClient();
   const { plan, refresh } = useAuth();
   const packages = useQuery({ queryKey: ['account', 'packages'], queryFn: () => api.get<Package[]>('/api/account/packages') });
+  const options = useQuery({ queryKey: ['account', 'billing', 'options'], queryFn: () => api.get<PaymentOptions>('/api/account/billing/options') });
   const [months, setMonths] = useState<(typeof MONTHS)[number]>(1);
   const [busy, setBusy] = useState<number | null>(null);
   const sub = plan?.subscription ?? null;
@@ -92,7 +93,7 @@ export function PlanPicker({ onInvoice, onDone }: { onInvoice: (inv: Invoice) =>
         </div>
       )}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-slate-500">Prices are per month in BDT. Upgrades start right away; you pay only the difference for the rest of this period.</p>
+        <p className="text-sm text-slate-500">Prices are per month in BDT.{options.data?.vatNote ? ` ${options.data.vatNote}` : ''} Upgrades start right away; you pay only the difference for the rest of this period.</p>
         <Tabs value={String(months)} onChange={(v) => setMonths(Number(v) as (typeof MONTHS)[number])} tabs={MONTHS.map((m) => ({ value: String(m), label: m === 1 ? 'Monthly' : `${m} months` }))} />
       </div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

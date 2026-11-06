@@ -21,6 +21,13 @@ export const config = {
   /** Base URL browsers and payment gateways use to reach the dashboard (payment callbacks). */
   publicUrl: env('PUBLIC_URL', `https://${env('PUBLIC_HOST', 'localhost')}`).replace(/\/$/, ''),
   /** Enfinito Pay's API (pay.enfinito.com); overridden only to test against a local stand-in. */
+  /** The Enfinito CRM: tax settings come from it, invoices and payments go to it. Unset = not connected. */
+  crm: {
+    baseUrl: env('CRM_BASE_URL', '').replace(/\/$/, ''),
+    secret: env('CRM_API_SECRET', ''),
+    /** Go-live: invoices created and paid before this stay out of the CRM (a bare date is a Dhaka day). */
+    syncFrom: ((v) => (/^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T00:00:00+06:00` : v || null))(env('CRM_SYNC_FROM', '')),
+  },
   enfinitoPayApi: env('ENFINITO_PAY_API', 'https://pay.enfinito.com/api/v1').replace(/\/$/, ''),
   ami: {
     host: env('AMI_HOST', '127.0.0.1'),

@@ -92,6 +92,19 @@ labels copied from the header by `lib/tableCards.ts`) — keep tables plain with
   never applied. Test against a local stand-in by setting `ENFINITO_PAY_API`. SSLCommerz (the old
   gateway, `billing/sslcommerz.ts`, `/api/public/sslcommerz/*`) only settles payments started
   there before; nothing new starts on it.
+- The Enfinito CRM (`billing/crm.ts`, `billing/crmSync.ts`, `billing/tax.ts`; its side is `lib/envo/` and
+  `docs/envo.md` in `crm-v2`): every invoice and payment goes there under the product `PRODUCT:ENVO`, and
+  tax and costs are decided there. Set by `CRM_BASE_URL` + `CRM_API_SECRET`; unset = not connected, no VAT.
+  Triggers (migration 015) mark any changed invoice or payment, so nothing has to remember to sync; the
+  worker pushes the whole state in batches and customers never wait for it. Numbers are the CRM's format in
+  Envo's own series (`ENV2611E001`). `createInvoice` is the only place invoices are priced
+  (`priceInvoice`, the same formulas and rounding as the CRM's `lib/invoiceTotals.js`, which refuses an
+  invoice that differs: change both together). `topup` invoices go on a balance as they stand, so VAT is
+  never added on top of them. Unpaid = a CRM draft, no VAT; paid = issued (tax point) and booked. Don't delete invoices
+  or payments, and never reuse their ids after wiping data while connected to the same CRM: `envoId` is
+  how the CRM knows them. Changing `CRM_BASE_URL` queues everything for the new CRM and checkouts answer 503 until
+  it has given its tax settings; set `CRM_SYNC_FROM` for a CRM with real books so test purchases stay out.
+  `accounts.email` is unverified: only the owner's verified login may match an existing CRM client.
 - Numbers from Enfinito (`routes/numberRequests.ts`, `supply/`): customers pick a free number from
   `number_pool` and send the operator's subscriber registration (details JSON + photo + NID under
   `<data dir>/kyc/<id>/`, 0600, served to platform admins only; dropped when a request is cancelled

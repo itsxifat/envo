@@ -21,8 +21,12 @@ import {
 } from '../billing/invoices.js';
 import { checkKey, keyMode, verifySignature, type WebhookEvent } from '../billing/enfinitoPay.js';
 import { runBillingClock } from '../billing/jobs.js';
+import { currentPolicy } from '../billing/crm.js';
+import { crmStatus, reconcileWithCrm, resendInvoice, runCrmPass, wakeWaiting } from '../billing/crmSync.js';
+import { vatNote } from '../billing/tax.js';
 
-const invoiceColumns = 'id, number, account_id, kind, package_id, months, description, amount, currency, status, due_at, paid_at, period_start, created_at';
+const invoiceColumns =
+  'id, number, account_id, kind, package_id, months, description, amount, subtotal, vat_treatment, vat_rate, sd_rate, vat_amount, sd_amount, service_code, currency, status, due_at, paid_at, period_start, created_at, crm_snapshot';
 
 // ------------------------------------------------------------------------------------ customer
 /** The account owner's billing: invoices, paying them, changing package. Works while suspended. */
@@ -36,7 +40,8 @@ function accountOf(req: express.Request): number {
 }
 
 billingRouter.get('/options', async (_req, res) => {
-  res.json(await publicPaymentOptions());
+  const policy = await currentPolicy();
+  res.json({ ...(await publicPaymentOptions()), vatNote: policy ? vatNote(policy) : '' });
 });
 
 billingRouter.get('/invoices', async (req, res) => {
@@ -49,13 +54,16 @@ billingRouter.get('/invoices/:id', async (req, res) => {
   if (!invoice) throw notFound('Invoice');
   const [payments, account, settings] = await Promise.all([
     many(
-      `SELECT id, method, status, amount, card_type, channel, reference, created_at, updated_at FROM payments WHERE invoice_id = $1 ORDER BY id DESC`,
+      `SELECT id, method, status, amount, card_type, channel, reference, bank_tran_id, created_at, updated_at FROM payments WHERE invoice_id = $1 ORDER BY id DESC`,
       [invoice.id],
     ),
     one('SELECT name, email, phone, address FROM accounts WHERE id = $1', [accountId]),
     getBillingSettings(),
   ]);
-  res.json({ invoice, payments, account, seller: settings.business });
+  // The company as the CRM has it (with its BIN); the billing settings until it is connected.
+  const crmSeller = (await currentPolicy())?.seller;
+  const seller = crmSeller?.name ? { ...settings.business, ...crmSeller, phone: crmSeller.phone ?? settings.business.phone, email: crmSeller.email ?? settings.business.email, address: crmSeller.address ?? settings.business.address } : settings.business;
+  res.json({ invoice, payments, account, seller });
 });
 
 billingRouter.post('/checkout', async (req, res) => {
@@ -278,6 +286,31 @@ for (const decision of ['approve', 'reject'] as const) {
     res.json({ ok: true });
   });
 }
+
+// ------------------------------------------------------------------------------------------- CRM
+adminBillingRouter.get('/crm', async (_req, res) => {
+  res.json(await crmStatus());
+});
+
+adminBillingRouter.post('/crm/sync', async (req, res) => {
+  await wakeWaiting();
+  const r = await runCrmPass();
+  await audit(req, 'run', 'crm_sync', '', JSON.stringify(r), null);
+  res.json(r);
+});
+
+adminBillingRouter.post('/crm/reconcile', async (req, res) => {
+  const r = await reconcileWithCrm();
+  await audit(req, 'run', 'crm_reconcile', '', `${r.diffCount} differences`, null);
+  res.json(r);
+});
+
+adminBillingRouter.post('/crm/invoices/:id/resend', async (req, res) => {
+  const id = intParam(req.params.id);
+  if (!(await resendInvoice(id))) throw notFound('Invoice');
+  await audit(req, 'resend', 'crm_invoice', id, '', null);
+  res.json({ ok: true });
+});
 
 const settingsSchema = z.object({
   enfinito_pay: z

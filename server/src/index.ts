@@ -45,6 +45,7 @@ import { setupRouter } from './routes/setup.js';
 import { adminSupplyRouter, numberRequestsRouter } from './routes/numberRequests.js';
 import { startRetention } from './billing/retention.js';
 import { startBillingClock } from './billing/jobs.js';
+import { startCrmSync } from './billing/crmSync.js';
 import { adminBillingRouter, billingRouter, enfinitoPayRouter, gatewayRouter } from './routes/billing.js';
 import { signupRouter } from './routes/signup.js';
 import { adminPhoneRouter, phonePublicRouter, phoneRouter } from './routes/phone.js';
@@ -181,6 +182,7 @@ async function main(): Promise<void> {
   startWebhooks();
   startRetention();
   startBillingClock();
+  await startCrmSync();
   startPhoneJobs();
   void checkEmailOnStart();
   ami.start();

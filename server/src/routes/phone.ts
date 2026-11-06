@@ -365,10 +365,11 @@ phoneRouter.post('/recharges', async (req, res) => {
   if (amount < min) throw badRequest(first ? `The first recharge is at least ${bdt(min)}` : `Recharge at least ${bdt(min)}`);
   if (amount > s.recharge.max) throw badRequest(`Recharge at most ${bdt(s.recharge.max)} at a time`);
   if (state.payment_in_review) throw badRequest("We're still checking your last payment. You can recharge again once it's confirmed.");
-  // Pressing Pay again (or after closing the payment page) carries on with the same recharge.
+  // Pressing Pay again (or after closing the payment page) carries on with the same recharge. With VAT
+  // inside it (the CRM's choice), its amount can be a paisa or two under what was asked for.
   const open = await one<{ id: number; invoice_id: number; invoice_number: string; amount: string }>(
     `SELECT t.id, t.invoice_id, i.number AS invoice_number, t.amount FROM topups t JOIN invoices i ON i.id = t.invoice_id
-      WHERE t.account_id = $1 AND t.status = 'awaiting_payment' AND i.status = 'unpaid' AND t.amount = $2 ORDER BY t.id DESC LIMIT 1`,
+      WHERE t.account_id = $1 AND t.status = 'awaiting_payment' AND i.status = 'unpaid' AND abs(t.amount - $2) < 0.03 ORDER BY t.id DESC LIMIT 1`,
     [accountId, amount],
   );
   if (open) return void res.json({ id: open.id, invoice_id: open.invoice_id, invoice_number: open.invoice_number, amount: Number(open.amount) });

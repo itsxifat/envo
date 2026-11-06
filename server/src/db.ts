@@ -4,7 +4,7 @@ import { config } from './config.js';
 // COUNT(*) and bigserial come back as int8 strings; our values always fit in a JS number.
 pg.types.setTypeParser(20, (v) => Number.parseInt(v, 10));
 
-export const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 10, idleTimeoutMillis: 30_000 });
+export const pool = new pg.Pool({ connectionString: config.databaseUrl, max: Number(process.env.DATABASE_POOL_MAX ?? 20), idleTimeoutMillis: 30_000 });
 
 type Queryable = Pick<pg.Pool, 'query'> | pg.PoolClient;
 
